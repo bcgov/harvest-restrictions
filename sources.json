@@ -1,0 +1,434 @@
+[
+    {
+        "name": "National Park",
+        "alias": "park_national",
+        "class_number": 1,
+        "class_name": "Protected",
+        "source": "WHSE_ADMIN_BOUNDARIES.CLAB_NATIONAL_PARKS",
+        "name_column": "ENGLISH_NAME",
+        "query": ""
+    },
+    {
+        "name": "Ecological Reserve",
+        "alias": "park_er",
+        "class_number": 1,
+        "class_name": "Protected",
+        "source": "WHSE_TANTALIS.TA_PARK_ECORES_PA_SVW",
+        "name_column": "PROTECTED_LANDS_NAME",
+        "query": "PROTECTED_LANDS_DESIGNATION = 'ECOLOGICAL RESERVE'"
+    },
+    {
+        "name": "Provincial Park",
+        "alias": "park_provincial",
+        "class_number": 1,
+        "class_name": "Protected",
+        "source": "WHSE_TANTALIS.TA_PARK_ECORES_PA_SVW",
+        "name_column": "PROTECTED_LANDS_NAME",
+        "query": "PROTECTED_LANDS_DESIGNATION = 'PROVINCIAL PARK'"
+    },
+    {
+        "name": "Conservancy",
+        "alias": "park_conservancy",
+        "class_number": 1,
+        "class_name": "Protected",
+        "source": "WHSE_TANTALIS.TA_CONSERVANCY_AREAS_SVW",
+        "name_column": "CONSERVANCY_AREA_NAME",
+        "query": ""
+    },
+    {
+        "name": "Protected Area",
+        "alias": "park_protectedarea",
+        "class_number": 1,
+        "class_name": "Protected",
+        "source": "WHSE_TANTALIS.TA_PARK_ECORES_PA_SVW",
+        "name_column": "PROTECTED_LANDS_NAME",
+        "query": "PROTECTED_LANDS_DESIGNATION = 'PROTECTED AREA'"
+    },
+    {
+        "name": "Heritage Site",
+        "alias": "heritage_site",
+        "class_number": 1,
+        "class_name": "Protected",
+        "source": "WHSE_HUMAN_CULTURAL_ECONOMIC.HIST_HISTORIC_ENVIRONMENTS_SP",
+        "name_column": "COMMON_SITE_NAME",
+        "query": ""
+    },
+    {
+        "name": "Recreation Area",
+        "alias": "park_recreationarea",
+        "class_number": 1,
+        "class_name": "Protected",
+        "source": "WHSE_TANTALIS.TA_PARK_ECORES_PA_SVW",
+        "name_column": "PROTECTED_LANDS_NAME",
+        "query": "PROTECTED_LANDS_DESIGNATION = 'RECREATION AREA'"
+    },
+    {
+        "name": "Regional Park",
+        "alias": "park_regional",
+        "class_number": 1,
+        "class_name": "Protected",
+        "source": "WHSE_BASEMAPPING.GBA_LOCAL_REG_GREENSPACES_SP",
+        "name_column": "PARK_NAME",
+        "query": "PARK_TYPE LIKE 'Regional%'"
+    },
+    {
+        "name": "Ungulate Winter Range: No harvest",
+        "alias": "uwr_no_harvest",
+        "class_number": 2,
+        "class_name": "Prohibited",
+        "source": "WHSE_WILDLIFE_MANAGEMENT.WCP_UNGULATE_WINTER_RANGE_SP",
+        "name_column": "UWR_NUMBER",
+        "query": "TIMBER_HARVEST_CODE = 'NO HARVEST ZONE'"
+    },
+    {
+        "name": "Wildlife Habitat Area: No harvest",
+        "alias": "wha_no_harvest",
+        "class_number": 2,
+        "class_name": "Prohibited",
+        "source": "WHSE_WILDLIFE_MANAGEMENT.WCP_WILDLIFE_HABITAT_AREA_POLY",
+        "name_column": "COMMON_SPECIES_NAME",
+        "query": "(TIMBER_HARVEST_CODE = 'NO HARVEST ZONE' AND FEATURE_NOTES NOT LIKE '%not a legal boundary%') OR(TIMBER_HARVEST_CODE = 'NO HARVEST ZONE' AND FEATURE_NOTES IS NULL)"
+    },
+    {
+        "name": "Biodiversity Mining and Tourism Area",
+        "alias": "biodiv_mining_tourism_areas",
+        "class_number": 2,
+        "class_name": "Prohibited",
+        "source": "WHSE_LAND_USE_PLANNING.RMP_PLAN_LEGAL_POLY_SVW",
+        "name_column": "LEGAL_FEAT_ATRB_1_VALUE",
+        "query": "LEGAL_FEAT_OBJECTIVE = 'Biodiversity, Mining and Tourism Areas (BMTA)"
+    },
+    {
+        "name": "Sea to Sky Wildland Zone",
+        "alias": "sea_to_sky_wildland",
+        "class_number": 2,
+        "class_name": "Prohibited",
+        "source": "WHSE_LAND_USE_PLANNING.RMP_PLAN_LEGAL_POLY_SVW",
+        "name_column": "LEGAL_FEAT_ATRB_4_VALUE",
+        "query": "STRGC_LAND_RSRCE_PLAN_NAME = 'Sea to Sky Land and Resource Management Plan' AND LEGAL_FEAT_OBJECTIVE = 'Wildland Area'"
+    },
+    {
+        "name": "Special Wildland RMZ in Muskwa Kechia MA",
+        "alias": "mk_wildland",
+        "class_number": 2,
+        "class_name": "Prohibited",
+        "source": "WHSE_LAND_USE_PLANNING.RMP_PLAN_NON_LEGAL_POLY_SVW",
+        "name_column": "NON_LEGAL_FEAT_ATRB_4_VALUE",
+        "query": "NON_LEGAL_FEAT_ID IN (65488,65490,65491,65492,65497,65501,65508)"
+    },
+    {
+        "name": "Nlhaxten/Cayoosh Wildland Area",
+        "alias": "n_c_wildland",
+        "class_number": 2,
+        "class_name": "Prohibited",
+        "source": "WHSE_LAND_USE_PLANNING.RMP_PLAN_LEGAL_POLY_SVW",
+        "name_column": "LEGAL_FEAT_ATRB_4_VALUE",
+        "query": "STRGC_LAND_RSRCE_PLAN_NAME = 'Lillooet Land and Resource Management Plan' AND LEGAL_FEAT_OBJECTIVE = 'Wildland Area'"
+    },
+    {
+        "name": "South Chilcotin Mountains Mining and Tourism Areas",
+        "alias": "s_cayoosh_wildland",
+        "class_number": 2,
+        "class_name": "Prohibited",
+        "source": "WHSE_LAND_USE_PLANNING.RMP_PLAN_LEGAL_POLY_SVW",
+        "name_column": "LEGAL_FEAT_ATRB_4_VALUE",
+        "query": "STRGC_LAND_RSRCE_PLAN_NAME = 'Lillooet Land and Resource Management Plan' AND LEGAL_FEAT_OBJECTIVE = 'Mining and Tourism Area'"
+    },
+    {
+        "name": "NGO Fee Simple Conservation Lands",
+        "alias": "ngo_fee_simple",
+        "class_number": 2,
+        "class_name": "Prohibited",
+        "source": "WHSE_LEGAL_ADMIN_BOUNDARIES.WCL_CONSERVATION_AREAS_NGO_SP",
+        "name_column": "CONSERVATION_AREAS_NGO_ID",
+        "query": ""
+    },
+    {
+        "name": "Great Bear Rainforest (GBR) Special Forest Management Areas",
+        "alias": "great_bear_SFMA",
+        "class_number": 2,
+        "class_name": "Prohibited",
+        "source": "WHSE_ADMIN_BOUNDARIES.FADM_SPECIAL_PROTECTION_AREA",
+        "name_column": "PROTECTED_AREA_TYPE",
+        "query": "PROTECTED_AREA_TYPE = 'SFMA'"
+    },
+    {
+        "name": "Great Bear Rainforest (GBR) Landscape Reserve Design (LRD",
+        "alias": "great_bear_LRD",
+        "class_number": 2,
+        "class_name": "Prohibited",
+        "source": "WHSE_LAND_USE_PLANNING.RMP_LANDSCAPE_RSRV_DESIGN_SP",
+        "name_column": "LU_NAME",
+        "query": "LRD_STATUS = 'current'"
+    },
+    {
+        "name": "Old Growth Management Area (OGMA): Legal",
+        "alias": "ogma_legal",
+        "class_number": 2,
+        "class_name": "Prohibited",
+        "source": "WHSE_LAND_USE_PLANNING.RMP_OGMA_LEGAL_CURRENT_SVW",
+        "name_column": "LEGAL_OGMA_PROVID",
+        "query": ""
+    },
+    {
+        "name": "Class1 Coast Grizzly Bear Habitat (Coast LUP",
+        "alias": "great_bear_grizzly_class1",
+        "class_number": 2,
+        "class_name": "Prohibited",
+        "source": "WHSE_LAND_USE_PLANNING.RMP_PLAN_LEGAL_POLY_SVW",
+        "name_column": "LEGAL_FEAT_ATRB_1_NAME",
+        "query": "LEGAL_FEAT_ATRB_1_NAME = 'GRIZZLY_BEAR_HABITAT_CLASS' AND LEGAL_FEAT_ATRB_1_VALUE = '1'"
+    },
+    {
+        "name": "Old Growth Management Area (OGMA): Non-Legal",
+        "alias": "ogma_nonlegal",
+        "class_number": 2,
+        "class_name": "Prohibited",
+        "source": "WHSE_LAND_USE_PLANNING.RMP_OGMA_NON_LEGAL_CURRENT_SVW",
+        "name_column": "",
+        "query": null
+    },
+    {
+        "name": "Private Conservation Land: Administered Land",
+        "alias": "private_conservation_lands_admin",
+        "class_number": 3,
+        "class_name": "High Restricted",
+        "source": "WHSE_LEGAL_ADMIN_BOUNDARIES.WCL_CONSERVATION_LANDS_SP",
+        "name_column": "SITE_NAME",
+        "query": "CONSERVATION_LAND_TYPE = 'Administered Lands'"
+    },
+    {
+        "name": "CRD Water Supply Area",
+        "alias": "crd_water_supply_area",
+        "class_number": 3,
+        "class_name": "High Restricted",
+        "source": "file",
+        "name_column": "Name",
+        "query": null
+    },
+    {
+        "name": "Greater Vancouver Water District",
+        "alias": "gvrd_water_supply_area",
+        "class_number": 3,
+        "class_name": "High Restricted",
+        "source": "file",
+        "name_column": "Name",
+        "query": null
+    },
+    {
+        "name": "Wildlife Management Area (WMA",
+        "alias": "wildlife_management_area",
+        "class_number": 3,
+        "class_name": "High Restricted",
+        "source": "WHSE_TANTALIS.TA_WILDLIFE_MGMT_AREAS_SVW",
+        "name_column": "WILDLIFE_MANAGEMENT_AREA_NAME",
+        "query": null
+    },
+    {
+        "name": "Creston Valley Wildlife Management Area",
+        "alias": "creston_v_wma",
+        "class_number": 3,
+        "class_name": "High Restricted",
+        "source": "WHSE_TANTALIS.TA_WILDLIFE_MGMT_AREAS_SVW",
+        "name_column": "ADMIN_AREA_SID",
+        "query": "ADMIN_AREA_SID = 5364"
+    },
+    {
+        "name": "Visual Quality Objective (VQO): Preservation",
+        "alias": "vqo_preserve",
+        "class_number": 3,
+        "class_name": "High Restricted",
+        "source": "WHSE_FOREST_VEGETATION.REC_VISUAL_LANDSCAPE_INVENTORY",
+        "name_column": "PROJECT_NAME",
+        "query": "REC_MADE_KNOWN_CODE = 'Y' AND REC_EVQO_CODE = 'P'"
+    },
+    {
+        "name": "Visual Quality Objective (VQO): Retention",
+        "alias": "vqo_retain",
+        "class_number": 3,
+        "class_name": "High Restricted",
+        "source": "WHSE_FOREST_VEGETATION.REC_VISUAL_LANDSCAPE_INVENTORY",
+        "name_column": "PROJECT_NAME",
+        "query": "REC_MADE_KNOWN_CODE = 'Y' AND REC_EVQO_CODE = 'R'"
+    },
+    {
+        "name": "FADM Designated Area",
+        "alias": "designated_area",
+        "class_number": 3,
+        "class_name": "High Restricted",
+        "source": "WHSE_ADMIN_BOUNDARIES.FADM_DESIGNATED_AREAS",
+        "name_column": "DESIGNATED_AREA_NAME",
+        "query": "RETIREMENT_DATE > '{currdate}'"
+    },
+    {
+        "name": "Atlin-Taku Forest Retention Areas",
+        "alias": "atlin_taku_fra",
+        "class_number": 3,
+        "class_name": "High Restricted",
+        "source": "WHSE_LAND_USE_PLANNING.RMP_PLAN_LEGAL_POLY_SVW",
+        "name_column": "LEGAL_FEAT_ID",
+        "query": "STRGC_LAND_RSRCE_PLAN_NAME = 'Atlin - Taku Strategic Land and Resource Plan' AND LEGAL_FEAT_OBJECTIVE = 'Forest Retention Area'"
+    },
+    {
+        "name": "Migratory Bird Sanctuaries",
+        "alias": "migratory_bird_sanctuaries",
+        "class_number": 3,
+        "class_name": "High Restricted",
+        "source": "file",
+        "name_column": "PARENT_ID",
+        "query": "LOC = 2 And BIOME = 'T' And TYPE_E = 'Migratory Bird Sanctuary'"
+    },
+    {
+        "name": "Private Conservation Land: Reserve Land",
+        "alias": "private_conservation_lands_reserve",
+        "class_number": 4,
+        "class_name": "Medium Restricted",
+        "source": "WHSE_LEGAL_ADMIN_BOUNDARIES.WCL_CONSERVATION_LANDS_SP",
+        "name_column": "SITE_NAME",
+        "query": "CONSERVATION_LAND_TYPE = 'Reserve Lands'"
+    },
+    {
+        "name": "Ungulate Winter Range: Conditional harvest",
+        "alias": "uwr_conditional_harvest",
+        "class_number": 4,
+        "class_name": "Medium Restricted",
+        "source": "WHSE_WILDLIFE_MANAGEMENT.WCP_UNGULATE_WINTER_RANGE_SP",
+        "name_column": "UWR_NUMBER",
+        "query": "TIMBER_HARVEST_CODE = 'CONDITIONAL HARVEST ZONE'"
+    },
+    {
+        "name": "Wildlife Habitat Area: Conditional harvest",
+        "alias": "wha_conditional_harvest",
+        "class_number": 4,
+        "class_name": "Medium Restricted",
+        "source": "WHSE_WILDLIFE_MANAGEMENT.WCP_WILDLIFE_HABITAT_AREA_POLY",
+        "name_column": "COMMON_SPECIES_NAME",
+        "query": "(TIMBER_HARVEST_CODE = 'CONDITIONAL HARVEST ZONE' AND FEATURE_NOTES NOT LIKE '%not a legal boundary%') OR (TIMBER_HARVEST_CODE = 'NO HARVEST ZONE' AND FEATURE_NOTES IS NULL)"
+    },
+    {
+        "name": "Visual Quality Objective (VQO): Partial Retention",
+        "alias": "vqo_partretain",
+        "class_number": 4,
+        "class_name": "Medium Restricted",
+        "source": "WHSE_FOREST_VEGETATION.REC_VISUAL_LANDSCAPE_INVENTORY",
+        "name_column": "PROJECT_NAME",
+        "query": "REC_MADE_KNOWN_CODE = 'Y' AND REC_RVQC_CODE = 'pr'"
+    },
+    {
+        "name": "Visual Quality Objective (VQO): Modification",
+        "alias": "vqo_modify",
+        "class_number": 4,
+        "class_name": "Medium Restricted",
+        "source": "WHSE_FOREST_VEGETATION.REC_VISUAL_LANDSCAPE_INVENTORY",
+        "name_column": "PROJECT_NAME",
+        "query": "REC_MADE_KNOWN_CODE = 'Y' AND REC_RVQC_CODE = 'm'"
+    },
+    {
+        "name": "Community Watershed",
+        "alias": "community_watershed",
+        "class_number": 4,
+        "class_name": "Medium Restricted",
+        "source": "WHSE_WATER_MANAGEMENT.WLS_COMMUNITY_WS_PUB_SVW",
+        "name_column": "CW_NAME",
+        "query": null
+    },
+    {
+        "name": "National Wildlife Areas",
+        "alias": "national_wildlife_area",
+        "class_number": 4,
+        "class_name": "Medium Restricted",
+        "source": "file",
+        "name_column": "PARENT_ID",
+        "query": "LOC = 2 AND BIOME = 'T' AND TYPE_E = 'National Wildlife Area'"
+    },
+    {
+        "name": "Forest Recreation Site",
+        "alias": "for_rec_site",
+        "class_number": 4,
+        "class_name": "Medium Restricted",
+        "source": "WHSE_FOREST_TENURE.FTEN_RECREATION_POLY_SVW",
+        "name_column": "PROJECT_NAME",
+        "query": "PROJECT_TYPE in ('Recreation Site', 'Recreation Trail','Recreation Reserve', 'Interpretative Forest') and FILE_STATUS_CODE = 'HI' and RETIREMENT_DATE IS NULL"
+    },
+    {
+        "name": "Lakes South Landscape Corridor",
+        "alias": "lakes_corridors",
+        "class_number": 4,
+        "class_name": "Medium Restricted",
+        "source": "WHSE_LAND_USE_PLANNING.RMP_PLAN_LEGAL_POLY_SVW",
+        "name_column": "LEGAL_FEAT_ID",
+        "query": "STRGC_LAND_RSRCE_PLAN_NAME = 'Lakes South Sustainable Resource Management Plan' AND LEGAL_FEAT_OBJECTIVE = 'Landscape Corridors'"
+    },
+    {
+        "name": "Important Fisheries Watersheds (Great Bear Rainforest LUO",
+        "alias": "great_bear_fisheries_watersheds",
+        "class_number": 4,
+        "class_name": "Medium Restricted",
+        "source": "file",
+        "name_column": "WS_NUM",
+        "query": null
+    },
+    {
+        "name": "Great Bear Rainforest (GBR) Ecosystem-based Management (EBM) Area",
+        "alias": "great_bear_ebm_area",
+        "class_number": 5,
+        "class_name": "Low Restricted",
+        "source": "WHSE_ADMIN_BOUNDARIES.FADM_SPECIAL_PROTECTION_AREA",
+        "name_column": "PROTECTED_AREA_NAME",
+        "query": "PROTECTED_AREA_NAME = 'Great Bear Rainforest'"
+    },
+    {
+        "name": "Muskwa Kechika Management Area",
+        "alias": "muskwa_kechika",
+        "class_number": 5,
+        "class_name": "Low Restricted",
+        "source": "WHSE_LAND_USE_PLANNING.RMP_PLAN_NON_LEGAL_POLY_SVW",
+        "name_column": "NON_LEGAL_FEAT_ID",
+        "query": "NON_LEGAL_FEAT_ID IN (65244,65246,65251,65265,65274,219519,219520,219521,219522,219523,219524,219525,219526,219527,219528,219529,219530,219531,219532,219534,219535,219552,65494,65495)"
+    },
+    {
+        "name": "Fisheries Sensitive Watersheds",
+        "alias": "fsw",
+        "class_number": 5,
+        "class_name": "Low Restricted",
+        "source": "WHSE_WILDLIFE_MANAGEMENT.WCP_FISH_SENSITIVE_WS_POLY",
+        "name_column": "",
+        "query": null
+    },
+    {
+        "name": "Visual Quality Objective (VQO): Maximum Modification",
+        "alias": "vqo_maxmodify",
+        "class_number": 5,
+        "class_name": "Low Restricted",
+        "source": "WHSE_FOREST_VEGETATION.REC_VISUAL_LANDSCAPE_INVENTORY",
+        "name_column": "PROJECT_NAME",
+        "query": "REC_MADE_KNOWN_CODE = 'Y' AND REC_EVQO_CODE = 'MM'"
+    },
+    {
+        "name": "Haida Gwaii, Central Coast, North Coast Planning Areas",
+        "alias": "lrmp_cc_nc_hg",
+        "class_number": 5,
+        "class_name": "Low Restricted",
+        "source": "WHSE_LAND_USE_PLANNING.RMP_STRGC_LAND_RSRCE_PLAN_SVW",
+        "name_column": "STRGC_LAND_RSRCE_PLAN_NAME",
+        "query": "STRGC_LAND_RSRCE_PLAN_NAME = 'Haida Gwaii Land Use Objectives Order'"
+    },
+    {
+        "name": "Class2 Coast Grizzly Bear Habitat",
+        "alias": "great_bear_grizzly_class2",
+        "class_number": 5,
+        "class_name": "Low Restricted",
+        "source": "file",
+        "name_column": "GB_CLASS",
+        "query": "GB_CLASS = 2"
+    },
+    {
+        "name": "No Special Restriction",
+        "alias": "no_special_restriction",
+        "class_number": 6,
+        "class_name": "No Special Restriction",
+        "source": "file",
+        "name_column": "",
+        "query": null
+    }
+]
