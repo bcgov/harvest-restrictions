@@ -4,45 +4,58 @@
     "title": "Harvest restriction data sources",
     "description": "List of data sources used to generate harvest restrictions, in order of hierarchy",
     "type": "array",
-    "properties": {
-        "name": {
-            "description": "Name of the data source",
-            "type": "string"
+    "items": {
+        "type": "object",
+        "properties": {
+            "name": {
+                "description": "Name of the data source",
+                "type": "string"
+            },
+            "alias": {
+                "description": "Unique slug used to name/identify the data source when processing",
+                "type": "string"
+            },
+            "class_number": {
+                "description": "Number of the generalized harvest restriction class associatated with the data source",
+                "type": "integer",
+                "enum": [1, 2, 3, 4, 5, 6]
+            },
+            "class_name": {
+                "description": "Name of the generalized harvest restriction class associatated with the data source",
+                "type": "string"
+            },
+            "source_type": {
+                "description": "True if the data source is file based, not required if data source to be extracted from BCGW",
+                "type": "string",
+                "enum": ["BCGW", "FILE"]
+            },
+            "source": {
+                "description": "Full name of the BCGW table to use as source (eg, WHSE_ADMIN_BOUNDARIES.CLAB_NATIONAL_PARKS) or url/path of a file based source readable by GDAL/OGR",
+                "type": "string"
+            },
+            "layer": {
+                "description": "Layer to use within a file based source",
+                "type": "string"
+            },
+            "name_column": {
+                "description": "Text column in source/layer to use for restriction_name",
+                "type": ["string", "null"]
+            },
+            "query": {
+                "description": "Query to subset data in source/layer - ECQL for BCGW sources, OGR SQL for files",
+                "type": ["string", "null"]
+            }
         },
-        "alias": {
-            "description": "Unique slug used to name/identify the data source when processing",
-            "type": "string"
+        "required": ["name", "alias", "class_number", "class_name", "source_type", "source", "name_column", "query"],
+        "if": {
+            "properties": {
+                "source_type": {
+                    "const": "FILE"
+                }
+            }
         },
-        "class_number": {
-            "description": "Number of the generalized harvest restriction class associatated with the data source",
-            "type": "integer",
-            "enum": [1, 2, 3, 4, 5]
-        },
-        "class_name": {
-            "description": "Name of the generalized harvest restriction class associatated with the data source",
-            "type": "string"
-        },
-        "source_type": {
-            "description": "True if the data source is file based, not required if data source to be extracted from BCGW",
-            "type": "string",
-            "enum": ["BCGW", "FILE"]
-        },
-        "source": {
-            "description": "Full name of the BCGW table to use as source (eg, WHSE_ADMIN_BOUNDARIES.CLAB_NATIONAL_PARKS) or url/path of a file based source readable by GDAL/OGR",
-            "type": "string"
-        },
-        "layer": {
-            "description": "Layer to use within a file based source",
-            "type": "string"
-        },
-        "name_column": {
-            "description": "Text column in source/layer to use for restriction_name",
-            "type": "string"
-        },
-        "query": {
-            "description": "Query to subset data in source/layer - ECQL for BCGW sources, OGR SQL for files",
-            "type": "string"
-        }
-    },
-    "required": ["name", "alias", "class_number", "class_name", "source_type", "source", "name_column", "query"]
+        "then": {
+            "required": ["layer"]
+    }
+    }
 }

@@ -60,9 +60,8 @@ with open("sources.json", "r") as f:
 
 # replace_date_placeholder(sources)
 validate_sources_json(sources)
-#validate_bcgw(sources)
+validate_bcgw(sources)
 
-"""
 # download all bcgw sources to /data as parquet
 for i, layer in enumerate([s for s in sources if s["source_type"] == "BCGW"]):
     # load all features to geopandas dataframe
@@ -118,6 +117,5 @@ for i, layer in enumerate([s for s in sources if s["source_type"] == "BCGW"]):
         # log.info(f"Writing data to {out_file}")
         df.to_parquet("r"+str(i+1).zfill(2) + layer["alias"] + ".parquet")
 
-    # else:
-    #    log.info("No data returned, parquet file not created")
-"""
+    #else:
+    #   log.info("No data returned, parquet file not created")

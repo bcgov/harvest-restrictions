@@ -226,6 +226,7 @@
         "class_name": "High Restricted",
         "source": "INSERT FILE PATH HERE",
         "source_type": "FILE",
+        "layer": "INSERT LAYER NAME HERE",
         "name_column": "Name",
         "query": null
     },
@@ -236,6 +237,7 @@
         "class_name": "High Restricted",
         "source": "INSERT FILE PATH HERE",
         "source_type": "FILE",
+        "layer": "INSERT LAYER NAME HERE",
         "name_column": "Name",
         "query": null
     },
@@ -306,6 +308,7 @@
         "class_name": "High Restricted",
         "source": "INSERT FILE PATH HERE",
         "source_type": "FILE",
+        "layer": "INSERT LAYER NAME HERE",
         "name_column": "PARENT_ID",
         "query": "LOC = 2 And BIOME = 'T' And TYPE_E = 'Migratory Bird Sanctuary'"
     },
@@ -376,6 +379,7 @@
         "class_name": "Medium Restricted",
         "source": "INSERT FILE PATH HERE",
         "source_type": "FILE",
+        "layer": "INSERT LAYER NAME HERE",
         "name_column": "PARENT_ID",
         "query": "LOC = 2 AND BIOME = 'T' AND TYPE_E = 'National Wildlife Area'"
     },
@@ -406,6 +410,7 @@
         "class_name": "Medium Restricted",
         "source": "INSERT FILE PATH HERE",
         "source_type": "FILE",
+        "layer": "INSERT LAYER NAME HERE",
         "name_column": "WS_NUM",
         "query": null
     },
@@ -466,6 +471,7 @@
         "class_name": "Low Restricted",
         "source": "INSERT FILE PATH HERE",
         "source_type": "FILE",
+        "layer": "INSERT LAYER NAME HERE",
         "name_column": "GB_CLASS",
         "query": "GB_CLASS = 2"
     },
@@ -476,6 +482,7 @@
         "class_name": "No Special Restriction",
         "source": "INSERT FILE PATH HERE",
         "source_type": "FILE",
+        "layer": "INSERT LAYER NAME HERE",
         "name_column": null,
         "query": null
     }
