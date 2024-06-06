@@ -1,13 +1,13 @@
 {
     "$schema": "https://json-schema.org/draft/2020-12/schema",
     "$id": "https://raw.githubusercontent.com/bcgov/harvest-restrictions/main/sources.schema.json",
-    "title": "Harvest restrictions data sources",
+    "title": "Harvest restriction data sources",
     "description": "List of data sources used to generate harvest restrictions, in order of hierarchy",
-    "type": "object",
+    "type": "array",
     "properties": {
         "name": {
             "description": "Name of the data source",
-            "type": "text"
+            "type": "string"
         },
         "alias": {
             "description": "Unique slug used to name/identify the data source when processing",
@@ -43,7 +43,6 @@
             "description": "Query to subset data in source/layer - ECQL for BCGW sources, OGR SQL for files",
             "type": "string"
         },
-    "required": ["name", "alias", "class_number", "class_name", "source_type", "source"],
     "if": {
         "properties": {
             "source_type": {
@@ -54,5 +53,5 @@
     "then": {
         "required": ["layer"]
         }
-    },
+    }
 }

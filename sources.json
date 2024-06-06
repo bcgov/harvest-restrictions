@@ -104,7 +104,7 @@
         "source": "WHSE_LAND_USE_PLANNING.RMP_PLAN_LEGAL_POLY_SVW",
         "source_type": "BCGW",
         "name_column": "LEGAL_FEAT_ATRB_1_VALUE",
-        "query": "LEGAL_FEAT_OBJECTIVE = 'Biodiversity, Mining and Tourism Areas (BMTA)"
+        "query": "LEGAL_FEAT_OBJECTIVE = 'Biodiversity, Mining and Tourism Areas (BMTA)'"
     },
     {
         "name": "Sea to Sky Wildland Zone",
@@ -219,7 +219,7 @@
         "class_name": "High Restricted",
         "source": "INSERT FILE PATH HERE",
         "source_type": "FILE",
-        "name_column": "Name",
+        "name_column": "Name"
     },
     {
         "name": "Greater Vancouver Water District",
@@ -228,7 +228,7 @@
         "class_name": "High Restricted",
         "source": "INSERT FILE PATH HERE",
         "source_type": "FILE",
-        "name_column": "Name",
+        "name_column": "Name"
     },
     {
         "name": "Wildlife Management Area (WMA",
@@ -237,8 +237,8 @@
         "class_name": "High Restricted",
         "source": "WHSE_TANTALIS.TA_WILDLIFE_MGMT_AREAS_SVW",
         "source_type": "BCGW",
-        "name_column": "WILDLIFE_MANAGEMENT_AREA_NAME",
-    },
+        "name_column": "WILDLIFE_MANAGEMENT_AREA_NAME"
+},
     {
         "name": "Creston Valley Wildlife Management Area",
         "alias": "creston_v_wma",
@@ -356,7 +356,7 @@
         "class_name": "Medium Restricted",
         "source": "WHSE_WATER_MANAGEMENT.WLS_COMMUNITY_WS_PUB_SVW",
         "source_type": "BCGW",
-        "name_column": "CW_NAME",
+        "name_column": "CW_NAME"
     },
     {
         "name": "National Wildlife Areas",
@@ -395,7 +395,7 @@
         "class_name": "Medium Restricted",
         "source": "INSERT FILE PATH HERE",
         "source_type": "FILE",
-        "name_column": "WS_NUM",
+        "name_column": "WS_NUM"
     },
     {
         "name": "Great Bear Rainforest (GBR) Ecosystem-based Management (EBM) Area",
@@ -461,6 +461,7 @@
         "class_number": 6,
         "class_name": "No Special Restriction",
         "source": "INSERT FILE PATH HERE",
+        "source_type": "FILE",
         "is_file": true
     }
 ]
