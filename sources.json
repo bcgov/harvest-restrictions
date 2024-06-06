@@ -461,7 +461,6 @@
         "class_number": 6,
         "class_name": "No Special Restriction",
         "source": "INSERT FILE PATH HERE",
-        "source_type": "FILE",
-        "is_file": true
+        "source_type": "FILE"
     }
 ]
