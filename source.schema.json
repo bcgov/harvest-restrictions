@@ -22,9 +22,10 @@
             "description": "Name of the generalized harvest restriction class associatated with the data source",
             "type": "string"
         },
-        "is_file": {
+        "source_type": {
             "description": "True if the data source is file based, not required if data source to be extracted from BCGW",
-            "type": "boolean",
+            "type": "string",
+            "enum": ["BCGW", "FILE"]
         },
         "source": {
             "description": "Full name of the BCGW table to use as source (eg, WHSE_ADMIN_BOUNDARIES.CLAB_NATIONAL_PARKS) or url/path of a file based source readable by GDAL/OGR",
@@ -42,19 +43,16 @@
             "description": "Query to subset data in source/layer - ECQL for BCGW sources, OGR SQL for files",
             "type": "string"
         },
-    "required": ["name", "alias", "class_number", "class_name", "is_file", "source"],
+    "required": ["name", "alias", "class_number", "class_name", "source_type", "source"],
     "if": {
         "properties": {
-            "is_file": {
-                "const": true
+            "source_type": {
+                "const": "FILE"
             }
         }
     },
     "then": {
-        "properties": {
-            "layer": {
-                "type": "string"
-            }
+        "required": ["layer"]
         }
     },
 }

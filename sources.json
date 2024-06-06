@@ -5,7 +5,7 @@
         "class_number": 1,
         "class_name": "Protected",
         "source": "WHSE_ADMIN_BOUNDARIES.CLAB_NATIONAL_PARKS",
-        "is_file": false,
+        "source_type": "BCGW",
         "name_column": "ENGLISH_NAME"
     },
     {
@@ -14,7 +14,7 @@
         "class_number": 1,
         "class_name": "Protected",
         "source": "WHSE_TANTALIS.TA_PARK_ECORES_PA_SVW",
-        "is_file": false,
+        "source_type": "BCGW",
         "name_column": "PROTECTED_LANDS_NAME",
         "query": "PROTECTED_LANDS_DESIGNATION = 'ECOLOGICAL RESERVE'"
     },
@@ -24,7 +24,7 @@
         "class_number": 1,
         "class_name": "Protected",
         "source": "WHSE_TANTALIS.TA_PARK_ECORES_PA_SVW",
-        "is_file": false,
+        "source_type": "BCGW",
         "name_column": "PROTECTED_LANDS_NAME",
         "query": "PROTECTED_LANDS_DESIGNATION = 'PROVINCIAL PARK'"
     },
@@ -34,7 +34,7 @@
         "class_number": 1,
         "class_name": "Protected",
         "source": "WHSE_TANTALIS.TA_CONSERVANCY_AREAS_SVW",
-        "is_file": false,
+        "source_type": "BCGW",
         "name_column": "CONSERVANCY_AREA_NAME"
     },
     {
@@ -43,7 +43,7 @@
         "class_number": 1,
         "class_name": "Protected",
         "source": "WHSE_TANTALIS.TA_PARK_ECORES_PA_SVW",
-        "is_file": false,
+        "source_type": "BCGW",
         "name_column": "PROTECTED_LANDS_NAME",
         "query": "PROTECTED_LANDS_DESIGNATION = 'PROTECTED AREA'"
     },
@@ -53,7 +53,7 @@
         "class_number": 1,
         "class_name": "Protected",
         "source": "WHSE_HUMAN_CULTURAL_ECONOMIC.HIST_HISTORIC_ENVIRONMENTS_SP",
-        "is_file": false,
+        "source_type": "BCGW",
         "name_column": "COMMON_SITE_NAME"
     },
     {
@@ -62,7 +62,7 @@
         "class_number": 1,
         "class_name": "Protected",
         "source": "WHSE_TANTALIS.TA_PARK_ECORES_PA_SVW",
-        "is_file": false,
+        "source_type": "BCGW",
         "name_column": "PROTECTED_LANDS_NAME",
         "query": "PROTECTED_LANDS_DESIGNATION = 'RECREATION AREA'"
     },
@@ -72,7 +72,7 @@
         "class_number": 1,
         "class_name": "Protected",
         "source": "WHSE_BASEMAPPING.GBA_LOCAL_REG_GREENSPACES_SP",
-        "is_file": false,
+        "source_type": "BCGW",
         "name_column": "PARK_NAME",
         "query": "PARK_TYPE LIKE 'Regional%'"
     },
@@ -82,7 +82,7 @@
         "class_number": 2,
         "class_name": "Prohibited",
         "source": "WHSE_WILDLIFE_MANAGEMENT.WCP_UNGULATE_WINTER_RANGE_SP",
-        "is_file": false,
+        "source_type": "BCGW",
         "name_column": "UWR_NUMBER",
         "query": "TIMBER_HARVEST_CODE = 'NO HARVEST ZONE'"
     },
@@ -92,7 +92,7 @@
         "class_number": 2,
         "class_name": "Prohibited",
         "source": "WHSE_WILDLIFE_MANAGEMENT.WCP_WILDLIFE_HABITAT_AREA_POLY",
-        "is_file": false,
+        "source_type": "BCGW",
         "name_column": "COMMON_SPECIES_NAME",
         "query": "(TIMBER_HARVEST_CODE = 'NO HARVEST ZONE' AND FEATURE_NOTES NOT LIKE '%not a legal boundary%') OR(TIMBER_HARVEST_CODE = 'NO HARVEST ZONE' AND FEATURE_NOTES IS NULL)"
     },
@@ -102,7 +102,7 @@
         "class_number": 2,
         "class_name": "Prohibited",
         "source": "WHSE_LAND_USE_PLANNING.RMP_PLAN_LEGAL_POLY_SVW",
-        "is_file": false,
+        "source_type": "BCGW",
         "name_column": "LEGAL_FEAT_ATRB_1_VALUE",
         "query": "LEGAL_FEAT_OBJECTIVE = 'Biodiversity, Mining and Tourism Areas (BMTA)"
     },
@@ -112,7 +112,7 @@
         "class_number": 2,
         "class_name": "Prohibited",
         "source": "WHSE_LAND_USE_PLANNING.RMP_PLAN_LEGAL_POLY_SVW",
-        "is_file": false,
+        "source_type": "BCGW",
         "name_column": "LEGAL_FEAT_ATRB_4_VALUE",
         "query": "STRGC_LAND_RSRCE_PLAN_NAME = 'Sea to Sky Land and Resource Management Plan' AND LEGAL_FEAT_OBJECTIVE = 'Wildland Area'"
     },
@@ -122,7 +122,7 @@
         "class_number": 2,
         "class_name": "Prohibited",
         "source": "WHSE_LAND_USE_PLANNING.RMP_PLAN_NON_LEGAL_POLY_SVW",
-        "is_file": false,
+        "source_type": "BCGW",
         "name_column": "NON_LEGAL_FEAT_ATRB_4_VALUE",
         "query": "NON_LEGAL_FEAT_ID IN (65488,65490,65491,65492,65497,65501,65508)"
     },
@@ -132,7 +132,7 @@
         "class_number": 2,
         "class_name": "Prohibited",
         "source": "WHSE_LAND_USE_PLANNING.RMP_PLAN_LEGAL_POLY_SVW",
-        "is_file": false,
+        "source_type": "BCGW",
         "name_column": "LEGAL_FEAT_ATRB_4_VALUE",
         "query": "STRGC_LAND_RSRCE_PLAN_NAME = 'Lillooet Land and Resource Management Plan' AND LEGAL_FEAT_OBJECTIVE = 'Wildland Area'"
     },
@@ -142,7 +142,7 @@
         "class_number": 2,
         "class_name": "Prohibited",
         "source": "WHSE_LAND_USE_PLANNING.RMP_PLAN_LEGAL_POLY_SVW",
-        "is_file": false,
+        "source_type": "BCGW",
         "name_column": "LEGAL_FEAT_ATRB_4_VALUE",
         "query": "STRGC_LAND_RSRCE_PLAN_NAME = 'Lillooet Land and Resource Management Plan' AND LEGAL_FEAT_OBJECTIVE = 'Mining and Tourism Area'"
     },
@@ -152,7 +152,7 @@
         "class_number": 2,
         "class_name": "Prohibited",
         "source": "WHSE_LEGAL_ADMIN_BOUNDARIES.WCL_CONSERVATION_AREAS_NGO_SP",
-        "is_file": false,
+        "source_type": "BCGW",
         "name_column": "CONSERVATION_AREAS_NGO_ID"
     },
     {
@@ -161,7 +161,7 @@
         "class_number": 2,
         "class_name": "Prohibited",
         "source": "WHSE_ADMIN_BOUNDARIES.FADM_SPECIAL_PROTECTION_AREA",
-        "is_file": false,
+        "source_type": "BCGW",
         "name_column": "PROTECTED_AREA_TYPE",
         "query": "PROTECTED_AREA_TYPE = 'SFMA'"
     },
@@ -171,7 +171,7 @@
         "class_number": 2,
         "class_name": "Prohibited",
         "source": "WHSE_LAND_USE_PLANNING.RMP_LANDSCAPE_RSRV_DESIGN_SP",
-        "is_file": false,
+        "source_type": "BCGW",
         "name_column": "LU_NAME",
         "query": "LRD_STATUS = 'current'"
     },
@@ -181,7 +181,7 @@
         "class_number": 2,
         "class_name": "Prohibited",
         "source": "WHSE_LAND_USE_PLANNING.RMP_OGMA_LEGAL_CURRENT_SVW",
-        "is_file": false,
+        "source_type": "BCGW",
         "name_column": "LEGAL_OGMA_PROVID"
     },
     {
@@ -190,7 +190,7 @@
         "class_number": 2,
         "class_name": "Prohibited",
         "source": "WHSE_LAND_USE_PLANNING.RMP_PLAN_LEGAL_POLY_SVW",
-        "is_file": false,
+        "source_type": "BCGW",
         "name_column": "LEGAL_FEAT_ATRB_1_NAME",
         "query": "LEGAL_FEAT_ATRB_1_NAME = 'GRIZZLY_BEAR_HABITAT_CLASS' AND LEGAL_FEAT_ATRB_1_VALUE = '1'"
     },
@@ -200,7 +200,7 @@
         "class_number": 2,
         "class_name": "Prohibited",
         "source": "WHSE_LAND_USE_PLANNING.RMP_OGMA_NON_LEGAL_CURRENT_SVW",
-        "is_file": false
+        "source_type": "BCGW"
     },
     {
         "name": "Private Conservation Land: Administered Land",
@@ -208,7 +208,7 @@
         "class_number": 3,
         "class_name": "High Restricted",
         "source": "WHSE_LEGAL_ADMIN_BOUNDARIES.WCL_CONSERVATION_LANDS_SP",
-        "is_file": false,
+        "source_type": "BCGW",
         "name_column": "SITE_NAME",
         "query": "CONSERVATION_LAND_TYPE = 'Administered Lands'"
     },
@@ -218,7 +218,7 @@
         "class_number": 3,
         "class_name": "High Restricted",
         "source": "INSERT FILE PATH HERE",
-        "is_file": true,
+        "source_type": "FILE",
         "name_column": "Name",
     },
     {
@@ -227,7 +227,7 @@
         "class_number": 3,
         "class_name": "High Restricted",
         "source": "INSERT FILE PATH HERE",
-        "is_file": true,
+        "source_type": "FILE",
         "name_column": "Name",
     },
     {
@@ -236,7 +236,7 @@
         "class_number": 3,
         "class_name": "High Restricted",
         "source": "WHSE_TANTALIS.TA_WILDLIFE_MGMT_AREAS_SVW",
-        "is_file": false,
+        "source_type": "BCGW",
         "name_column": "WILDLIFE_MANAGEMENT_AREA_NAME",
     },
     {
@@ -245,7 +245,7 @@
         "class_number": 3,
         "class_name": "High Restricted",
         "source": "WHSE_TANTALIS.TA_WILDLIFE_MGMT_AREAS_SVW",
-        "is_file": false,
+        "source_type": "BCGW",
         "name_column": "ADMIN_AREA_SID",
         "query": "ADMIN_AREA_SID = 5364"
     },
@@ -255,7 +255,7 @@
         "class_number": 3,
         "class_name": "High Restricted",
         "source": "WHSE_FOREST_VEGETATION.REC_VISUAL_LANDSCAPE_INVENTORY",
-        "is_file": false,
+        "source_type": "BCGW",
         "name_column": "PROJECT_NAME",
         "query": "REC_MADE_KNOWN_CODE = 'Y' AND REC_EVQO_CODE = 'P'"
     },
@@ -265,7 +265,7 @@
         "class_number": 3,
         "class_name": "High Restricted",
         "source": "WHSE_FOREST_VEGETATION.REC_VISUAL_LANDSCAPE_INVENTORY",
-        "is_file": false,
+        "source_type": "BCGW",
         "name_column": "PROJECT_NAME",
         "query": "REC_MADE_KNOWN_CODE = 'Y' AND REC_EVQO_CODE = 'R'"
     },
@@ -275,7 +275,7 @@
         "class_number": 3,
         "class_name": "High Restricted",
         "source": "WHSE_ADMIN_BOUNDARIES.FADM_DESIGNATED_AREAS",
-        "is_file": false,
+        "source_type": "BCGW",
         "name_column": "DESIGNATED_AREA_NAME",
         "query": "RETIREMENT_DATE > '{currdate}'"
     },
@@ -285,7 +285,7 @@
         "class_number": 3,
         "class_name": "High Restricted",
         "source": "WHSE_LAND_USE_PLANNING.RMP_PLAN_LEGAL_POLY_SVW",
-        "is_file": false,
+        "source_type": "BCGW",
         "name_column": "LEGAL_FEAT_ID",
         "query": "STRGC_LAND_RSRCE_PLAN_NAME = 'Atlin - Taku Strategic Land and Resource Plan' AND LEGAL_FEAT_OBJECTIVE = 'Forest Retention Area'"
     },
@@ -295,7 +295,7 @@
         "class_number": 3,
         "class_name": "High Restricted",
         "source": "INSERT FILE PATH HERE",
-        "is_file": true,
+        "source_type": "FILE",
         "name_column": "PARENT_ID",
         "query": "LOC = 2 And BIOME = 'T' And TYPE_E = 'Migratory Bird Sanctuary'"
     },
@@ -305,7 +305,7 @@
         "class_number": 4,
         "class_name": "Medium Restricted",
         "source": "WHSE_LEGAL_ADMIN_BOUNDARIES.WCL_CONSERVATION_LANDS_SP",
-        "is_file": false,
+        "source_type": "BCGW",
         "name_column": "SITE_NAME",
         "query": "CONSERVATION_LAND_TYPE = 'Reserve Lands'"
     },
@@ -315,7 +315,7 @@
         "class_number": 4,
         "class_name": "Medium Restricted",
         "source": "WHSE_WILDLIFE_MANAGEMENT.WCP_UNGULATE_WINTER_RANGE_SP",
-        "is_file": false,
+        "source_type": "BCGW",
         "name_column": "UWR_NUMBER",
         "query": "TIMBER_HARVEST_CODE = 'CONDITIONAL HARVEST ZONE'"
     },
@@ -325,7 +325,7 @@
         "class_number": 4,
         "class_name": "Medium Restricted",
         "source": "WHSE_WILDLIFE_MANAGEMENT.WCP_WILDLIFE_HABITAT_AREA_POLY",
-        "is_file": false,
+        "source_type": "BCGW",
         "name_column": "COMMON_SPECIES_NAME",
         "query": "(TIMBER_HARVEST_CODE = 'CONDITIONAL HARVEST ZONE' AND FEATURE_NOTES NOT LIKE '%not a legal boundary%') OR (TIMBER_HARVEST_CODE = 'NO HARVEST ZONE' AND FEATURE_NOTES IS NULL)"
     },
@@ -335,7 +335,7 @@
         "class_number": 4,
         "class_name": "Medium Restricted",
         "source": "WHSE_FOREST_VEGETATION.REC_VISUAL_LANDSCAPE_INVENTORY",
-        "is_file": false,
+        "source_type": "BCGW",
         "name_column": "PROJECT_NAME",
         "query": "REC_MADE_KNOWN_CODE = 'Y' AND REC_RVQC_CODE = 'pr'"
     },
@@ -345,7 +345,7 @@
         "class_number": 4,
         "class_name": "Medium Restricted",
         "source": "WHSE_FOREST_VEGETATION.REC_VISUAL_LANDSCAPE_INVENTORY",
-        "is_file": false,
+        "source_type": "BCGW",
         "name_column": "PROJECT_NAME",
         "query": "REC_MADE_KNOWN_CODE = 'Y' AND REC_RVQC_CODE = 'm'"
     },
@@ -355,7 +355,7 @@
         "class_number": 4,
         "class_name": "Medium Restricted",
         "source": "WHSE_WATER_MANAGEMENT.WLS_COMMUNITY_WS_PUB_SVW",
-        "is_file": false,
+        "source_type": "BCGW",
         "name_column": "CW_NAME",
     },
     {
@@ -364,7 +364,7 @@
         "class_number": 4,
         "class_name": "Medium Restricted",
         "source": "INSERT FILE PATH HERE",
-        "is_file": true,
+        "source_type": "FILE",
         "name_column": "PARENT_ID",
         "query": "LOC = 2 AND BIOME = 'T' AND TYPE_E = 'National Wildlife Area'"
     },
@@ -374,7 +374,7 @@
         "class_number": 4,
         "class_name": "Medium Restricted",
         "source": "WHSE_FOREST_TENURE.FTEN_RECREATION_POLY_SVW",
-        "is_file": false,
+        "source_type": "BCGW",
         "name_column": "PROJECT_NAME",
         "query": "PROJECT_TYPE in ('Recreation Site', 'Recreation Trail','Recreation Reserve', 'Interpretative Forest') and FILE_STATUS_CODE = 'HI' and RETIREMENT_DATE IS NULL"
     },
@@ -384,7 +384,7 @@
         "class_number": 4,
         "class_name": "Medium Restricted",
         "source": "WHSE_LAND_USE_PLANNING.RMP_PLAN_LEGAL_POLY_SVW",
-        "is_file": false,
+        "source_type": "BCGW",
         "name_column": "LEGAL_FEAT_ID",
         "query": "STRGC_LAND_RSRCE_PLAN_NAME = 'Lakes South Sustainable Resource Management Plan' AND LEGAL_FEAT_OBJECTIVE = 'Landscape Corridors'"
     },
@@ -394,7 +394,7 @@
         "class_number": 4,
         "class_name": "Medium Restricted",
         "source": "INSERT FILE PATH HERE",
-        "is_file": true,
+        "source_type": "FILE",
         "name_column": "WS_NUM",
     },
     {
@@ -403,7 +403,7 @@
         "class_number": 5,
         "class_name": "Low Restricted",
         "source": "WHSE_ADMIN_BOUNDARIES.FADM_SPECIAL_PROTECTION_AREA",
-        "is_file": false,
+        "source_type": "BCGW",
         "name_column": "PROTECTED_AREA_NAME",
         "query": "PROTECTED_AREA_NAME = 'Great Bear Rainforest'"
     },
@@ -413,7 +413,7 @@
         "class_number": 5,
         "class_name": "Low Restricted",
         "source": "WHSE_LAND_USE_PLANNING.RMP_PLAN_NON_LEGAL_POLY_SVW",
-        "is_file": false,
+        "source_type": "BCGW",
         "name_column": "NON_LEGAL_FEAT_ID",
         "query": "NON_LEGAL_FEAT_ID IN (65244,65246,65251,65265,65274,219519,219520,219521,219522,219523,219524,219525,219526,219527,219528,219529,219530,219531,219532,219534,219535,219552,65494,65495)"
     },
@@ -423,7 +423,7 @@
         "class_number": 5,
         "class_name": "Low Restricted",
         "source": "WHSE_WILDLIFE_MANAGEMENT.WCP_FISH_SENSITIVE_WS_POLY",
-        "is_file": false
+        "source_type": "BCGW"
     },
     {
         "name": "Visual Quality Objective (VQO): Maximum Modification",
@@ -431,7 +431,7 @@
         "class_number": 5,
         "class_name": "Low Restricted",
         "source": "WHSE_FOREST_VEGETATION.REC_VISUAL_LANDSCAPE_INVENTORY",
-        "is_file": false,
+        "source_type": "BCGW",
         "name_column": "PROJECT_NAME",
         "query": "REC_MADE_KNOWN_CODE = 'Y' AND REC_EVQO_CODE = 'MM'"
     },
@@ -441,7 +441,7 @@
         "class_number": 5,
         "class_name": "Low Restricted",
         "source": "WHSE_LAND_USE_PLANNING.RMP_STRGC_LAND_RSRCE_PLAN_SVW",
-        "is_file": false,
+        "source_type": "BCGW",
         "name_column": "STRGC_LAND_RSRCE_PLAN_NAME",
         "query": "STRGC_LAND_RSRCE_PLAN_NAME = 'Haida Gwaii Land Use Objectives Order'"
     },
@@ -451,7 +451,7 @@
         "class_number": 5,
         "class_name": "Low Restricted",
         "source": "INSERT FILE PATH HERE",
-        "is_file": true,
+        "source_type": "FILE",
         "name_column": "GB_CLASS",
         "query": "GB_CLASS = 2"
     },
