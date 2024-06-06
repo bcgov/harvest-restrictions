@@ -6,24 +6,24 @@
     "type": "object",
     "properties": {
         "name": {
-            "description": "Name of the layer",
+            "description": "Name of the data source",
             "type": "text"
         },
         "alias": {
-            "description": "Unique slug used to name/identify the source when processing",
+            "description": "Unique slug used to name/identify the data source when processing",
             "type": "string"
         },
         "class_number": {
-            "description": "Number of the generalized harvest restriction class associatated with the layer",
-            "type": "number",
+            "description": "Number of the generalized harvest restriction class associatated with the data source",
+            "type": "integer",
             "enum": [1, 2, 3, 4, 5]
         },
         "class_name": {
-            "description": "Name of the generalized harvest restriction class associatated with the layer",
+            "description": "Name of the generalized harvest restriction class associatated with the data source",
             "type": "string"
         },
         "is_file": {
-            "description": "True if the source is a file",
+            "description": "True if the data source is file based, not required if data source to be extracted from BCGW",
             "type": "boolean",
         },
         "source": {
@@ -35,14 +35,14 @@
             "type": "string"
         },
         "name_column": {
-            "description": "Text column in bcgw_source or url_source/url_source_layer to use as source for restriction name",
+            "description": "Text column in source/layer to use for restriction_name",
             "type": "string"
         },
         "query": {
-            "description": "Query to subset data in the source - ECQL for BCGW sources, OGR sql for files from urls",
+            "description": "Query to subset data in source/layer - ECQL for BCGW sources, OGR SQL for files",
             "type": "string"
         },
-    "required": ["name", "alias", "class_number", "is_file", "class_name", "source"],
+    "required": ["name", "alias", "class_number", "class_name", "is_file", "source"],
     "if": {
         "properties": {
             "is_file": {
