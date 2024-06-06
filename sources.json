@@ -277,7 +277,7 @@
         "source": "WHSE_ADMIN_BOUNDARIES.FADM_DESIGNATED_AREAS",
         "source_type": "BCGW",
         "name_column": "DESIGNATED_AREA_NAME",
-        "query": "RETIREMENT_DATE > '{currdate}'"
+        "query": "EXPIRED_OR_CANCELLED = 'N'"
     },
     {
         "name": "Atlin-Taku Forest Retention Areas",
