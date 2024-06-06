@@ -6,7 +6,8 @@
         "class_name": "Protected",
         "source": "WHSE_ADMIN_BOUNDARIES.CLAB_NATIONAL_PARKS",
         "source_type": "BCGW",
-        "name_column": "ENGLISH_NAME"
+        "name_column": "ENGLISH_NAME",
+        "query": null
     },
     {
         "name": "Ecological Reserve",
@@ -35,7 +36,8 @@
         "class_name": "Protected",
         "source": "WHSE_TANTALIS.TA_CONSERVANCY_AREAS_SVW",
         "source_type": "BCGW",
-        "name_column": "CONSERVANCY_AREA_NAME"
+        "name_column": "CONSERVANCY_AREA_NAME",
+        "query": null
     },
     {
         "name": "Protected Area",
@@ -54,7 +56,8 @@
         "class_name": "Protected",
         "source": "WHSE_HUMAN_CULTURAL_ECONOMIC.HIST_HISTORIC_ENVIRONMENTS_SP",
         "source_type": "BCGW",
-        "name_column": "COMMON_SITE_NAME"
+        "name_column": "COMMON_SITE_NAME",
+        "query": null
     },
     {
         "name": "Recreation Area",
@@ -153,7 +156,8 @@
         "class_name": "Prohibited",
         "source": "WHSE_LEGAL_ADMIN_BOUNDARIES.WCL_CONSERVATION_AREAS_NGO_SP",
         "source_type": "BCGW",
-        "name_column": "CONSERVATION_AREAS_NGO_ID"
+        "name_column": "CONSERVATION_AREAS_NGO_ID",
+        "query": null
     },
     {
         "name": "Great Bear Rainforest (GBR) Special Forest Management Areas",
@@ -182,7 +186,8 @@
         "class_name": "Prohibited",
         "source": "WHSE_LAND_USE_PLANNING.RMP_OGMA_LEGAL_CURRENT_SVW",
         "source_type": "BCGW",
-        "name_column": "LEGAL_OGMA_PROVID"
+        "name_column": "LEGAL_OGMA_PROVID",
+        "query": null
     },
     {
         "name": "Class1 Coast Grizzly Bear Habitat (Coast LUP",
@@ -200,7 +205,9 @@
         "class_number": 2,
         "class_name": "Prohibited",
         "source": "WHSE_LAND_USE_PLANNING.RMP_OGMA_NON_LEGAL_CURRENT_SVW",
-        "source_type": "BCGW"
+        "source_type": "BCGW",
+        "name_column": null,
+        "query": null
     },
     {
         "name": "Private Conservation Land: Administered Land",
@@ -219,7 +226,8 @@
         "class_name": "High Restricted",
         "source": "INSERT FILE PATH HERE",
         "source_type": "FILE",
-        "name_column": "Name"
+        "name_column": "Name",
+        "query": null
     },
     {
         "name": "Greater Vancouver Water District",
@@ -228,7 +236,8 @@
         "class_name": "High Restricted",
         "source": "INSERT FILE PATH HERE",
         "source_type": "FILE",
-        "name_column": "Name"
+        "name_column": "Name",
+        "query": null
     },
     {
         "name": "Wildlife Management Area (WMA",
@@ -237,7 +246,8 @@
         "class_name": "High Restricted",
         "source": "WHSE_TANTALIS.TA_WILDLIFE_MGMT_AREAS_SVW",
         "source_type": "BCGW",
-        "name_column": "WILDLIFE_MANAGEMENT_AREA_NAME"
+        "name_column": "WILDLIFE_MANAGEMENT_AREA_NAME",
+        "query": null
 },
     {
         "name": "Creston Valley Wildlife Management Area",
@@ -356,7 +366,8 @@
         "class_name": "Medium Restricted",
         "source": "WHSE_WATER_MANAGEMENT.WLS_COMMUNITY_WS_PUB_SVW",
         "source_type": "BCGW",
-        "name_column": "CW_NAME"
+        "name_column": "CW_NAME",
+        "query": null
     },
     {
         "name": "National Wildlife Areas",
@@ -395,7 +406,8 @@
         "class_name": "Medium Restricted",
         "source": "INSERT FILE PATH HERE",
         "source_type": "FILE",
-        "name_column": "WS_NUM"
+        "name_column": "WS_NUM",
+        "query": null
     },
     {
         "name": "Great Bear Rainforest (GBR) Ecosystem-based Management (EBM) Area",
@@ -423,7 +435,9 @@
         "class_number": 5,
         "class_name": "Low Restricted",
         "source": "WHSE_WILDLIFE_MANAGEMENT.WCP_FISH_SENSITIVE_WS_POLY",
-        "source_type": "BCGW"
+        "source_type": "BCGW",
+        "name_column": null,
+        "query": null
     },
     {
         "name": "Visual Quality Objective (VQO): Maximum Modification",
@@ -461,6 +475,8 @@
         "class_number": 6,
         "class_name": "No Special Restriction",
         "source": "INSERT FILE PATH HERE",
-        "source_type": "FILE"
+        "source_type": "FILE",
+        "name_column": null,
+        "query": null
     }
 ]
