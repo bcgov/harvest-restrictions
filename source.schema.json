@@ -42,17 +42,7 @@
         "query": {
             "description": "Query to subset data in source/layer - ECQL for BCGW sources, OGR SQL for files",
             "type": "string"
-    }
-},
-"required": ["name", "alias", "class_number", "class_name", "source_type", "source", "name_column", "query"],
-"if": {
-    "properties": {
-        "source_type": {
-            "const": "FILE"
         }
-    }
-},
-"then": {
-    "required": ["layer"]
-    }
+    },
+    "required": ["name", "alias", "class_number", "class_name", "source_type", "source", "name_column", "query"]
 }
