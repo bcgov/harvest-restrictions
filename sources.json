@@ -170,7 +170,7 @@
         "query": "PROTECTED_AREA_TYPE = 'SFMA'"
     },
     {
-        "name": "Great Bear Rainforest (GBR) Landscape Reserve Design (LRD",
+        "name": "Great Bear Rainforest (GBR) Landscape Reserve Design (LRD)",
         "alias": "great_bear_LRD",
         "class_number": 2,
         "class_name": "Prohibited",
@@ -190,7 +190,7 @@
         "query": null
     },
     {
-        "name": "Class1 Coast Grizzly Bear Habitat (Coast LUP",
+        "name": "Class1 Coast Grizzly Bear Habitat (Coast LUP)",
         "alias": "great_bear_grizzly_class1",
         "class_number": 2,
         "class_name": "Prohibited",
@@ -242,7 +242,7 @@
         "query": null
     },
     {
-        "name": "Wildlife Management Area (WMA",
+        "name": "Wildlife Management Area (WMA)",
         "alias": "wildlife_management_area",
         "class_number": 3,
         "class_name": "High Restricted",
@@ -404,7 +404,7 @@
         "query": "STRGC_LAND_RSRCE_PLAN_NAME = 'Lakes South Sustainable Resource Management Plan' AND LEGAL_FEAT_OBJECTIVE = 'Landscape Corridors'"
     },
     {
-        "name": "Important Fisheries Watersheds (Great Bear Rainforest LUO",
+        "name": "Important Fisheries Watersheds (Great Bear Rainforest LUO)",
         "alias": "great_bear_fisheries_watersheds",
         "class_number": 4,
         "class_name": "Medium Restricted",
