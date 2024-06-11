@@ -480,9 +480,9 @@
         "alias": "no_special_restriction",
         "class_number": 6,
         "class_name": "No Special Restriction",
-        "source": "INSERT FILE PATH HERE",
+        "source": "/vsizip//vsicurl/ftp://ftp.geobc.gov.bc.ca/sections/outgoing/bmgs/BC_Boundary_Terrestrial/BC_Boundary_Terrestrial.gdb.zip",
         "source_type": "FILE",
-        "layer": "INSERT LAYER NAME HERE",
+        "layer": "BC_Boundary_Terrestrial_Singlepart",
         "name_column": null,
         "query": null
     }

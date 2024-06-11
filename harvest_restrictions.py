@@ -8,6 +8,7 @@ import bcdata
 import click
 from cligj import verbose_opt, quiet_opt
 from datetime import datetime
+import geopandas
 import jsonschema
 
 from shapely.geometry.linestring import LineString
@@ -70,18 +71,22 @@ def replace_date_placeholder(sources):
     return dated
 
 
-def download_bcgw(layer, out_path="data"):
-    """download layer from bcgw source and save to parquet"""
+def download_source(layer, out_path="data"):
+    """download layer from source and save to parquet in out_path"""
     # load all features to geopandas dataframe
     table = layer["source"]
     name = layer["name"]
-    df = bcdata.get_data(
-        table,
-        crs="EPSG:3005",
-        query=layer["query"],
-        as_gdf=True,
-        lowercase=True,
-    )
+    if layer["source_type"] == "BCGW":
+        df = bcdata.get_data(
+            table,
+            crs="EPSG:3005",
+            query=layer["query"],
+            as_gdf=True,
+            lowercase=True,
+        )
+    elif layer["source_type"] == "FILE":
+        df = geopandas.read_file(layer["source"], layer=layer["layer"])
+        df.columns = [x.lower() for x in df.columns]  # clean up column names
 
     # only operate on dataframe if there is data
     if len(df.index != 0):
@@ -89,22 +94,22 @@ def download_bcgw(layer, out_path="data"):
         df = df.rename_geometry("geom")
 
         # add new columns
-        df["restriction"] = layer["name"]
-        df["alias"] = layer["alias"].lower()
-        df["class_number"] = layer["class_number"]
-        df["class_name"] = layer["class_name"]
+        df["hr_restriction"] = layer["name"]
+        df["hr_alias"] = layer["alias"].lower()
+        df["hr_class_number"] = layer["class_number"]
+        df["hr_class_name"] = layer["class_name"]
         if layer["name_column"]:
-            df["restriction_name"] = df[layer["name_column"].lower()]
+            df["hr_restriction_name"] = df[layer["name_column"].lower()]
         else:
-            df["restriction_name"] = ""
+            df["hr_restriction_name"] = ""
 
         # retain only columns of interest
         columns = [
-            "restriction",
-            "alias",
-            "class_number",
-            "class_name",
-            "restriction_name",
+            "hr_restriction",
+            "hr_alias",
+            "hr_class_number",
+            "hr_class_name",
+            "hr_restriction_name",
         ]
         df = df[columns + ["geom"]]
 
@@ -125,7 +130,7 @@ def download_bcgw(layer, out_path="data"):
 
         # dump to file
         out_file = (
-            "r"
+            "hr_"
             + str(layer["index"]).zfill(2)
             + "_"
             + layer["alias"].lower()
@@ -206,9 +211,9 @@ def download(sources_file, out_path, verbose, quiet):
     if out_path == "data":
         Path(out_path).mkdir(parents=True, exist_ok=True)
 
-    # download BCGW layers
-    for layer in [s for s in sources if s["source_type"] == "BCGW"]:
-        download_bcgw(layer, out_path)
+    # download
+    for layer in [s for s in sources if s["source"] != "INSERT FILE PATH HERE"]:
+        download_source(layer, out_path)
 
 
 if __name__ == "__main__":
