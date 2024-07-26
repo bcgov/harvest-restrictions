@@ -46,16 +46,6 @@
                 "type": ["string", "null"]
             }
         },
-        "required": ["name", "alias", "class_number", "class_name", "source_type", "source", "name_column", "query"],
-        "if": {
-            "properties": {
-                "source_type": {
-                    "const": "FILE"
-                }
-            }
-        },
-        "then": {
-            "required": ["layer"]
-    }
+        "required": ["name", "alias", "class_number", "class_name", "source_type", "source", "name_column", "query"]
     }
 }
