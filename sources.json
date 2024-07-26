@@ -224,9 +224,9 @@
         "alias": "crd_water_supply_area",
         "class_number": 3,
         "class_name": "High Restricted",
-        "source": "INSERT FILE PATH HERE",
+        "source": "s3://$OBJECTSTORE_BUCKET/dss_projects_2024/harvest_restrictions/sources/CRD.gdb.zip",
         "source_type": "FILE",
-        "layer": "INSERT LAYER NAME HERE",
+        "layer": "WSA_Boundary",
         "name_column": "Name",
         "query": null
     },
@@ -235,9 +235,9 @@
         "alias": "gvrd_water_supply_area",
         "class_number": 3,
         "class_name": "High Restricted",
-        "source": "INSERT FILE PATH HERE",
+        "source": "s3://$OBJECTSTORE_BUCKET/dss_projects_2024/harvest_restrictions/sources/GVRD_watershed.gdb.zip",
         "source_type": "FILE",
-        "layer": "INSERT LAYER NAME HERE",
+        "layer": "GVRD_watershed",
         "name_column": "Name",
         "query": null
     },
