@@ -224,9 +224,8 @@
         "alias": "crd_water_supply_area",
         "class_number": 3,
         "class_name": "High Restricted",
-        "source": "s3://$OBJECTSTORE_BUCKET/dss_projects_2024/harvest_restrictions/sources/CRD.gdb.zip",
+        "source": "/vsis3/$OBJECTSTORE_BUCKET/dss_projects_2024/harvest_restrictions/sources/crd_water_supply_area.parquet",
         "source_type": "FILE",
-        "layer": "WSA_Boundary",
         "name_column": "Name",
         "query": null
     },
@@ -235,9 +234,8 @@
         "alias": "gvrd_water_supply_area",
         "class_number": 3,
         "class_name": "High Restricted",
-        "source": "s3://$OBJECTSTORE_BUCKET/dss_projects_2024/harvest_restrictions/sources/GVRD_watershed.gdb.zip",
+        "source": "/vsis3/$OBJECTSTORE_BUCKET/dss_projects_2024/harvest_restrictions/sources/gvrd_water_supply_area.parquet",
         "source_type": "FILE",
-        "layer": "GVRD_watershed",
         "name_column": "Name",
         "query": null
     },
@@ -306,11 +304,10 @@
         "alias": "migratory_bird_sanctuaries",
         "class_number": 3,
         "class_name": "High Restricted",
-        "source": "INSERT FILE PATH HERE",
+        "source": "/vsis3/$OBJECTSTORE_BUCKET/dss_projects_2024/harvest_restrictions/sources/migratory_bird_sanctuaries.parquet",
         "source_type": "FILE",
-        "layer": "INSERT LAYER NAME HERE",
         "name_column": "PARENT_ID",
-        "query": "LOC = 2 And BIOME = 'T' And TYPE_E = 'Migratory Bird Sanctuary'"
+        "query": null
     },
     {
         "name": "Private Conservation Land: Reserve Land",
@@ -377,11 +374,10 @@
         "alias": "national_wildlife_area",
         "class_number": 4,
         "class_name": "Medium Restricted",
-        "source": "INSERT FILE PATH HERE",
+        "source": "/vsis3/$OBJECTSTORE_BUCKET/dss_projects_2024/harvest_restrictions/sources/national_wildlife_area.parquet",
         "source_type": "FILE",
-        "layer": "INSERT LAYER NAME HERE",
         "name_column": "PARENT_ID",
-        "query": "LOC = 2 AND BIOME = 'T' AND TYPE_E = 'National Wildlife Area'"
+        "query": null
     },
     {
         "name": "Forest Recreation Site",
@@ -408,9 +404,8 @@
         "alias": "great_bear_fisheries_watersheds",
         "class_number": 4,
         "class_name": "Medium Restricted",
-        "source": "INSERT FILE PATH HERE",
+        "source": "/vsis3/$OBJECTSTORE_BUCKET/dss_projects_2024/harvest_restrictions/sources/great_bear_fisheries_watersheds.parquet",
         "source_type": "FILE",
-        "layer": "INSERT LAYER NAME HERE",
         "name_column": "WS_NUM",
         "query": null
     },
@@ -469,20 +464,18 @@
         "alias": "great_bear_grizzly_class2",
         "class_number": 5,
         "class_name": "Low Restricted",
-        "source": "INSERT FILE PATH HERE",
+        "source": "/vsis3/$OBJECTSTORE_BUCKET/dss_projects_2024/harvest_restrictions/sources/great_bear_grizzly_class2.parquet",
         "source_type": "FILE",
-        "layer": "INSERT LAYER NAME HERE",
         "name_column": "GB_CLASS",
-        "query": "GB_CLASS = 2"
+        "query": null
     },
     {
         "name": "No Special Restriction",
         "alias": "no_special_restriction",
         "class_number": 6,
         "class_name": "No Special Restriction",
-        "source": "/vsizip//vsicurl/ftp://ftp.geobc.gov.bc.ca/sections/outgoing/bmgs/BC_Boundary_Terrestrial/BC_Boundary_Terrestrial.gdb.zip",
+        "source": "/vsis3/$OBJECTSTORE_BUCKET/dss_projects_2024/harvest_restrictions/sources/no_special_restriction.parquet",
         "source_type": "FILE",
-        "layer": "BC_Boundary_Terrestrial_Singlepart",
         "name_column": null,
         "query": null
     }
