@@ -36,28 +36,50 @@ def validate_sources_json(sources):
     LOG.info("Source json is valid")
 
 
-def validate_bcgw(layer):
-    """validate bcdata sources agains bcdc api and wfs"""
-    # does source exist as written?
-    name = layer["name"]
-    table = layer["source"].upper()
-    if table not in bcdata.list_tables():
-        raise ValueError(f"{table} does not exist in BCGW or is not available via WFS")
+def validate_file(layer):
+    """simple validation of file based sources - file exists and schema is as expected"""
+    source = layer["source"]
+    alias = layer["alias"]
+    query = layer["query"]
+    df = geopandas.read_file(os.path.expandvars(source), layer=layer["layer"], where=query)
+    df.columns = [x.lower() for x in df.columns]
+    for col in ["primary_key", "name_column"]:
+        if layer[col]:
+            column = layer[col].lower()
+            if column not in df.columns:
+                raise ValueError(f"{alias} - {column} is not present in source")
+    # is there data?
+    if len(df.index) == 0:
+        raise ValueError(f"{alias} - no data returned for given source and query")
 
-    # does specified name_column exist in source?
-    if layer["name_column"]:
-        column = layer["name_column"].upper()
-        table_def = bcdata.get_table_definition(table)
-        if column not in [c["column_name"] for c in table_def["schema"]]:
-            raise ValueError(f"{column} is not present in BCGW table {table}")
+    # presume layer is defined correctly if no errors are raised
+    LOG.info(f"{alias} - validates successfully")
+
+
+def validate_bcgw(layer):
+    """validate bcdata sources against bcdc api and wfs"""
+    # does source exist as written?
+    alias = layer["alias"]
+    table = layer["source"].upper()
+    query = layer["query"]
+    if table not in bcdata.list_tables():
+        raise ValueError(f"{alias} - {table} does not exist in BCGW or is not available via WFS")
+
+    # do specified name/pk columns exist in source?
+    table_def = bcdata.get_table_definition(table)
+    for col in ["primary_key", "name_column"]:
+        if layer[col]:
+            column = layer[col].upper()
+            if column not in [c["column_name"] for c in table_def["schema"]]:
+                raise ValueError(f"{alias} - {column} is not present in BCGW table {table}")
 
     # does query return values?
     if layer["query"]:
         if bcdata.get_count(table, query=layer["query"]) == 0:
-            raise ValueError("Provided query {query} returns no data for {table}")
+            raise ValueError(f"{alias} - provided query {query} returns no data for {table}")
 
     # that is it for validation, presume layer is defined correctly if no errors are raised
-    LOG.info(f"Layer {name} validates successfully")
+    LOG.info(f"{alias} - layer validates successfully")
 
 
 def replace_date_placeholder(sources):
@@ -76,6 +98,7 @@ def download_source(layer, out_path="data"):
     # load all features to geopandas dataframe
     table = layer["source"]
     name = layer["name"]
+    alias = layer["alias"]
     if layer["source_type"] == "BCGW":
         df = bcdata.get_data(
             table,
@@ -85,11 +108,11 @@ def download_source(layer, out_path="data"):
             lowercase=True,
         )
     elif layer["source_type"] == "FILE":
-        df = geopandas.read_file(layer["source"], layer=layer["layer"])
+        df = geopandas.read_file(os.path.expandvars(layer["source"]), layer=layer["layer"])
         df.columns = [x.lower() for x in df.columns]  # clean up column names
 
     # only operate on dataframe if there is data
-    if len(df.index != 0):
+    if len(df.index) != 0:
         # tidy the dataframe
         df = df.rename_geometry("geom")
 
@@ -134,20 +157,19 @@ def download_source(layer, out_path="data"):
             + layer["alias"].lower()
             + ".parquet"
         )
-        LOG.info(f"Writing {name} to {out_path}")
+        LOG.info(f"Writing {alias} to {out_path}")
         df.to_parquet(os.path.join(out_path, out_file))
     else:
         LOG.warning(
-            f"No data returned for {name}, parquet file not created. Check layer definition in sources.json"
+            f"No data returned for {alias}, parquet file not created. Check layer definition in sources.json"
         )
 
 
-def validate_sources(sources):
+def validate_sources(sources, alias=None):
     """
     Validate json, whether data sources exist, and assign hierarchy index
     based on position in list
     """
-
     # validate the sources json against the json schema
     validate_sources_json(sources)
 
@@ -157,11 +179,15 @@ def validate_sources(sources):
     # if today's date is required in any source query, add it
     replace_date_placeholder(sources)
 
-    # validate WFS/BCGW layers
-    for layer in [s for s in sources if s["source_type"] == "BCGW"]:
-        validate_bcgw(layer)
-
-    # todo validate file based layers
+    # only validate a single source if source alias is supplied
+    if alias:
+        sources = [s for s in sources if s["alias"] == alias]
+    # validate data
+    for layer in sources:
+        if layer["source_type"] == "BCGW":
+            validate_bcgw(layer)
+        elif layer["source_type"] == "FILE":
+            validate_file(layer)
 
     LOG.info("Definitions of all layers appear valid")
 
@@ -178,13 +204,18 @@ def cli():
 @click.argument(
     "sources_file", type=click.Path(exists=True), required=False, default="sources.json"
 )
+@click.option(
+    "--alias",
+    "-a",
+    help="Alias of source to validate",
+)
 @verbose_opt
 @quiet_opt
-def validate(sources_file, verbose, quiet):
+def validate(sources_file, alias, verbose, quiet):
     """ensure sources json file is valid, and that data sources exist"""
     configure_logging((verbose - quiet))
     with open(sources_file, "r") as f:
-        validate_sources(json.load(f))
+        validate_sources(json.load(f), alias)
 
 
 @cli.command()
@@ -210,7 +241,7 @@ def download(sources_file, out_path, verbose, quiet):
         Path(out_path).mkdir(parents=True, exist_ok=True)
 
     # download
-    for layer in [s for s in sources if s["source"] != "INSERT FILE PATH HERE"]:
+    for layer in sources:
         download_source(layer, out_path)
 
 
