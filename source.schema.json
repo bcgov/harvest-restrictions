@@ -1,7 +1,7 @@
 {
     "$schema": "https://json-schema.org/draft/2020-12/schema",
     "$id": "https://raw.githubusercontent.com/bcgov/harvest-restrictions/main/sources.schema.json",
-    "title": "Harvest restriction data sources",
+    "title": "Resource extraction restriction data sources",
     "description": "List of data sources used to generate harvest restrictions, in order of hierarchy",
     "type": "array",
     "items": {
@@ -16,13 +16,9 @@
                 "type": "string"
             },
             "class_number": {
-                "description": "Number of the generalized harvest restriction class associatated with the data source",
+                "description": "Number of the generalized restriction class associatated with the data source",
                 "type": "integer",
                 "enum": [1, 2, 3, 4, 5, 6]
-            },
-            "class_name": {
-                "description": "Name of the generalized harvest restriction class associatated with the data source",
-                "type": "string"
             },
             "source_type": {
                 "description": "True if the data source is file based, not required if data source to be extracted from BCGW",
@@ -36,6 +32,10 @@
             "layer": {
                 "description": "Layer to use within a file based source",
                 "type": "string"
+            },
+            "primary_key": {
+                "description": "The column holding primary key for source",
+                "type": ["string", "null"]
             },
             "name_column": {
                 "description": "Text column in source/layer to use for restriction_name",

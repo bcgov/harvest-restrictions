@@ -6,9 +6,9 @@ test_json = [
         "name": "National Park",
         "alias": "park_national",
         "class_number": 1,
-        "class_name": "Protected",
         "source": "WHSE_ADMIN_BOUNDARIES.CLAB_NATIONAL_PARKS",
         "source_type": "BCGW",
+        "primary_key": None,
         "name_column": "ENGLISH_NAME",
         "query": None
     }
