@@ -18,4 +18,4 @@ test_json = [
 def test_download_bcgw():
     sources = validate_sources(test_json)
     download_source(sources[0], ".")
-    assert os.path.exists("r01_park_national.parquet")
+    assert os.path.exists("rr_01_park_national.parquet")

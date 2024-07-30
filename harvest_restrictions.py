@@ -94,22 +94,20 @@ def download_source(layer, out_path="data"):
         df = df.rename_geometry("geom")
 
         # add new columns
-        df["hr_restriction"] = layer["name"]
-        df["hr_alias"] = layer["alias"].lower()
-        df["hr_class_number"] = layer["class_number"]
-        df["hr_class_name"] = layer["class_name"]
+        df["rr_restriction"] = layer["name"]
+        df["rr_alias"] = layer["alias"].lower()
+        df["rr_class_number"] = layer["class_number"]
         if layer["name_column"]:
-            df["hr_restriction_name"] = df[layer["name_column"].lower()]
+            df["rr_restriction_name"] = df[layer["name_column"].lower()]
         else:
-            df["hr_restriction_name"] = ""
+            df["rr_restriction_name"] = ""
 
         # retain only columns of interest
         columns = [
-            "hr_restriction",
-            "hr_alias",
-            "hr_class_number",
-            "hr_class_name",
-            "hr_restriction_name",
+            "rr_restriction",
+            "rr_alias",
+            "rr_class_number",
+            "rr_restriction_name",
         ]
         df = df[columns + ["geom"]]
 
@@ -130,7 +128,7 @@ def download_source(layer, out_path="data"):
 
         # dump to file
         out_file = (
-            "hr_"
+            "rr_"
             + str(layer["index"]).zfill(2)
             + "_"
             + layer["alias"].lower()
