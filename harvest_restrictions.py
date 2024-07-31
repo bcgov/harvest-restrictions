@@ -56,15 +56,20 @@ def validate_file(layer):
     source = layer["source"]
     alias = layer["alias"]
     query = layer["query"]
+
+    # load file
     df = geopandas.read_file(
         os.path.expandvars(source), layer=layer["layer"], where=query
     )
+
+    # are expected columns present?
     df.columns = [x.lower() for x in df.columns]
     for col in ["primary_key", "name_column"]:
         if layer[col]:
             column = layer[col].lower()
             if column not in df.columns:
                 raise ValueError(f"{alias} - {column} is not present in source")
+
     # is there data?
     if len(df.index) == 0:
         raise ValueError(f"{alias} - no data returned for given source and query")

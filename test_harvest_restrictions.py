@@ -1,5 +1,5 @@
 import os
-from harvest_restrictions import download_source, validate_sources
+from harvest_restrictions import download_source, validate_sources, parse_sources
 
 test_json = [
     {
@@ -16,6 +16,7 @@ test_json = [
 
 
 def test_download_bcgw():
-    sources = validate_sources(test_json)
+    sources = parse_sources(test_json)
+    sources = validate_sources(sources)
     download_source(sources[0], ".")
     assert os.path.exists("rr_01_park_national.parquet")
