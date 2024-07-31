@@ -10,7 +10,7 @@ test_json = [
         "source_type": "BCGW",
         "primary_key": None,
         "name_column": "ENGLISH_NAME",
-        "query": None
+        "query": None,
     }
 ]
 
