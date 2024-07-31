@@ -62,6 +62,6 @@ def test_invalid_file():
     sources = [
         s for s in parse_sources(SOURCES) if s["alias"] == "crd_water_supply_area"
     ]
-    sources[0]["name_column"] = "INVALID_COLUMN_NAME"
+    sources[0]["name_column"] = "INVALID_COLUMN"
     with pytest.raises(ValueError):
         sources = validate_sources(sources)
