@@ -49,7 +49,10 @@ def parse_sources(sources):
 
 
 def validate_file(layer):
-    """simple validation of file based sources - file exists and schema is as expected"""
+    """simple validation of file based sources
+    - file exists
+    - schema is as expected
+    """
     source = layer["source"]
     alias = layer["alias"]
     query = layer["query"]
@@ -114,7 +117,8 @@ def replace_date_placeholder(sources):
 
 
 def to_multipart(df):
-    """geopandas has no built-in func for dumping singlepart to multipart
+    """
+    geopandas has no built-in func for dumping singlepart to multipart
     https://gis.stackexchange.com/questions/311320/casting-geometry-to-multi-using-geopandas
     """
     df["geom"] = [
@@ -231,11 +235,15 @@ def cli():
 def validate(alias, sources_file, verbose, quiet):
     """ensure sources json file is valid, and that data sources exist"""
     configure_logging((verbose - quiet))
+
+    # load sources file
     with open(sources_file, "r") as f:
         sources = parse_sources(json.load(f))
+
     # if specified, use only one source
     if alias:
         sources = [s for s in sources if s["alias"] == alias]
+
     validate_sources(sources)
 
 
@@ -264,8 +272,11 @@ def validate(alias, sources_file, verbose, quiet):
 @quiet_opt
 def download(alias, sources_file, out_path, no_validate, verbose, quiet):
     configure_logging((verbose - quiet))
+
+    # load sources file
     with open(sources_file, "r") as f:
         sources = parse_sources(json.load(f))
+
     # if specified, use only one source
     if alias:
         sources = [s for s in sources if s["alias"] == alias]
