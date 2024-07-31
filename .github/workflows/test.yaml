@@ -38,9 +38,11 @@ jobs:
       fail-fast: false
     steps:
       - uses: actions/checkout@v4
+      - name: Install test dependencies
+        run: |
+          /venv/bin/python -m pip install -r requirements-dev.txt
       - name: Run tests
         run: |
-          . venv/bin/activate
-          python -m pytest -v -rxXs
+          /venv/bin/python -m pytest -v -rxXs
         env:
           DATABASE_URL: postgresql://postgres:postgres@postgres:5432/postgres
