@@ -51,6 +51,18 @@ def test_download_bcgw(test_data, tmpdir):
     assert os.path.exists(os.path.join(tmpdir, "rr_01_park_national.parquet"))
 
 
+def test_download_to_s3(test_data):
+    sources = [s for s in parse_sources(test_data) if s["alias"] == "park_national"]
+    sources = validate_sources(sources)
+    download_source(
+        sources[0],
+        os.path.expandvars(
+            "s3://$OBJECTSTORE_BUCKET/dss_projects_2024/harvest_restrictions/test"
+        ),
+    )
+    # presume this succeeds if no error is raised
+
+
 def test_invalid_bcgw(test_data):
     sources = [s for s in parse_sources(test_data) if s["alias"] == "park_national"]
     sources[0]["name_column"] = "INVALID_COLUMN"
