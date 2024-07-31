@@ -30,6 +30,11 @@ SOURCES = [
 ]
 
 
+def test_parse_sources():
+    sources = parse_sources(SOURCES)
+    assert sources[0]["index"] == 1
+
+
 def test_download_bcgw(tmpdir):
     sources = [s for s in parse_sources(SOURCES) if s["alias"] == "park_national"]
     sources = validate_sources(sources)
