@@ -11,14 +11,13 @@ from datetime import datetime
 import geopandas
 import jsonschema
 from pyproj import CRS
-
 from shapely.geometry.linestring import LineString
 from shapely.geometry.multilinestring import MultiLineString
 from shapely.geometry.multipoint import MultiPoint
 from shapely.geometry.multipolygon import MultiPolygon
 from shapely.geometry.point import Point
 from shapely.geometry.polygon import Polygon
-
+from slugify import slugify
 
 LOG_FORMAT = "%(asctime)s:%(levelname)s:%(name)s: %(message)s"
 LOG = logging.getLogger(__name__)
@@ -41,11 +40,24 @@ def parse_sources(sources):
     # add an index (base 1) indicating the hierchy level of a given source
     sources = [dict(d, index=index + 1) for (index, d) in enumerate(sources)]
 
-    # if today's date is required in any source query, add it
-    replace_date_placeholder(sources)
+    parsed = sources
+    for i, source in enumerate(sources):
+        # replace string {CURRENT_DATE} with todays date
+        if source["query"] and "{CURRENT_DATE}" in source["query"]:
+            parsed[i]["query"] = parsed[i]["query"].replace(
+                "{CURRENT_DATE}", datetime.today().strftime("%Y-%m-%d")
+            )
+        # slugify the alias
+        alias = source["alias"]
+        slug = slugify(alias, separator="_", lowercase=True)
+        if slug != alias:
+            parsed[i]["alias"] = slug
+            LOG.warning(
+                "{alias} - alias adjusted to {slug}, consider editing alias in config file"
+            )
 
     LOG.info("Source json is valid")
-    return sources
+    return parsed
 
 
 def validate_file(layer):
@@ -108,17 +120,6 @@ def validate_bcgw(layer):
 
     # that is it for validation, presume layer is defined correctly if no errors are raised
     LOG.info(f"{alias} - layer validates successfully")
-
-
-def replace_date_placeholder(sources):
-    """replace date placeholder with today's date"""
-    dated = sources
-    for i, source in enumerate(sources):
-        if source["query"] and "{current_date}" in source["query"]:
-            dated[i]["query"] = dated[i]["query"].replace(
-                "{current_date}", datetime.today().strftime("%Y-%m-%d")
-            )
-    return dated
 
 
 def to_multipart(df):

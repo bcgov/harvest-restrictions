@@ -161,7 +161,7 @@
     },
     {
         "name": "Great Bear Rainforest (GBR) Special Forest Management Areas",
-        "alias": "great_bear_SFMA",
+        "alias": "great_bear_sfma",
         "class_number": 2,
         "source": "WHSE_ADMIN_BOUNDARIES.FADM_SPECIAL_PROTECTION_AREA",
         "source_type": "BCGW",
@@ -171,7 +171,7 @@
     },
     {
         "name": "Great Bear Rainforest (GBR) Landscape Reserve Design (LRD)",
-        "alias": "great_bear_LRD",
+        "alias": "great_bear_lrd",
         "class_number": 2,
         "source": "WHSE_LAND_USE_PLANNING.RMP_LANDSCAPE_RSRV_DESIGN_SP",
         "source_type": "BCGW",
