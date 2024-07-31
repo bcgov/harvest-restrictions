@@ -24,9 +24,6 @@ WORKDIR /home/harvest-restrictions
 RUN python3 -m venv /venv && \
     /venv/bin/python -m pip install -U pip && \
     /venv/bin/python -m pip install --no-cache-dir --upgrade numpy && \
-    /venv/bin/python -m pip install --no-cache-dir pyarrow && \
-    /venv/bin/python -m pip install --no-cache-dir --no-binary fiona fiona && \
-    /venv/bin/python -m pip install --no-cache-dir bcdata && \
     curl "https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip" -o "awscliv2.zip" && \
     unzip awscliv2.zip && \
     ./aws/install
