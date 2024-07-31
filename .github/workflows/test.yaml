@@ -4,17 +4,19 @@ on:
   push:
     branches: [ main]
     paths:
-      - '.github/workflows/tests.yaml'
+      - '.github/workflows/test.yaml'
       - 'requirements*.txt'
       - 'harvest_restrictions.py'
-      - 'test_harvest_restrictions.py.py'
+      - 'test_harvest_restrictions.py'
   pull_request:
     branches: [ main ]
     paths:
-      - '.github/workflows/tests.yaml'
+      - '.github/workflows/test.yaml'
       - 'requirements*.txt'
       - 'harvest_restrictions.py'
-      - 'test_harvest_restrictions.py.py'
+      - 'test_harvest_restrictions.py'
+      - 'source.schema.json'
+      - 'sources.json'
 jobs:
   docker_tests:
     runs-on: ubuntu-latest
