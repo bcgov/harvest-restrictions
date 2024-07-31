@@ -1,5 +1,4 @@
-name: Tests
-
+name: Test
 on:
   push:
     branches: [ main]
@@ -18,10 +17,10 @@ on:
       - 'source.schema.json'
       - 'sources.json'
 jobs:
-  docker_tests:
+  test:
     runs-on: ubuntu-latest
-    name: Docker | GDAL=${{ matrix.gdal-version }} | python=${{ matrix.python-version }}
-    container: ghcr.io/osgeo/gdal:ubuntu-small-${{ matrix.gdal-version }}
+    name: test
+    container: ghcr.io/bcgov/harvest-restrictions:main
     services:
       postgres:
         image: postgis/postgis:16-3.4
@@ -37,42 +36,11 @@ jobs:
         DEBIAN_FRONTEND: noninteractive
     strategy:
       fail-fast: false
-      matrix:
-        include:
-          - python-version: '3.11'
-            gdal-version: '3.7.3'
-          - python-version: '3.12'
-            gdal-version: '3.9.1'
-
     steps:
       - uses: actions/checkout@v4
-
-      - name: Update and install postgresql client
-        run: |
-          apt-get update
-          apt-get -y install software-properties-common
-          add-apt-repository -y ppa:deadsnakes/ppa
-          apt-get update
-
-      - name: Set up Python ${{ matrix.python-version }}
-        run: |
-          apt-get install -y --no-install-recommends \
-            python${{ matrix.python-version }} \
-            python${{ matrix.python-version }}-dev \
-            python${{ matrix.python-version }}-venv \
-            python3-pip \
-            g++
-
-      - name: Install dependencies
-        run: |
-          python${{ matrix.python-version }} -m venv testenv
-          . testenv/bin/activate
-          python -m pip install --upgrade pip
-          python -m pip install -r requirements-dev.txt
-
       - name: Run tests
         run: |
-          . testenv/bin/activate
+          . venv/bin/activate
           python -m pytest -v -rxXs
         env:
           DATABASE_URL: postgresql://postgres:postgres@postgres:5432/postgres
