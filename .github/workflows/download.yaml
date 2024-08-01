@@ -21,4 +21,4 @@ jobs:
       - uses: actions/checkout@v4
       - name: Download sources to file
         run: |
-          /venv/bin/python harvest_restrictions.py download -o $OBJECTSTORE_BUCKET/dss_projects_2024/harvest_restrictions -v
+          /venv/bin/python harvest_restrictions.py download -o s3://$OBJECTSTORE_BUCKET/dss_projects_2024/harvest_restrictions -v

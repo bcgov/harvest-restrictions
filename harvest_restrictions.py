@@ -215,11 +215,18 @@ def download_source(layer, out_path="data"):
     ]
 
     # dump to file
-    out_file = (
-        "rr_" + str(layer["index"]).zfill(2) + "_" + layer["alias"].lower() + ".parquet"
+    out_file = os.path.join(
+        out_path,
+        (
+            "rr_"
+            + str(layer["index"]).zfill(2)
+            + "_"
+            + layer["alias"].lower()
+            + ".parquet"
+        ),
     )
-    LOG.info(f"Writing {alias} to {out_path}")
-    df.to_parquet(os.path.join(out_path, out_file))
+    LOG.info(f"Writing {alias} to {out_file}")
+    df.to_parquet(out_file)
 
 
 @click.group()
