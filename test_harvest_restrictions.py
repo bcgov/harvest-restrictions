@@ -9,9 +9,11 @@ from harvest_restrictions import download_source, validate_sources, parse_source
 def test_data():
     return [
         {
-            "name": "National Park",
+            "designation": "National Park",
             "alias": "park_national",
-            "class_number": 1,
+            "harvest_restriction": 1,
+            "og_restriction": 0,
+            "mining_restriction": 0,
             "source": "WHSE_ADMIN_BOUNDARIES.CLAB_NATIONAL_PARKS",
             "source_type": "BCGW",
             "primary_key": None,
@@ -19,9 +21,11 @@ def test_data():
             "query": None,
         },
         {
-            "name": "CRD Water Supply Area",
+            "designation": "CRD Water Supply Area",
             "alias": "crd_water_supply_area",
-            "class_number": 3,
+            "harvest_restriction": 3,
+            "og_restriction": 0,
+            "mining_restriction": 0,
             "source": "/vsizip//vsis3/$OBJECTSTORE_BUCKET/dss_projects_2024/harvest_restrictions/sources/CRD.gdb.zip",
             "source_type": "FILE",
             "layer": "WSA_Boundary",
@@ -47,7 +51,7 @@ def test_parse_alias(test_data):
 def test_download_bcgw(test_data, tmpdir):
     sources = [s for s in parse_sources(test_data) if s["alias"] == "park_national"]
     sources = validate_sources(sources)
-    download_source(sources[0], tmpdir)
+    download_source(sources[0], out_path=tmpdir, out_table="test")
     assert os.path.exists(os.path.join(tmpdir, "rr_01_park_national.parquet"))
 
 
@@ -56,9 +60,10 @@ def test_download_to_s3(test_data):
     sources = validate_sources(sources)
     download_source(
         sources[0],
-        os.path.expandvars(
+        out_path=os.path.expandvars(
             "s3://$OBJECTSTORE_BUCKET/dss_projects_2024/harvest_restrictions/test"
         ),
+        out_table="test",
     )
     # presume this succeeds if no error is raised
 
@@ -75,7 +80,7 @@ def test_download_file(test_data, tmpdir):
         s for s in parse_sources(test_data) if s["alias"] == "crd_water_supply_area"
     ]
     sources = validate_sources(sources)
-    download_source(sources[0], tmpdir)
+    download_source(sources[0], out_path=tmpdir, out_table="test")
     assert os.path.exists(os.path.join(tmpdir, "rr_02_crd_water_supply_area.parquet"))
 
 

@@ -18,9 +18,11 @@ from shapely.geometry.multipolygon import MultiPolygon
 from shapely.geometry.point import Point
 from shapely.geometry.polygon import Polygon
 from slugify import slugify
+from sqlalchemy import create_engine
 
 LOG_FORMAT = "%(asctime)s:%(levelname)s:%(name)s: %(message)s"
 LOG = logging.getLogger(__name__)
+DB = create_engine(os.environ.get("DATABASE_URL"))
 
 
 def configure_logging(verbosity):
@@ -159,7 +161,7 @@ def validate_sources(sources, validate_data=True, alias=None):
     return sources
 
 
-def download_source(layer, out_path="data"):
+def download_source(layer, out_path="data", out_table="designations_cleaned"):
     """download layer from source and save to parquet in out_path"""
 
     table, alias = (layer["source"], layer["alias"])
@@ -177,56 +179,87 @@ def download_source(layer, out_path="data"):
     # download file
     elif layer["source_type"] == "FILE":
         df = geopandas.read_file(
-            os.path.expandvars(layer["source"]), layer=layer["layer"]
+            os.path.expandvars(layer["source"]),
+            layer=layer["layer"],
+            where=layer["query"],
         )
         if df.crs != CRS.from_user_input(3005):
             df = df.to_crs("EPSG:3005")
         # lowercasify column names
         df.columns = [x.lower() for x in df.columns]
 
-    # tidy the dataframe
+    # standardize/tidy the data
     df = df.rename_geometry("geom")
     df = to_multipart(df)  # sources can have mixed types, just make everything multi
 
-    # add new columns
-    df["rr_restriction"] = layer["name"]
-    df["rr_alias"] = layer["alias"].lower()
-    df["rr_class_number"] = layer["class_number"]
+    # add new columns, prefixing and suffixing with "__" to avoid collisions
+    df["__index__"] = layer["index"]
+    df["__designation__"] = layer["designation"]
+    df["__alias__"] = layer["alias"].lower()
+    df["__harvest_restriction__"] = layer["harvest_restriction"]
+    df["__og_restriction__"] = layer["og_restriction"]
+    df["__mining_restriction__"] = layer["mining_restriction"]
     # load pk/name if present, otherwise set to empty string
     if layer["primary_key"]:
-        df["rr_source_primary_key"] = layer["primary_key"]
+        df["__primary_key__"] = layer["primary_key"]
     else:
-        df["rr_source_primary_key"] = ""
+        df["__primary_key__"] = ""
     if layer["name_column"]:
-        df["rr_restriction_name"] = df[layer["name_column"].lower()]
+        df["__name__"] = df[layer["name_column"].lower()]
     else:
-        df["rr_restriction_name"] = ""
+        df["__name__"] = ""
 
     # retain only columns of interest
     df = df[
         [
-            "rr_restriction",
-            "rr_alias",
-            "rr_class_number",
-            "rr_source_primary_key",
-            "rr_restriction_name",
+            "__index__",
+            "__designation__",
+            "__alias__",
+            "__harvest_restriction__",
+            "__og_restriction__",
+            "__mining_restriction__",
+            "__primary_key__",
+            "__name__",
             "geom",
         ]
     ]
-
-    # dump to file
-    out_file = os.path.join(
-        out_path,
-        (
-            "rr_"
-            + str(layer["index"]).zfill(2)
-            + "_"
-            + layer["alias"].lower()
-            + ".parquet"
-        ),
+    # rename remaining columns
+    df = df.rename(
+        columns={
+            "__index__": "index",
+            "__designation__": "designation",
+            "__alias__": "alias",
+            "__harvest_restriction__": "harvest_restriction",
+            "__og_restriction__": "og_restriction",
+            "__mining_restriction__": "mining_restriction",
+            "__primary_key__": "source_primary_key",
+            "__name__": "source_name",
+        }
     )
-    LOG.info(f"Writing {alias} to {out_file}")
-    df.to_parquet(out_file)
+
+    # dump to file if out_path specified
+    if out_path:
+        out_file = os.path.join(
+            out_path,
+            (
+                "rr_"
+                + str(layer["index"]).zfill(2)
+                + "_"
+                + layer["alias"].lower()
+                + ".parquet"
+            ),
+        )
+        LOG.info(f"Writing {alias} to {out_file}")
+        df.to_parquet(out_file)
+
+    # load to postgres, writing everything to the same initial table
+    LOG.info(f"Writing {alias} to postgres")
+    df.to_postgis(out_table, DB, if_exists="append")
+
+
+def process(out_path):
+    """clean and overlay input data, dump to file if specified"""
+    DB.execute("create table designations_cleaned ")
 
 
 @click.group()
@@ -266,14 +299,15 @@ def validate(alias, sources_file, verbose, quiet):
     "--sources_file",
     "-s",
     type=click.Path(exists=True),
-    required=False,
     default="sources.json",
+    help="Path to configuration file listing data sources as json",
 )
 @click.option(
     "--out_path",
     "-o",
-    default="data",
-    help="Output path (local folder or object storage)",
+    type=click.Path(exists=True),
+    default=None,
+    help="Output path to cache data (local folder or object storage)",
 )
 @click.option(
     "--no_validate",
@@ -299,15 +333,11 @@ def download(alias, sources_file, out_path, no_validate, verbose, quiet):
     if not no_validate:
         sources = validate_sources(sources)
 
-    # create default output location if it does not exist
-    # (any other path provided is presumed to already exist,
-    # job will fail if it does not)
-    if out_path == "data":
-        Path(out_path).mkdir(parents=True, exist_ok=True)
-
-    # download each data source as individual .parquet file
+    # download each data source
     for layer in sources:
         download_source(layer, out_path)
+
+    # download supporting datasets
 
 
 if __name__ == "__main__":

@@ -7,18 +7,28 @@
     "items": {
         "type": "object",
         "properties": {
-            "name": {
-                "description": "Name of the data source",
-                "type": "string"
-            },
             "alias": {
-                "description": "Unique slug used to name/identify the data source when processing",
+                "description": "Unique (lowercase, _ separated) slug used to name/identify the data source when processing",
                 "type": "string"
             },
-            "class_number": {
-                "description": "Number of the generalized restriction class associatated with the data source",
+            "designation": {
+                "description": "Description of the land designation / restriction",
+                "type": "string"
+            },
+            "harvest_restriction": {
+                "description": "Forest harvesting restriction level associated with the designation",
                 "type": "integer",
                 "enum": [1, 2, 3, 4, 5, 6]
+            },
+            "og_restriction": {
+                "description": "Oil and gas restriction level associated with the designation",
+                "type": "integer",
+                "enum": [0, 1, 2, 3, 4, 5, 6]
+            },
+            "mining_restriction": {
+                "description": "Mining restriction level associated with the designation",
+                "type": "integer",
+                "enum": [0, 1, 2, 3, 4, 5, 6]
             },
             "source_type": {
                 "description": "Describes whether source is to be downloaded from BCGW (ie WFS using bcdata) or from FILE",
@@ -46,6 +56,6 @@
                 "type": ["string", "null"]
             }
         },
-        "required": ["name", "alias", "class_number", "source_type", "source", "name_column", "query"]
+        "required": ["alias", "designation", "harvest_restriction", "og_restriction", "mining_restriction", "source_type", "source", "name_column", "query"]
     }
 }
