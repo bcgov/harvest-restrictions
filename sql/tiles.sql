@@ -56,7 +56,7 @@ FROM north_tiles),
 -- finally, insert the difference of the buffer and exising tiles (use 250k
 -- for speed) into our tile layer
 diff as (
-SELECT st_union(geom) as geom FROM tiles_250k
+SELECT st_union(geom) as geom FROM whse_basemapping.nts_250k_grid
 WHERE (map_tile LIKE '114O%%'
    OR map_tile LIKE '114P%%'
    OR map_tile LIKE '104M%%'
