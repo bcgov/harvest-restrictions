@@ -2,36 +2,40 @@ import os
 
 import pytest
 
-from harvest_restrictions import download_source, validate_sources, parse_sources
+from harvest_restrictions import download, validate_sources, parse_sources
 
 
 @pytest.fixture
 def test_data():
     return [
         {
-            "designation": "National Park",
             "alias": "park_national",
-            "harvest_restriction": 1,
-            "og_restriction": 0,
-            "mining_restriction": 0,
-            "source": "WHSE_ADMIN_BOUNDARIES.CLAB_NATIONAL_PARKS",
+            "description": "National Park",
             "source_type": "BCGW",
-            "primary_key": None,
-            "name_column": "ENGLISH_NAME",
+            "source": "WHSE_ADMIN_BOUNDARIES.CLAB_NATIONAL_PARKS",
             "query": None,
+            "primary_key": None,
+            "field_mapper": {"name": "ENGLISH_NAME"},
+            "data": {
+                "harvest_restriction": 1,
+                "og_restriction": 0,
+                "mining_restriction": 0,
+            },
         },
         {
-            "designation": "CRD Water Supply Area",
             "alias": "crd_water_supply_area",
-            "harvest_restriction": 3,
-            "og_restriction": 0,
-            "mining_restriction": 0,
-            "source": "/vsizip//vsis3/$OBJECTSTORE_BUCKET/dss_projects_2024/harvest_restrictions/sources/CRD.gdb.zip",
+            "description": "CRD Water Supply Area",
             "source_type": "FILE",
+            "source": "/vsizip//vsis3/$OBJECTSTORE_BUCKET/dss_projects_2024/harvest_restrictions/sources/CRD.gdb.zip",
             "layer": "WSA_Boundary",
-            "primary_key": None,
-            "name_column": "Name",
             "query": None,
+            "primary_key": None,
+            "field_mapper": {"name": "Name"},
+            "data": {
+                "harvest_restriction": 3,
+                "og_restriction": 0,
+                "mining_restriction": 0,
+            },
         },
     ]
 
@@ -48,29 +52,16 @@ def test_parse_alias(test_data):
     assert sources[0]["alias"] == "national_reserve"
 
 
-def test_download_bcgw(test_data, tmpdir):
+def test_download_bcgw(test_data):
     sources = [s for s in parse_sources(test_data) if s["alias"] == "park_national"]
     sources = validate_sources(sources)
-    download_source(sources[0], out_path=tmpdir, out_table="test")
-    assert os.path.exists(os.path.join(tmpdir, "rr_01_park_national.parquet"))
-
-
-def test_download_to_s3(test_data):
-    sources = [s for s in parse_sources(test_data) if s["alias"] == "park_national"]
-    sources = validate_sources(sources)
-    download_source(
-        sources[0],
-        out_path=os.path.expandvars(
-            "s3://$OBJECTSTORE_BUCKET/dss_projects_2024/harvest_restrictions/test"
-        ),
-        out_table="test",
-    )
-    # presume this succeeds if no error is raised
+    df = download(sources[0])
+    assert len(df) > 0
 
 
 def test_invalid_bcgw(test_data):
     sources = [s for s in parse_sources(test_data) if s["alias"] == "park_national"]
-    sources[0]["name_column"] = "INVALID_COLUMN"
+    sources[0]["field_mapper"] = {"name": "INVALID_COLUMN"}
     with pytest.raises(ValueError):
         sources = validate_sources(sources)
 
@@ -80,14 +71,14 @@ def test_download_file(test_data, tmpdir):
         s for s in parse_sources(test_data) if s["alias"] == "crd_water_supply_area"
     ]
     sources = validate_sources(sources)
-    download_source(sources[0], out_path=tmpdir, out_table="test")
-    assert os.path.exists(os.path.join(tmpdir, "rr_02_crd_water_supply_area.parquet"))
+    df = download(sources[0])
+    assert len(df) > 0
 
 
 def test_invalid_file(test_data):
     sources = [
         s for s in parse_sources(test_data) if s["alias"] == "crd_water_supply_area"
     ]
-    sources[0]["name_column"] = "INVALID_COLUMN"
+    sources[0]["field_mapper"] = {"name": "INVALID_COLUMN"}
     with pytest.raises(ValueError):
         sources = validate_sources(sources)
