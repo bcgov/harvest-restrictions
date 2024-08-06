@@ -1,0 +1,56 @@
+name: Test download script
+on:
+  push:
+    branches: [ main]
+    paths:
+      - '.github/workflows/test-download.yaml'
+      - 'requirements*.txt'
+      - 'download.py'
+      - 'test_download.py'
+  pull_request:
+    branches: [ main ]
+    paths:
+      - '.github/workflows/test-download.yaml'
+      - 'requirements*.txt'
+      - 'download.py'
+      - 'test_download.py'
+env:
+  DATABASE_URL: "postgresql://postgres:postgres@postgres:5432/postgres"
+  AWS_ENDPOINT_URL: "https://nrs.objectstore.gov.bc.ca"
+  AWS_S3_ENDPOINT: "nrs.objectstore.gov.bc.ca"
+  AWS_VIRTUAL_HOSTING: "FALSE"
+  AWS_EC2_METADATA_DISABLED: "true"
+  CPL_VSISTDIN_BUFFER_LIMIT: -1
+  OBJECTSTORE_BUCKET: ${{ secrets.OBJECTSTORE_BUCKET }}
+  AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+  AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    name: test
+    container: ghcr.io/bcgov/harvest-restrictions:main
+    environment: production
+    services:
+      postgres:
+        image: postgis/postgis:16-3.4
+        env:
+          POSTGRES_PASSWORD: postgres
+        # Set health checks to wait until postgres has started
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    env:
+        DEBIAN_FRONTEND: noninteractive
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install test dependencies
+        run: |
+          /venv/bin/python -m pip install -r requirements-dev.txt
+      - name: Run tests
+        run: |
+          /venv/bin/python -m pytest -v -rxXs
+      - name: Validate sources.json
+        run: |
+          /venv/bin/python download.py sources.json -t -v
