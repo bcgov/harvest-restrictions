@@ -13,19 +13,29 @@ env:
   AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
   AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
 jobs:
-  download:
+  harvest-restrictions:
     runs-on: ubuntu-latest
+    name: test
     container: ghcr.io/bcgov/harvest-restrictions:main
     environment: production
+    services:
+      postgres:
+        image: postgis/postgis:16-3.4
+        env:
+          POSTGRES_PASSWORD: postgres
+        # Set health checks to wait until postgres has started
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    env:
+        DEBIAN_FRONTEND: noninteractive
     steps:
       - uses: actions/checkout@v4
-      - name: Download sources to file
-        run: /venv/bin/python download.py sources.json -v
-  process:
-    runs-on: ubuntu-latest
-    container: ghcr.io/bcgov/harvest-restrictions:main
-    environment: production
-    steps:
-      - uses: actions/checkout@v4
-      - name: Process overlays and dump results to file
-        run: process.sh
+      - name: Download
+        run: |
+          /venv/bin/python download.py sources.json -v
+      - name: Process overlays
+        run: |
+          ./process.sh

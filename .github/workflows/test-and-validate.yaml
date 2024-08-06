@@ -3,7 +3,7 @@ on:
   push:
     branches: [ main]
     paths:
-      - '.github/workflows/test.yaml'
+      - '.github/workflows/test-and-validate.yaml'
       - 'requirements*.txt'
       - 'download.py'
       - 'test_download.py'
@@ -12,7 +12,7 @@ on:
   pull_request:
     branches: [ main ]
     paths:
-      - '.github/workflows/test.yaml'
+      - '.github/workflows/test-and-validate.yaml'
       - 'requirements*.txt'
       - 'download.py'
       - 'test_download.py'
@@ -33,6 +33,7 @@ jobs:
     runs-on: ubuntu-latest
     name: test
     container: ghcr.io/bcgov/harvest-restrictions:main
+    environment: production
     services:
       postgres:
         image: postgis/postgis:16-3.4
@@ -46,8 +47,6 @@ jobs:
           --health-retries 5
     env:
         DEBIAN_FRONTEND: noninteractive
-    strategy:
-      fail-fast: false
     steps:
       - uses: actions/checkout@v4
       - name: Install test dependencies
