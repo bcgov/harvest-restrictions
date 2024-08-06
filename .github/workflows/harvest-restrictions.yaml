@@ -35,7 +35,7 @@ jobs:
       - uses: actions/checkout@v4
       - name: Download sources
         run: |
-          /venv/bin/python download.py sources.json -v
+          python download.py sources.json -v
       - name: Process overlays
         run: |
           ./process.sh

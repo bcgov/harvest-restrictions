@@ -23,10 +23,11 @@ WORKDIR /home/harvest-restrictions
 
 COPY requirements*.txt ./
 
-RUN python3 -m venv /venv && \
-    /venv/bin/python -m pip install -U pip && \
-    /venv/bin/python -m pip install --no-cache-dir --upgrade numpy && \
-    /venv/bin/python -m pip install -r requirements.txt && \
+RUN python3 -m venv venv && \
+    . venv/bin/activate && \
+    python -m pip install -U pip && \
+    python -m pip install --no-cache-dir --upgrade numpy && \
+    python -m pip install -r requirements.txt && \
     curl "https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip" -o "awscliv2.zip" && \
     unzip awscliv2.zip && \
     ./aws/install
