@@ -79,21 +79,23 @@ def validate_file(source):
     if source["primary_key"]:
         if source["primary_key"] not in columns:
             raise ValueError(
-                f"Primary key - {source['primary_key']} is not present in source"
+                f"Validation error: {source['alias']} - primary key is not present - {source['primary_key']}"
             )
     for column in source["field_mapper"].values():
         if column and column.lower() not in columns:
             raise ValueError(
-                f"Column {column} is not present in source, modify config 'field_mapper'"
+                f"Validation error: {source['alias']} - column {column} is not present, modify config 'field_mapper'"
             )
 
     # is there data?
     alias = source["alias"]
     if len(df.index) == 0:
-        raise ValueError(f"{alias} - no data returned for given source and query")
+        raise ValueError(
+            f"Validation error: {source['alias']} - no data returned, check source and query"
+        )
 
     # presume layer is defined correctly if no errors are raised
-    LOG.info(f"{alias} - validates successfully")
+    LOG.info(f"Validation successful: {alias}")
 
 
 def validate_bcgw(source):
@@ -101,10 +103,9 @@ def validate_bcgw(source):
     # does source exist as written?
     alias = source["alias"]
     table = source["source"].upper()
-    query = source["query"]
     if table not in bcdata.list_tables():
         raise ValueError(
-            f"{alias} - {table} does not exist in BCGW or is not available via WFS"
+            f"Validation error: {source['alias']} - {table} does not exist in BCGW or is not available via WFS"
         )
 
     # get columns present in source from data catalogue
@@ -115,7 +116,7 @@ def validate_bcgw(source):
     if source["primary_key"]:
         if source["primary_key"] not in columns:
             raise ValueError(
-                f"Primary key - {source['primary_key']} is not present in source {table}"
+                f"Validation error: {source['alias']} - Primary key - {source['primary_key']} is not present in {table}"
             )
 
     # are other required columns in field mapping present?
@@ -125,18 +126,18 @@ def validate_bcgw(source):
         ):  # allow null source columns (adds the new column, but with no values from source)
             if column.upper() not in columns:
                 raise ValueError(
-                    f"Column {column} is not present in source, modify config 'field_mapper'"
+                    f"Validation error: {source['alias']} - column {column} is not present in {table}, modify config 'field_mapper'"
                 )
 
     # does query return values?
     if source["query"]:
         if bcdata.get_count(table, query=source["query"]) == 0:
             raise ValueError(
-                f"{alias} - provided query {query} returns no data for {table}"
+                f"Validation error: {source['alias']} - no data returned, check query against {table}"
             )
 
     # that is it for validation, presume layer is defined correctly if no errors are raised
-    LOG.info(f"{alias} - layer validates successfully")
+    LOG.info(f"Validation successful: {alias}")
 
 
 def to_multipart(df):
