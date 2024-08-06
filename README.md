@@ -47,3 +47,24 @@ For example, this defines National Parks - data come from the BCGW, all parks ar
 ```
 
 See `source.schema.json` for a full description.
+
+## Usage
+
+1. Edit `sources.json` as required
+
+2. Validate `sources.json`:
+	
+		python download.py --dry-run -v
+
+3. Download data to postgres:
+
+		python download.py -v
+
+4. Run overlays and dump results to file:
+
+		./process.sh
+
+Output files are:
+
+- `harvest_restrictions.gdb.zip`		
+- `harvest_restrictions_summary.csv`
