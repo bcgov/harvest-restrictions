@@ -5,6 +5,7 @@ set -euxo pipefail
 psql $DATABASE_URL -c "DROP TABLE IF EXISTS designations;
   CREATE TABLE designations (
     designations_id serial primary key,
+    index integer,
     alias text,
     description text,
     primary_key text,
@@ -12,13 +13,14 @@ psql $DATABASE_URL -c "DROP TABLE IF EXISTS designations;
     harvest_restriction integer,
     mine_restriction integer,
     og_restriction integer,
-    all_aliases text[],
-    all_descriptions text[],
-    all_primary_keys text[],
-    all_names text[],
-    all_harvest_restrictions integer[],
-    all_mine_restrictions integer[],
-    all_og_restrictions integer[],
+    indexes_all text[],
+    aliases_all text[],
+    descriptions_all text[],
+    primary_keys_all text[],
+    names_all text[],
+    harvest_restrictions_all integer[],
+    mine_restrictions_all integer[],
+    og_restrictions_all integer[],
     map_tile text,
     geom geometry(MULTIPOLYGON, 3005)
   );"
@@ -41,7 +43,7 @@ ogr2ogr   \
   -lco CREATE_SHAPE_AREA_AND_LENGTH_FIELDS=YES \
   -mapfieldtype Integer64=Integer \
   -sql "SELECT designations_id as harvest_restrictions_id,
-    alias as harvest_restriction,
+    lpad(index::text, 2, '0')||alias as harvest_restriction,
     description,
     primary_key,
     name,
@@ -53,7 +55,7 @@ ogr2ogr   \
       when harvest_restriction = 4 then 'Medium Restricted'
       when harvest_restriction = 5 then 'Low Restricted'
       when harvest_restriction = 6 then 'No Special Restriction'
-    end as harvest_restriction_level,
+    end as harvest_restriction_class_desc,
     array_to_string(all_aliases, ';') as all_harvest_restrictions,
     array_to_string(all_descriptions, ';') as all_descriptions,
     array_to_string(all_primary_keys, ';') as all_primary_keys,
@@ -64,4 +66,12 @@ ogr2ogr   \
   from designations
   where all_harvest_restrictions @> ARRAY[6]" # land only
 
-# report on result
+# zip output
+zip -r harvest_restrictions.gdb.zip harvest_restrictions.gdb
+
+# summarize results
+psql $DATABASE_URL -f sql/summarize.sql --csv > harvest_restrictions_summary.csv
+
+# post to s3
+aws s3 cp harvest_restrictions.gdb.zip s3://$OBJECTSTORE_BUCKET/dss_projects_2024/harvest_restrictions/harvest_restrictions.gdb.zip
+aws s3 cp harvest_restrictions_summary.csv s3://$OBJECTSTORE_BUCKET/dss_projects_2024/harvest_restrictions/harvest_restrictions_summary.csv
