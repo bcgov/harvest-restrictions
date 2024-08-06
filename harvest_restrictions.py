@@ -176,8 +176,8 @@ def validate_sources(sources, validate_data=True, alias=None):
     return sources
 
 
-def download(source):
-    """download layer from source to a standardized geodataframe"""
+def download_source(source):
+    """download data from source to a standardized geodataframe"""
 
     # download WFS
     if source["source_type"] == "BCGW":
@@ -214,10 +214,11 @@ def download(source):
     df["__index__"] = source["index"]
     df["__description__"] = source["description"]
     df["__alias__"] = source["alias"].lower()
+    df["__primary_key__"] = ""
     if source["primary_key"]:
-        df["__primary_key__"] = source["primary_key"]
-    else:
-        df["__primary_key__"] = ""
+        df["__primary_key__"] = df[source["primary_key"].lower()].astype(
+            "str"
+        )  # handle pks as strings
 
     # rename columns that we want to retain
     for key, value in source["field_mapper"].items():
@@ -245,11 +246,6 @@ def download(source):
     df = df.rename(columns={"__" + c + "__": c for c in columns})
 
     return df
-
-
-# def process(out_path):
-#    """clean and overlay input data, dump to file if specified"""
-#    DB.execute("create table designations_cleaned ")
 
 
 @click.group()
@@ -307,7 +303,7 @@ def validate(alias, sources_file, verbose, quiet):
 )
 @verbose_opt
 @quiet_opt
-def setup(alias, sources_file, out_path, no_validate, verbose, quiet):
+def download(alias, sources_file, out_path, no_validate, verbose, quiet):
     configure_logging((verbose - quiet))
 
     # load sources file
@@ -325,11 +321,11 @@ def setup(alias, sources_file, out_path, no_validate, verbose, quiet):
 
     # download each data source
     for source in sources:
-        df = download(source)
+        df = download_source(source)
 
         # load to postgres, writing everything to the same initial table
         LOG.info(f"Writing {source['alias']} to postgres")
-        df.to_postgis("restrictions_source", DB, if_exists="append")
+        df.to_postgis("designations_source", DB, if_exists="append")
 
         # dump to file if out_path specified
         if out_path:
@@ -346,15 +342,8 @@ def setup(alias, sources_file, out_path, no_validate, verbose, quiet):
             LOG.info(f"Writing {alias} to {out_file}")
             df.to_parquet(out_file)
 
-    # download additional supporting datasets
-    if not alias:
-        for table in [
-            "WHSE_BASEMAPPING.BCGS_20K_GRID",
-            "WHSE_WILDLIFE_MANAGEMENT.CRIMS_MARINE_ECOSECTION",
-            "WHSE_LEGAL_ADMIN_BOUNDARIES.ABMS_PROVINCE_SP",
-            "WHSE_BASEMAPPING.NTS_250K_GRID",
-        ]:
-            bcdata.bc2pg(table, os.environ["DATABASE_URL"])
+    # download tiles
+    bcdata.bc2pg("WHSE_BASEMAPPING.NTS_250K_GRID", os.environ["DATABASE_URL"])
 
 
 if __name__ == "__main__":

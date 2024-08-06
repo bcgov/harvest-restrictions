@@ -4,10 +4,10 @@
         "description": "National Park",
         "source_type": "BCGW",
         "source": "WHSE_ADMIN_BOUNDARIES.CLAB_NATIONAL_PARKS",
-        "primary_key": null,
+        "primary_key": "NATIONAL_PARK_ID",
         "query": null,
         "field_mapper": {"name": "ENGLISH_NAME"},
-        "data": {"harvest_restriction": 1, "og_restriction": 0, "mining_restriction": 0}
+        "data": {"harvest_restriction": 1, "og_restriction": 0, "mine_restriction": 0}
     },
     {   "alias": "park_er",
         "source_type": "BCGW",
@@ -16,7 +16,7 @@
         "primary_key": null,
         "query": "PROTECTED_LANDS_DESIGNATION = 'ECOLOGICAL RESERVE'",
         "field_mapper": {"name": "PROTECTED_LANDS_NAME"},
-        "data": {"harvest_restriction": 1, "og_restriction": 0, "mining_restriction": 0}
+        "data": {"harvest_restriction": 1, "og_restriction": 0, "mine_restriction": 0}
     },
     {
         "alias": "park_provincial",
@@ -26,7 +26,7 @@
         "primary_key": null,
         "query": "PROTECTED_LANDS_DESIGNATION = 'PROVINCIAL PARK'",
         "field_mapper": {"name": "PROTECTED_LANDS_NAME"},
-        "data": {"harvest_restriction": 1, "og_restriction": 0, "mining_restriction": 0}
+        "data": {"harvest_restriction": 1, "og_restriction": 0, "mine_restriction": 0}
     },
     {
         "alias": "park_conservancy",
@@ -36,7 +36,7 @@
         "primary_key": null,
         "query": null,
         "field_mapper": {"name": "CONSERVANCY_AREA_NAME"},
-        "data": {"harvest_restriction": 1, "og_restriction": 0, "mining_restriction": 0}
+        "data": {"harvest_restriction": 1, "og_restriction": 0, "mine_restriction": 0}
     },
     {
         "alias": "park_protectedarea",
@@ -46,7 +46,7 @@
         "primary_key": null,
         "query": "PROTECTED_LANDS_DESIGNATION = 'PROTECTED AREA'",
         "field_mapper": {"name": "PROTECTED_LANDS_NAME"},
-        "data": {"harvest_restriction": 1, "og_restriction": 0, "mining_restriction": 0}
+        "data": {"harvest_restriction": 1, "og_restriction": 0, "mine_restriction": 0}
     },
     {
         "alias": "heritage_site",
@@ -56,7 +56,7 @@
         "primary_key": null,
         "query": null,
         "field_mapper": {"name": "COMMON_SITE_NAME"},
-        "data": {"harvest_restriction": 1, "og_restriction": 0, "mining_restriction": 0}
+        "data": {"harvest_restriction": 1, "og_restriction": 0, "mine_restriction": 0}
     },
     {
         "alias": "park_recreationarea",
@@ -66,7 +66,7 @@
         "primary_key": null,
         "query": "PROTECTED_LANDS_DESIGNATION = 'RECREATION AREA'",
         "field_mapper": {"name": "PROTECTED_LANDS_NAME"},
-        "data": {"harvest_restriction": 1, "og_restriction": 0, "mining_restriction": 0}
+        "data": {"harvest_restriction": 1, "og_restriction": 0, "mine_restriction": 0}
     },
     {
         "alias": "park_regional",
@@ -76,7 +76,7 @@
         "primary_key": null,
         "query": "PARK_TYPE LIKE 'Regional%'",
         "field_mapper": {"name": "PARK_NAME"},
-        "data": {"harvest_restriction": 1, "og_restriction": 0, "mining_restriction": 0}
+        "data": {"harvest_restriction": 1, "og_restriction": 0, "mine_restriction": 0}
     },
     {
         "alias": "uwr_no_harvest",
@@ -86,7 +86,7 @@
         "primary_key": null,
         "query": "TIMBER_HARVEST_CODE = 'NO HARVEST ZONE'",
         "field_mapper": {"name": "UWR_NUMBER"},
-        "data": {"harvest_restriction": 2, "og_restriction": 0, "mining_restriction": 0}
+        "data": {"harvest_restriction": 2, "og_restriction": 0, "mine_restriction": 0}
     },
     {
         "alias": "wha_no_harvest",
@@ -96,7 +96,7 @@
         "primary_key": null,
         "query": "(TIMBER_HARVEST_CODE = 'NO HARVEST ZONE' AND FEATURE_NOTES NOT LIKE '%not a legal boundary%') OR(TIMBER_HARVEST_CODE = 'NO HARVEST ZONE' AND FEATURE_NOTES IS NULL)",
         "field_mapper": {"name": "COMMON_SPECIES_NAME"},
-        "data": {"harvest_restriction": 2, "og_restriction": 0, "mining_restriction": 0}
+        "data": {"harvest_restriction": 2, "og_restriction": 0, "mine_restriction": 0}
     },
     {
         "alias": "biodiv_mining_tourism_areas",
@@ -106,7 +106,7 @@
         "primary_key": null,
         "query": "LEGAL_FEAT_OBJECTIVE = 'Biodiversity, Mining and Tourism Areas (BMTA)'",
         "field_mapper": {"name": "LEGAL_FEAT_ATRB_1_VALUE"},
-        "data": {"harvest_restriction": 2, "og_restriction": 0, "mining_restriction": 0}
+        "data": {"harvest_restriction": 2, "og_restriction": 0, "mine_restriction": 0}
     },
     {
         "alias": "sea_to_sky_wildland",
@@ -116,7 +116,7 @@
         "primary_key": null,
         "query": "STRGC_LAND_RSRCE_PLAN_NAME = 'Sea to Sky Land and Resource Management Plan' AND LEGAL_FEAT_OBJECTIVE = 'Wildland Area'",
         "field_mapper": {"name": "LEGAL_FEAT_ATRB_4_VALUE"},
-        "data": {"harvest_restriction": 2, "og_restriction": 0, "mining_restriction": 0}
+        "data": {"harvest_restriction": 2, "og_restriction": 0, "mine_restriction": 0}
     },
     {
         "alias": "mk_wildland",
@@ -126,7 +126,7 @@
         "primary_key": null,
         "query": "NON_LEGAL_FEAT_ID IN (65488,65490,65491,65492,65497,65501,65508)",
         "field_mapper": {"name": "NON_LEGAL_FEAT_ATRB_4_VALUE"},
-        "data": {"harvest_restriction": 2, "og_restriction": 0, "mining_restriction": 0}
+        "data": {"harvest_restriction": 2, "og_restriction": 0, "mine_restriction": 0}
     },
     {
         "alias": "n_c_wildland",
@@ -136,7 +136,7 @@
         "primary_key": null,
         "query": "STRGC_LAND_RSRCE_PLAN_NAME = 'Lillooet Land and Resource Management Plan' AND LEGAL_FEAT_OBJECTIVE = 'Wildland Area'",
         "field_mapper": {"name": "LEGAL_FEAT_ATRB_4_VALUE"},
-        "data": {"harvest_restriction": 2, "og_restriction": 0, "mining_restriction": 0}
+        "data": {"harvest_restriction": 2, "og_restriction": 0, "mine_restriction": 0}
     },
     {
         "alias": "s_cayoosh_wildland",
@@ -146,7 +146,7 @@
         "primary_key": null,
         "query": "STRGC_LAND_RSRCE_PLAN_NAME = 'Lillooet Land and Resource Management Plan' AND LEGAL_FEAT_OBJECTIVE = 'Mining and Tourism Area'",
         "field_mapper": {"name": "LEGAL_FEAT_ATRB_4_VALUE"},
-        "data": {"harvest_restriction": 2, "og_restriction": 0, "mining_restriction": 0}
+        "data": {"harvest_restriction": 2, "og_restriction": 0, "mine_restriction": 0}
     },
     {
         "alias": "ngo_fee_simple",
@@ -156,7 +156,7 @@
         "primary_key": null,
         "query": null,
         "field_mapper": {"name": "CONSERVATION_AREAS_NGO_ID"},
-        "data": {"harvest_restriction": 2, "og_restriction": 0, "mining_restriction": 0}
+        "data": {"harvest_restriction": 2, "og_restriction": 0, "mine_restriction": 0}
     },
     {
         "alias": "great_bear_sfma",
@@ -166,7 +166,7 @@
         "primary_key": null,
         "query": "PROTECTED_AREA_TYPE = 'SFMA'",
         "field_mapper": {"name": "PROTECTED_AREA_TYPE"},
-        "data": {"harvest_restriction": 2, "og_restriction": 0, "mining_restriction": 0}
+        "data": {"harvest_restriction": 2, "og_restriction": 0, "mine_restriction": 0}
     },
     {
         "alias": "great_bear_lrd",
@@ -176,7 +176,7 @@
         "primary_key": null,
         "field_mapper": {"name": "LU_NAME"},
         "query": "LRD_STATUS = 'current'",
-        "data": {"harvest_restriction": 2, "og_restriction": 0, "mining_restriction": 0}
+        "data": {"harvest_restriction": 2, "og_restriction": 0, "mine_restriction": 0}
     },
     {
         "alias": "ogma_legal",
@@ -186,7 +186,7 @@
         "primary_key": null,
         "field_mapper": {"name": "LEGAL_OGMA_PROVID"},
         "query": null,
-        "data": {"harvest_restriction": 2, "og_restriction": 0, "mining_restriction": 0}
+        "data": {"harvest_restriction": 2, "og_restriction": 0, "mine_restriction": 0}
     },
     {
         "alias": "great_bear_grizzly_class1",
@@ -196,7 +196,7 @@
         "primary_key": null,
         "field_mapper": {"name": "LEGAL_FEAT_ATRB_1_NAME"},
         "query": "LEGAL_FEAT_ATRB_1_NAME = 'GRIZZLY_BEAR_HABITAT_CLASS' AND LEGAL_FEAT_ATRB_1_VALUE = '1'",
-        "data": {"harvest_restriction": 2, "og_restriction": 0, "mining_restriction": 0}
+        "data": {"harvest_restriction": 2, "og_restriction": 0, "mine_restriction": 0}
     },
     {
         "alias": "ogma_nonlegal",
@@ -206,7 +206,7 @@
         "primary_key": null,
         "field_mapper": {"name": null},
         "query": null,
-        "data": {"harvest_restriction": 2, "og_restriction": 0, "mining_restriction": 0}
+        "data": {"harvest_restriction": 2, "og_restriction": 0, "mine_restriction": 0}
     },
     {
         "alias": "private_conservation_lands_admin",
@@ -216,7 +216,7 @@
         "primary_key": null,
         "field_mapper": {"name": "SITE_NAME"},
         "query": "CONSERVATION_LAND_TYPE = 'Administered Lands'",
-        "data": {"harvest_restriction": 3, "og_restriction": 0, "mining_restriction": 0}
+        "data": {"harvest_restriction": 3, "og_restriction": 0, "mine_restriction": 0}
     },
     {
         "alias": "crd_water_supply_area",
@@ -227,7 +227,7 @@
         "primary_key": null,
         "field_mapper": {"name": "Name"},
         "query": null,
-        "data": {"harvest_restriction": 3, "og_restriction": 0, "mining_restriction": 0}
+        "data": {"harvest_restriction": 3, "og_restriction": 0, "mine_restriction": 0}
     },
     {
         "alias": "gvrd_water_supply_area",
@@ -238,7 +238,7 @@
         "primary_key": null,
         "query": null,
         "field_mapper": {"name": "Name"},
-        "data": {"harvest_restriction": 3, "og_restriction": 0, "mining_restriction": 0}
+        "data": {"harvest_restriction": 3, "og_restriction": 0, "mine_restriction": 0}
     },
     {
         "alias": "wildlife_management_area",
@@ -248,7 +248,7 @@
         "primary_key": null,
         "query": null,
         "field_mapper": {"name": "WILDLIFE_MANAGEMENT_AREA_NAME"},
-        "data": {"harvest_restriction": 3, "og_restriction": 0, "mining_restriction": 0}
+        "data": {"harvest_restriction": 3, "og_restriction": 0, "mine_restriction": 0}
     },
     {
         "alias": "creston_v_wma",
@@ -258,7 +258,7 @@
         "primary_key": null,
         "query": "ADMIN_AREA_SID = 5364",
         "field_mapper": {"name": "ADMIN_AREA_SID"},
-        "data": {"harvest_restriction": 3, "og_restriction": 0, "mining_restriction": 0}
+        "data": {"harvest_restriction": 3, "og_restriction": 0, "mine_restriction": 0}
     },
     {
         "alias": "vqo_preserve",
@@ -268,7 +268,7 @@
         "primary_key": null,
         "query": "REC_MADE_KNOWN_CODE = 'Y' AND REC_EVQO_CODE = 'P'",
         "field_mapper": {"name": "PROJECT_NAME"},
-        "data": {"harvest_restriction": 3, "og_restriction": 0, "mining_restriction": 0}
+        "data": {"harvest_restriction": 3, "og_restriction": 0, "mine_restriction": 0}
     },
     {
         "alias": "vqo_retain",
@@ -278,7 +278,7 @@
         "primary_key": null,
         "query": "REC_MADE_KNOWN_CODE = 'Y' AND REC_EVQO_CODE = 'R'",
         "field_mapper": {"name": "PROJECT_NAME"},
-        "data": {"harvest_restriction": 3, "og_restriction": 0, "mining_restriction": 0}
+        "data": {"harvest_restriction": 3, "og_restriction": 0, "mine_restriction": 0}
     },
     {
         "alias": "designated_area",
@@ -288,7 +288,7 @@
         "primary_key": null,
         "query": "EXPIRED_OR_CANCELLED = 'N'",
         "field_mapper": {"name": "DESIGNATED_AREA_NAME"},
-        "data": {"harvest_restriction": 3, "og_restriction": 0, "mining_restriction": 0}
+        "data": {"harvest_restriction": 3, "og_restriction": 0, "mine_restriction": 0}
     },
     {
         "alias": "atlin_taku_fra",
@@ -298,7 +298,7 @@
         "primary_key": null,
         "query": "STRGC_LAND_RSRCE_PLAN_NAME = 'Atlin - Taku Strategic Land and Resource Plan' AND LEGAL_FEAT_OBJECTIVE = 'Forest Retention Area'",
         "field_mapper": {"name": "LEGAL_FEAT_ID"},
-        "data": {"harvest_restriction": 3, "og_restriction": 0, "mining_restriction": 0}
+        "data": {"harvest_restriction": 3, "og_restriction": 0, "mine_restriction": 0}
     },
     {
         "alias": "migratory_bird_sanctuaries",
@@ -309,7 +309,7 @@
         "primary_key": null,
         "query": "LOC = 2 And BIOME = 'T' And TYPE_E = 'Migratory Bird Sanctuary'",
         "field_mapper": {"name": "PARENT_ID"},
-        "data": {"harvest_restriction": 3, "og_restriction": 0, "mining_restriction": 0}
+        "data": {"harvest_restriction": 3, "og_restriction": 0, "mine_restriction": 0}
     },
     {
         "alias": "private_conservation_lands_reserve",
@@ -319,7 +319,7 @@
         "primary_key": null,
         "query": "CONSERVATION_LAND_TYPE = 'Reserve Lands'",
         "field_mapper": {"name": "SITE_NAME"},
-        "data": {"harvest_restriction": 4, "og_restriction": 0, "mining_restriction": 0}
+        "data": {"harvest_restriction": 4, "og_restriction": 0, "mine_restriction": 0}
     },
     {
         "alias": "uwr_conditional_harvest",
@@ -329,7 +329,7 @@
         "primary_key": null,
         "query": "TIMBER_HARVEST_CODE = 'CONDITIONAL HARVEST ZONE'",
         "field_mapper": {"name": "UWR_NUMBER"},
-        "data": {"harvest_restriction": 4, "og_restriction": 0, "mining_restriction": 0}
+        "data": {"harvest_restriction": 4, "og_restriction": 0, "mine_restriction": 0}
     },
     {
         "alias": "wha_conditional_harvest",
@@ -339,7 +339,7 @@
         "primary_key": null,
         "query": "(TIMBER_HARVEST_CODE = 'CONDITIONAL HARVEST ZONE' AND FEATURE_NOTES NOT LIKE '%not a legal boundary%') OR (TIMBER_HARVEST_CODE = 'NO HARVEST ZONE' AND FEATURE_NOTES IS NULL)",
         "field_mapper": {"name": "COMMON_SPECIES_NAME"},
-        "data": {"harvest_restriction": 4, "og_restriction": 0, "mining_restriction": 0}
+        "data": {"harvest_restriction": 4, "og_restriction": 0, "mine_restriction": 0}
     },
     {
         "alias": "vqo_partretain",
@@ -349,7 +349,7 @@
         "primary_key": null,
         "query": "REC_MADE_KNOWN_CODE = 'Y' AND REC_RVQC_CODE = 'pr'",
         "field_mapper": {"name": "PROJECT_NAME"},
-        "data": {"harvest_restriction": 4, "og_restriction": 0, "mining_restriction": 0}
+        "data": {"harvest_restriction": 4, "og_restriction": 0, "mine_restriction": 0}
     },
     {
         "alias": "vqo_modify",
@@ -359,7 +359,7 @@
         "primary_key": null,
         "query": "REC_MADE_KNOWN_CODE = 'Y' AND REC_RVQC_CODE = 'm'",
         "field_mapper": {"name": "PROJECT_NAME"},
-        "data": {"harvest_restriction": 4, "og_restriction": 0, "mining_restriction": 0}
+        "data": {"harvest_restriction": 4, "og_restriction": 0, "mine_restriction": 0}
     },
     {
         "alias": "community_watershed",
@@ -369,7 +369,7 @@
         "primary_key": null,
         "query": null,
         "field_mapper": {"name": "CW_NAME"},
-        "data": {"harvest_restriction": 4, "og_restriction": 0, "mining_restriction": 0}
+        "data": {"harvest_restriction": 4, "og_restriction": 0, "mine_restriction": 0}
     },
     {
         "alias": "national_wildlife_area",
@@ -380,7 +380,7 @@
         "primary_key": null,
         "query": "LOC = 2 AND BIOME = 'T' AND TYPE_E = 'National Wildlife Area'",
         "field_mapper": {"name": "PARENT_ID"},
-        "data": {"harvest_restriction": 4, "og_restriction": 0, "mining_restriction": 0}
+        "data": {"harvest_restriction": 4, "og_restriction": 0, "mine_restriction": 0}
     },
     {
         "alias": "for_rec_site",
@@ -390,7 +390,7 @@
         "primary_key": null,
         "query": "PROJECT_TYPE in ('Recreation Site', 'Recreation Trail','Recreation Reserve', 'Interpretative Forest') and FILE_STATUS_CODE = 'HI' and RETIREMENT_DATE IS NULL",
         "field_mapper": {"name": "PROJECT_NAME"},
-        "data": {"harvest_restriction": 4, "og_restriction": 0, "mining_restriction": 0}
+        "data": {"harvest_restriction": 4, "og_restriction": 0, "mine_restriction": 0}
     },
     {
         "alias": "lakes_corridors",
@@ -400,7 +400,7 @@
         "primary_key": null,
         "query": "STRGC_LAND_RSRCE_PLAN_NAME = 'Lakes South Sustainable Resource Management Plan' AND LEGAL_FEAT_OBJECTIVE = 'Landscape Corridors'",
         "field_mapper": {"name": "LEGAL_FEAT_ID"},
-        "data": {"harvest_restriction": 4, "og_restriction": 0, "mining_restriction": 0}
+        "data": {"harvest_restriction": 4, "og_restriction": 0, "mine_restriction": 0}
     },
     {
         "alias": "great_bear_fisheries_watersheds",
@@ -411,7 +411,7 @@
         "primary_key": null,
         "query": null,
         "field_mapper": {"name": "WS_NUM"},
-        "data": {"harvest_restriction": 4, "og_restriction": 0, "mining_restriction": 0}
+        "data": {"harvest_restriction": 4, "og_restriction": 0, "mine_restriction": 0}
     },
     {
         "alias": "great_bear_ebm_area",
@@ -421,7 +421,7 @@
         "primary_key": null,
         "query": "PROTECTED_AREA_NAME = 'Great Bear Rainforest'",
         "field_mapper": {"name": "PROTECTED_AREA_NAME"},
-        "data": {"harvest_restriction": 5, "og_restriction": 0, "mining_restriction": 0}
+        "data": {"harvest_restriction": 5, "og_restriction": 0, "mine_restriction": 0}
     },
     {
         "alias": "muskwa_kechika",
@@ -431,7 +431,7 @@
         "primary_key": null,
         "query": "NON_LEGAL_FEAT_ID IN (65244,65246,65251,65265,65274,219519,219520,219521,219522,219523,219524,219525,219526,219527,219528,219529,219530,219531,219532,219534,219535,219552,65494,65495)",
         "field_mapper": {"name": "NON_LEGAL_FEAT_ID"},
-        "data": {"harvest_restriction": 5, "og_restriction": 0, "mining_restriction": 0}
+        "data": {"harvest_restriction": 5, "og_restriction": 0, "mine_restriction": 0}
     },
     {
         "alias": "fsw",
@@ -441,7 +441,7 @@
         "primary_key": null,
         "query": null,
         "field_mapper": {"name": null},
-        "data": {"harvest_restriction": 5, "og_restriction": 0, "mining_restriction": 0}
+        "data": {"harvest_restriction": 5, "og_restriction": 0, "mine_restriction": 0}
     },
     {
         "alias": "vqo_maxmodify",
@@ -451,7 +451,7 @@
         "primary_key": null,
         "query": "REC_MADE_KNOWN_CODE = 'Y' AND REC_EVQO_CODE = 'MM'",
         "field_mapper": {"name": "PROJECT_NAME"},
-        "data": {"harvest_restriction": 5, "og_restriction": 0, "mining_restriction": 0}
+        "data": {"harvest_restriction": 5, "og_restriction": 0, "mine_restriction": 0}
     },
     {
         "alias": "lrmp_cc_nc_hg",
@@ -461,7 +461,7 @@
         "primary_key": null,
         "query": "STRGC_LAND_RSRCE_PLAN_NAME = 'Haida Gwaii Land Use Objectives Order'",
         "field_mapper": {"name": "STRGC_LAND_RSRCE_PLAN_NAME"},
-        "data": {"harvest_restriction": 5, "og_restriction": 0, "mining_restriction": 0}
+        "data": {"harvest_restriction": 5, "og_restriction": 0, "mine_restriction": 0}
     },
     {
         "alias": "great_bear_grizzly_class2",
@@ -472,7 +472,7 @@
         "primary_key": null,
         "query": "GB_CLASS = 2",
         "field_mapper": {"name": "GB_CLASS"},
-        "data": {"harvest_restriction": 5, "og_restriction": 0, "mining_restriction": 0}
+        "data": {"harvest_restriction": 5, "og_restriction": 0, "mine_restriction": 0}
     },
     {
         "alias": "no_special_restriction",
@@ -483,6 +483,6 @@
         "primary_key": null,
         "query": null,
         "field_mapper": {"name": null},
-        "data": {"harvest_restriction": 6, "og_restriction": 0, "mining_restriction": 0}
+        "data": {"harvest_restriction": 6, "og_restriction": 0, "mine_restriction": 0}
     }
 ]
