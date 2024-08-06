@@ -20,5 +20,12 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: Download sources to file
-        run: |
-          /venv/bin/python harvest_restrictions.py download -o s3://$OBJECTSTORE_BUCKET/dss_projects_2024/harvest_restrictions -v
+        run: /venv/bin/python download.py sources.json -v
+  process:
+    runs-on: ubuntu-latest
+    container: ghcr.io/bcgov/harvest-restrictions:main
+    environment: production
+    steps:
+      - uses: actions/checkout@v4
+      - name: Process overlays and dump results to file
+        run: process.sh

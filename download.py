@@ -82,7 +82,7 @@ def validate_file(source):
                 f"Primary key - {source['primary_key']} is not present in source"
             )
     for column in source["field_mapper"].values():
-        if column.lower() not in columns:
+        if column and column.lower() not in columns:
             raise ValueError(
                 f"Column {column} is not present in source, modify config 'field_mapper'"
             )
@@ -248,45 +248,16 @@ def download_source(source):
     return df
 
 
-@click.group()
-def cli():
-    pass
-
-
-@cli.command()
-@click.argument("alias", required=False)
+@click.command()
+@click.argument("sources_file", type=click.Path(exists=True), default="sources.json")
 @click.option(
-    "--sources_file",
+    "--source_alias",
     "-s",
-    type=click.Path(exists=True),
-    required=False,
-    default="sources.json",
+    default=None,
+    help="Validate and download just the specified source",
 )
-@verbose_opt
-@quiet_opt
-def validate(alias, sources_file, verbose, quiet):
-    """ensure sources json file is valid, and that data sources exist"""
-    configure_logging((verbose - quiet))
-
-    # load sources file
-    with open(sources_file, "r") as f:
-        sources = parse_sources(json.load(f))
-
-    # if specified, use only one source
-    if alias:
-        sources = [s for s in sources if s["alias"] == alias]
-
-    validate_sources(sources)
-
-
-@cli.command()
-@click.argument("alias", required=False)
 @click.option(
-    "--sources_file",
-    "-s",
-    type=click.Path(exists=True),
-    default="sources.json",
-    help="Path to configuration file listing data sources as json",
+    "--dry_run", "-t", is_flag=True, help="Validate sources_file only, do not download"
 )
 @click.option(
     "--out_path",
@@ -295,15 +266,10 @@ def validate(alias, sources_file, verbose, quiet):
     default=None,
     help="Output path to cache data (local folder or object storage)",
 )
-@click.option(
-    "--no_validate",
-    "-nv",
-    is_flag=True,
-    help="Do not validate sources_file",
-)
 @verbose_opt
 @quiet_opt
-def download(alias, sources_file, out_path, no_validate, verbose, quiet):
+def download(sources_file, source_alias, dry_run, out_path, verbose, quiet):
+    """Download sources defined in provided file"""
     configure_logging((verbose - quiet))
 
     # load sources file
@@ -311,40 +277,35 @@ def download(alias, sources_file, out_path, no_validate, verbose, quiet):
         sources = parse_sources(json.load(f))
 
     # if specified, use only one source
-    if alias:
-        sources = [s for s in sources if s["alias"] == alias]
+    if source_alias:
+        sources = [s for s in sources if s["alias"] == source_alias]
 
-    # default to validating each data source, but provide option
-    # to disable (just to speed testing)
-    if not no_validate:
-        sources = validate_sources(sources)
+    sources = validate_sources(sources)
 
     # download each data source
-    for source in sources:
-        df = download_source(source)
+    if not dry_run:
+        for source in sources:
+            df = download_source(source)
 
-        # load to postgres, writing everything to the same initial table
-        LOG.info(f"Writing {source['alias']} to postgres")
-        df.to_postgis("designations_source", DB, if_exists="append")
+            # load to postgres, writing everything to the same initial table
+            LOG.info(f"Writing {source['alias']} to postgres")
+            df.to_postgis("designations_source", DB, if_exists="append")
 
-        # dump to file if out_path specified
-        if out_path:
-            out_file = os.path.join(
-                out_path,
-                (
-                    "rr_"
-                    + str(source["index"]).zfill(2)
-                    + "_"
-                    + source["alias"].lower()
-                    + ".parquet"
-                ),
-            )
-            LOG.info(f"Writing {alias} to {out_file}")
-            df.to_parquet(out_file)
-
-    # download tiles
-    bcdata.bc2pg("WHSE_BASEMAPPING.NTS_250K_GRID", os.environ["DATABASE_URL"])
+            # dump to file if out_path specified
+            if out_path:
+                out_file = os.path.join(
+                    out_path,
+                    (
+                        "rr_"
+                        + str(source["index"]).zfill(2)
+                        + "_"
+                        + source["alias"].lower()
+                        + ".parquet"
+                    ),
+                )
+                LOG.info(f"Writing {source['alias']} to {out_file}")
+                df.to_parquet(out_file)
 
 
 if __name__ == "__main__":
-    cli()
+    download()

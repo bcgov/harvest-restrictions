@@ -2,7 +2,7 @@ import os
 
 import pytest
 
-from harvest_restrictions import download_source, validate_sources, parse_sources
+from download import download_source, validate_sources, parse_sources
 
 
 @pytest.fixture
