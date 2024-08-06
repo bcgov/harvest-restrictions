@@ -27,8 +27,9 @@ WORKDIR /home/harvest-restrictions
 
 COPY requirements*.txt ./
 
-RUN python3 -m venv /venv && \
-    /venv/bin/python -m pip install -U pip && \
-    /venv/bin/python -m pip install --no-cache-dir --upgrade numpy && \
-    /venv/bin/python -m pip install -r requirements.txt
+RUN python3 -m venv /opt/venv && \
+    /opt/venv/bin/python -m pip install -U pip && \
+    /opt/venv/bin/python -m pip install --no-cache-dir --upgrade numpy && \
+    /opt/venv/bin/python -m pip install --no-cache-dir -r requirements.txt
 
+ENV PATH="/opt/venv/bin:$PATH"
