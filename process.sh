@@ -62,4 +62,6 @@ ogr2ogr   \
     map_tile text,
     geom
   from designations
-  where all_harvest_restrictions @> ARRAY[6]" \
+  where all_harvest_restrictions @> ARRAY[6]" # land only
+
+# report on result

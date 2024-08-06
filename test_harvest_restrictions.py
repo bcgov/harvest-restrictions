@@ -2,7 +2,7 @@ import os
 
 import pytest
 
-from harvest_restrictions import download, validate_sources, parse_sources
+from harvest_restrictions import download_source, validate_sources, parse_sources
 
 
 @pytest.fixture
@@ -55,7 +55,7 @@ def test_parse_alias(test_data):
 def test_download_bcgw(test_data):
     sources = [s for s in parse_sources(test_data) if s["alias"] == "park_national"]
     sources = validate_sources(sources)
-    df = download(sources[0])
+    df = download_source(sources[0])
     assert len(df) > 0
 
 
@@ -71,7 +71,7 @@ def test_download_file(test_data, tmpdir):
         s for s in parse_sources(test_data) if s["alias"] == "crd_water_supply_area"
     ]
     sources = validate_sources(sources)
-    df = download(sources[0])
+    df = download_source(sources[0])
     assert len(df) > 0
 
 
