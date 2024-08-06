@@ -1,31 +1,25 @@
-name: Test
+name: Test download script and validate sources
 on:
   push:
     branches: [ main]
     paths:
       - '.github/workflows/test.yaml'
       - 'requirements*.txt'
-      - 'harvest_restrictions.py'
-      - 'test_harvest_restrictions.py'
+      - 'download.py'
+      - 'test_download.py'
+      - 'source.schema.json'
+      - 'sources.json'
   pull_request:
     branches: [ main ]
     paths:
       - '.github/workflows/test.yaml'
       - 'requirements*.txt'
-      - 'harvest_restrictions.py'
-      - 'test_harvest_restrictions.py'
+      - 'download.py'
+      - 'test_download.py'
       - 'source.schema.json'
       - 'sources.json'
 env:
   DATABASE_URL: "postgresql://postgres:postgres@postgres:5432/postgres"
-  AWS_ENDPOINT_URL: "https://nrs.objectstore.gov.bc.ca"
-  AWS_S3_ENDPOINT: "nrs.objectstore.gov.bc.ca"
-  AWS_VIRTUAL_HOSTING: "FALSE"
-  AWS_EC2_METADATA_DISABLED: "true"
-  CPL_VSISTDIN_BUFFER_LIMIT: -1
-  OBJECTSTORE_BUCKET: ${{ secrets.OBJECTSTORE_BUCKET }}
-  AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
-  AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
 jobs:
   test:
     runs-on: ubuntu-latest
@@ -55,5 +49,6 @@ jobs:
       - name: Run tests
         run: |
           /venv/bin/python -m pytest -v -rxXs
-        env:
-          DATABASE_URL: postgresql://postgres:postgres@postgres:5432/postgres
+      - name: Validate sources.json
+        run: |
+          /venv/bin/python download.py sources.json -t -v
