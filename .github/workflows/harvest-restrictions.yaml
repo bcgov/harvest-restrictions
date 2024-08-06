@@ -15,7 +15,7 @@ env:
 jobs:
   harvest-restrictions:
     runs-on: ubuntu-latest
-    name: test
+    name: harvest-restrictions
     container: ghcr.io/bcgov/harvest-restrictions:main
     environment: production
     services:
@@ -33,7 +33,7 @@ jobs:
         DEBIAN_FRONTEND: noninteractive
     steps:
       - uses: actions/checkout@v4
-      - name: Download
+      - name: Download sources
         run: |
           /venv/bin/python download.py sources.json -v
       - name: Process overlays

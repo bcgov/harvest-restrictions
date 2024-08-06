@@ -2,7 +2,7 @@
 set -euxo pipefail
 
 # download 250k grid
-bcdata bc2pg WHSE_BASEMAPPING.NTS_250K_GRID
+venv/bin/bcdata bc2pg WHSE_BASEMAPPING.NTS_250K_GRID
 
 # create output table
 psql $DATABASE_URL -c "DROP TABLE IF EXISTS designations;
