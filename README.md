@@ -78,3 +78,4 @@ This tool is a stripped down version of the [designated lands script](https://gi
 - raster based analysis
 - config based pre-processing of input sources
 - adjustment of tiled processing to include the sliver of BC's official boundary not covered by 250k tiles
+- overlay of results with arbitrary admin or eco layer
