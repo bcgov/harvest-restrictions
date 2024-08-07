@@ -59,11 +59,11 @@ ogr2ogr   \
       when harvest_restriction = 5 then 'Low Restricted'
       when harvest_restriction = 6 then 'No Special Restriction'
     end as harvest_restriction_class_desc,
-    array_to_string(all_aliases, ';') as all_harvest_restrictions,
-    array_to_string(all_descriptions, ';') as all_descriptions,
-    array_to_string(all_primary_keys, ';') as all_primary_keys,
-    array_to_string(all_names, ';') as all_names,
-    array_to_string(all_harvest_restrictions, ';') as all_harvest_restriction_classes,
+    array_to_string(aliases_all, ';') as harvest_restrictions_all,
+    array_to_string(descriptions_all, ';') as descriptions_all,
+    array_to_string(primary_keys_all, ';') as primary_keys_all,
+    array_to_string(names_all, ';') as names_all,
+    array_to_string(harvest_restrictions_all, ';') as harvest_restriction_classes_all,
     map_tile text,
     geom
   from designations
