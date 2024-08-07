@@ -67,7 +67,7 @@ ogr2ogr   \
     map_tile text,
     geom
   from designations
-  where all_harvest_restrictions @> ARRAY[6]" # land only
+  where harvest_restrictions_all @> ARRAY[6]" # land only
 
 # zip output
 zip -r harvest_restrictions.gdb.zip harvest_restrictions.gdb
