@@ -101,7 +101,6 @@ def validate_file(source):
 def validate_bcgw(source):
     """validate bcdata sources against bcdc api and wfs"""
     # does source exist as written?
-    alias = source["alias"]
     table = source["source"].upper()
     if table not in bcdata.list_tables():
         raise ValueError(
@@ -131,13 +130,18 @@ def validate_bcgw(source):
 
     # does query return values?
     if source["query"]:
+        count = bcdata.get_count(table, query=source["query"])
+        if count > 0:
+            LOG.info(
+                f"Validation successful: {source['alias']} - query returns {str(count)} values"
+            )
         if bcdata.get_count(table, query=source["query"]) == 0:
             raise ValueError(
                 f"Validation error: {source['alias']} - no data returned, check query against {table}"
             )
 
     # that is it for validation, presume layer is defined correctly if no errors are raised
-    LOG.info(f"Validation successful: {alias}")
+    LOG.info(f"Validation successful: {source['alias']}")
 
 
 def to_multipart(df):

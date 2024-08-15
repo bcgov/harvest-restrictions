@@ -337,7 +337,7 @@
         "source": "WHSE_WILDLIFE_MANAGEMENT.WCP_WILDLIFE_HABITAT_AREA_POLY",
         "source_type": "BCGW",
         "primary_key": null,
-        "query": "(TIMBER_HARVEST_CODE = 'CONDITIONAL HARVEST ZONE' AND FEATURE_NOTES NOT LIKE '%not a legal boundary%') OR (TIMBER_HARVEST_CODE = 'NO HARVEST ZONE' AND FEATURE_NOTES IS NULL)",
+        "query": "(TIMBER_HARVEST_CODE = 'CONDITIONAL HARVEST ZONE' AND FEATURE_NOTES NOT LIKE '%not a legal boundary%') OR (TIMBER_HARVEST_CODE = 'CONDITIONAL HARVEST ZONE' AND FEATURE_NOTES IS NULL)",
         "field_mapper": {"name": "COMMON_SPECIES_NAME"},
         "data": {"harvest_restriction": 4, "og_restriction": 0, "mine_restriction": 0}
     },
