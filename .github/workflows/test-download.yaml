@@ -15,7 +15,6 @@ on:
       - 'download.py'
       - 'test_download.py'
 env:
-  DATABASE_URL: "postgresql://postgres:postgres@postgres:5432/postgres"
   AWS_ENDPOINT_URL: "https://nrs.objectstore.gov.bc.ca"
   AWS_S3_ENDPOINT: "nrs.objectstore.gov.bc.ca"
   AWS_VIRTUAL_HOSTING: "FALSE"
@@ -30,17 +29,6 @@ jobs:
     name: test
     container: ghcr.io/bcgov/harvest-restrictions:main
     environment: production
-    services:
-      postgres:
-        image: postgis/postgis:16-3.4
-        env:
-          POSTGRES_PASSWORD: postgres
-        # Set health checks to wait until postgres has started
-        options: >-
-          --health-cmd pg_isready
-          --health-interval 10s
-          --health-timeout 5s
-          --health-retries 5
     env:
         DEBIAN_FRONTEND: noninteractive
     steps:
