@@ -87,14 +87,14 @@ def validate_file(source):
             )
 
     # is there data?
-    alias = source["alias"]
-    if len(df.index) == 0:
+    count = len(df.index)
+    if count == 0:
         raise ValueError(
             f"Validation error: {source['alias']} - no data returned, check source and query"
         )
 
     # presume layer is defined correctly if no errors are raised
-    LOG.info(f"Validation successful: {alias}")
+    LOG.info(f"Validation successful: {source['alias']} - record count: {str(count)}")
 
 
 def validate_bcgw(source):
@@ -127,20 +127,15 @@ def validate_bcgw(source):
                     f"Validation error: {source['alias']} - column {column} is not present in {table}, modify config 'field_mapper'"
                 )
 
-    # does query return values?
-    if source["query"]:
-        count = bcdata.get_count(table, query=source["query"])
-        if count > 0:
-            LOG.info(
-                f"Validation successful: {source['alias']} - query returns {str(count)} values"
-            )
-        if bcdata.get_count(table, query=source["query"]) == 0:
-            raise ValueError(
-                f"Validation error: {source['alias']} - no data returned, check query against {table}"
-            )
+    # is there data?
+    count = bcdata.get_count(table, query=source["query"])
+    if count == 0:
+        raise ValueError(
+            f"Validation error: {source['alias']} - no data returned, check query against {table}"
+        )
 
-    # that is it for validation, presume layer is defined correctly if no errors are raised
-    LOG.info(f"Validation successful: {source['alias']}")
+    # presume source is defined correctly if no errors are raised
+    LOG.info(f"Validation successful: {source['alias']} - record count: {str(count)}")
 
 
 def to_multipart(df):
@@ -174,7 +169,7 @@ def validate_sources(sources, validate_data=True, alias=None):
         elif source["source_type"] == "FILE":
             validate_file(source)
 
-    LOG.info("Validation successful - all layers appear valid")
+    LOG.info("Validation successful: all layers appear valid")
 
     # return validated (and indexed/dated) sources as ordered dictionary
     return sources
