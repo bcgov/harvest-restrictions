@@ -22,7 +22,6 @@ from sqlalchemy import create_engine
 
 LOG_FORMAT = "%(asctime)s:%(levelname)s:%(name)s: %(message)s"
 LOG = logging.getLogger(__name__)
-DB = create_engine(os.environ.get("DATABASE_URL"))
 
 
 def configure_logging(verbosity):
@@ -294,7 +293,8 @@ def download(sources_file, source_alias, dry_run, out_path, verbose, quiet):
 
             # load to postgres, writing everything to the same initial table
             LOG.info(f"Writing {source['alias']} to postgres")
-            df.to_postgis("designations_source", DB, if_exists="append")
+            db = create_engine(os.environ.get("DATABASE_URL"))
+            df.to_postgis("designations_source", db, if_exists="append")
 
             # dump to file if out_path specified
             if out_path:
