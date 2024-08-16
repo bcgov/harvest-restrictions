@@ -57,19 +57,30 @@ See `source.schema.json` for a full description.
 	
 		python download.py --dry-run -v
 
-3. Download data to postgres:
+3. Download data to file:
 
-		python download.py -v
+		python download.py download -v
 
-4. Run overlays and dump results to file:
+4. Load downloaded files to database:
 
-		./process.sh
+        python download.py cache2pg -v --out_table designations
+
+4. Run overlays, dump results to file, log result summaries to csv:
+
+		./harvest_restrictions.sh
 
 Output files are:
 
-- `harvest_restrictions.gdb.zip`		
-- `harvest_restrictions_summary.csv`
+- `harvest_restrictions.gdb.zip`        
+- `log_land_designations.csv`
+- `log_harvest_restrictions.csv`
 
+## Versioning
+
+Note that logging is based on the output of `git describe`. For this to work smoothly:
+
+- tag releases with `v<year>_<month>` and development versions with `v<year>_<month>_dev`
+- manually strip any development version columns written to the log .csv files as required
 
 ## designatedlands
 

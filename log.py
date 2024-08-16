@@ -49,7 +49,5 @@ h = h.round({tag: 0, "diff": 0, "pct_diff": 2}).set_index(
 )
 
 # dump results back to s3
-# d.to_csv(os.path.join(S3, "log_land_designations.csv"))
-# h.to_csv(os.path.join(S3, "log_harvest_restrictions.csv"))
-d.to_csv("log_land_designations.csv")
-h.to_csv("log_harvest_restrictions.csv")
+d.to_csv(os.path.join(S3, "log_land_designations.csv"))
+h.to_csv(os.path.join(S3, "log_harvest_restrictions.csv"))
