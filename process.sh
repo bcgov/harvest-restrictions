@@ -1,13 +1,11 @@
 #!/bin/bash
 set -euxo pipefail
 
+# stop script when sql fails
 PSQL="psql $DATABASE_URL -v ON_ERROR_STOP=1"
 
 # load 250k grid
 bcdata bc2pg WHSE_BASEMAPPING.NTS_250K_GRID
-
-# load source data
-
 
 # create output table
 $PSQL -c "DROP TABLE IF EXISTS designations;

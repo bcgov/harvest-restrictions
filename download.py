@@ -256,7 +256,12 @@ def download_source(source):
     return df
 
 
-@click.command()
+@click.group()
+def cli():
+    pass
+
+
+@cli.command()
 @click.argument("sources_file", type=click.Path(exists=True), default="sources.json")
 @click.option(
     "--source_alias",
@@ -276,7 +281,7 @@ def download_source(source):
 )
 @verbose_opt
 @quiet_opt
-def download(sources_file, out_format, source_alias, dry_run, out_path, verbose, quiet):
+def download(sources_file, source_alias, dry_run, out_path, verbose, quiet):
     """Download sources defined in provided file"""
     configure_logging((verbose - quiet))
 
@@ -304,5 +309,74 @@ def download(sources_file, out_format, source_alias, dry_run, out_path, verbose,
             LOG.info(f"{source['alias']} written to {out_file}")
 
 
+@cli.command()
+@click.argument("sources_file", type=click.Path(exists=True), default="sources.json")
+@click.option(
+    "--in_path",
+    "-p",
+    type=click.Path(),
+    default=".",
+    help="Path to read data (local or s3://)",
+)
+@click.option(
+    "--db_url",
+    "-db",
+    help="Target database url, defaults to $DATABASE_URL environment variable if set",
+    default=os.environ.get("DATABASE_URL"),
+)
+@click.option(
+    "--out_table",
+    "-o",
+    help="Target output table. Appended to if the table already exists.",
+)
+@click.option(
+    "--source_alias",
+    "-s",
+    default=None,
+    help="Load just the specified source",
+)
+@click.option(
+    "--dry_run", "-t", is_flag=True, help="Validate sources_file only, do not load data"
+)
+@verbose_opt
+@quiet_opt
+def cache2pg(
+    sources_file, in_path, db_url, out_table, source_alias, dry_run, verbose, quiet
+):
+    """Rather than use a FDW to connect directly to files, load them to the db"""
+    configure_logging((verbose - quiet))
+
+    # connect to db
+    db = create_engine(db_url)
+
+    # load sources file
+    with open(sources_file, "r") as f:
+        sources = parse_sources(json.load(f))
+
+    # if specified, use only one source
+    if source_alias:
+        sources = [s for s in sources if s["alias"] == source_alias]
+
+    # only validate on dry-run
+    if dry_run:
+        sources = validate_sources(sources)
+
+    else:
+        for source in sources:
+            layer = (
+                "hr_" + str(source["index"]).zfill(2) + "_" + source["alias"].lower()
+            )
+            in_file = os.path.join(in_path, layer + ".parquet")
+            df = geopandas.read_parquet(in_file)
+            # if out_table specified, write to that table, appending if it exists
+            if out_table:
+                df.to_postgis(out_table, db, if_exists="append")
+                LOG.info(f"{source['alias']} written to {out_table}")
+            # if out_table not provided, write to table with the layer name, overwriting if it exists
+            else:
+                df.to_postgis(layer, db, if_exists="replace")
+                LOG.info(f"{source['alias']} written to {layer}")
+
+
 if __name__ == "__main__":
-    download()
+    cli()
