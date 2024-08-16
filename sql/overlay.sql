@@ -12,8 +12,6 @@ with tile as (
     s.primary_key,
     s.name,
     s.harvest_restriction,
-    s.og_restriction,
-    s.mine_restriction,
     CASE
       WHEN ST_CoveredBy(s.geom, t.geom) THEN st_makevalid(s.geom)
       ELSE st_makevalid((ST_Intersection(s.geom, t.geom, .1)))
@@ -34,8 +32,6 @@ select
   primary_key,
   name,
   harvest_restriction,
-  og_restriction,
-  mine_restriction,
   st_makevalid(st_subdivide((st_dump(geom)).geom)) as geom
 from tile
 ) as a where st_dimension(geom) = 2 ;  -- do not include any line/point artifacts created by intersect
@@ -86,8 +82,6 @@ sorted AS
     p.primary_key,
     p.name,
     COALESCE(p.harvest_restriction, 0) as harvest_restriction,
-    COALESCE(p.mine_restriction, 0) as mine_restriction,
-    COALESCE(p.og_restriction, 0) as og_restriction,
     f.map_tile,
     f.geom
   FROM flattened f
@@ -106,8 +100,6 @@ aggregated as (
     array_agg(primary_key ORDER BY index) as primary_keys_all,
     array_agg(name ORDER BY index) as names_all,
     array_agg(harvest_restriction ORDER BY index) as harvest_restrictions_all,
-    array_agg(mine_restriction ORDER BY index) as mine_restrictions_all,
-    array_agg(og_restriction ORDER BY index) as og_restrictions_all,
     geom
   FROM sorted
   GROUP BY map_tile, geom
@@ -120,16 +112,12 @@ INSERT INTO designations (
   primary_key,
   name,
   harvest_restriction,
-  mine_restriction,
-  og_restriction,
   indexes_all,
   aliases_all,
   descriptions_all,
   primary_keys_all,
   names_all,
   harvest_restrictions_all,
-  mine_restrictions_all,
-  og_restrictions_all,
   map_tile,
   geom
 )
@@ -140,16 +128,12 @@ SELECT
   primary_keys_all[1] as primary_key,
   names_all[1] as name,
   harvest_restrictions_all[1] as harvest_restriction,
-  mine_restrictions_all[1] as mine_restriction,
-  og_restrictions_all[1] as og_restriction,
   indexes_all,
   aliases_all,
   descriptions_all,
   primary_keys_all,
   names_all,
   harvest_restrictions_all,
-  mine_restrictions_all,
-  og_restrictions_all,
   map_tile,
   st_union(geom, .1) as geom
 from aggregated
@@ -160,6 +144,4 @@ group by
   primary_keys_all,
   names_all,
   harvest_restrictions_all,
-  mine_restrictions_all,
-  og_restrictions_all,
   map_tile;

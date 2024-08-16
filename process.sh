@@ -1,8 +1,10 @@
 #!/bin/bash
 set -euxo pipefail
 
-# download 250k grid
+# load 250k grid
 bcdata bc2pg WHSE_BASEMAPPING.NTS_250K_GRID
+
+# load
 
 # create output table
 psql $DATABASE_URL -c "DROP TABLE IF EXISTS designations;
@@ -14,16 +16,12 @@ psql $DATABASE_URL -c "DROP TABLE IF EXISTS designations;
     primary_key text,
     name text,
     harvest_restriction integer,
-    mine_restriction integer,
-    og_restriction integer,
     indexes_all text[],
     aliases_all text[],
     descriptions_all text[],
     primary_keys_all text[],
     names_all text[],
     harvest_restrictions_all integer[],
-    mine_restrictions_all integer[],
-    og_restrictions_all integer[],
     map_tile text,
     geom geometry(MULTIPOLYGON, 3005)
   );"
