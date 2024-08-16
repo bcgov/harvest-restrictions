@@ -2,3 +2,5 @@ bcdata >= 0.12.2
 jsonschema
 pyarrow
 python-slugify
+fsspec
+s3fs

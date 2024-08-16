@@ -86,8 +86,13 @@ all_harv_restrict_class_ranks != ARRAY[6]"
 zip -r harvest_restrictions.gdb.zip harvest_restrictions.gdb
 
 # summarize results
-#$PSQL -f sql/summarize.sql --csv > harvest_restrictions_summary.csv
+$PSQL -f sql/land_designations.sql --csv > current_land_designations.csv
+$PSQL -f sql/harvest_restrictions.sql --csv > current_harvest_restrictions.csv
+
+# compare to previous outputs
+python log.py -tag $(git describe --tags --abbrev=0)
 
 # post to s3
-#aws s3 cp harvest_restrictions.gdb.zip s3://$OBJECTSTORE_BUCKET/dss_projects_2024/harvest_restrictions/harvest_restrictions.gdb.zip
-#aws s3 cp harvest_restrictions_summary.csv s3://$OBJECTSTORE_BUCKET/dss_projects_2024/harvest_restrictions/harvest_restrictions_summary.csv
+aws s3 cp harvest_restrictions.gdb.zip s3://$OBJECTSTORE_BUCKET/dss_projects_2024/harvest_restrictions/harvest_restrictions.gdb.zip
+aws s3 cp log_land_designations.csv s3://$OBJECTSTORE_BUCKET/dss_projects_2024/harvest_restrictions/log_land_designations.csv
+aws s3 cp log_harvest_restrictions.csv s3://$OBJECTSTORE_BUCKET/dss_projects_2024/harvest_restrictions/log_harvest_restrictions.csv
