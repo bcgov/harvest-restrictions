@@ -188,10 +188,14 @@ def download_source(source):
             as_gdf=True,
             lowercase=True,
         )
-        # if primary key not provided in config, default to the pk noted in bcdata
-        # for the given tabel
-        if not source["primary_key"] and source["source"] in bcdata.primary_keys:
+        # if primary is null / not provided in config, default to the pk noted in bcdata
+        # for the given table
+        if ("primary_key" not in source.keys() or not source["primary_key"]) and source[
+            "source"
+        ] in bcdata.primary_keys:
             source["primary_key"] = bcdata.primary_keys[source["source"]]
+        else:
+            source["primary_key"] = None
 
     # download file
     elif source["source_type"] == "FILE":
@@ -255,6 +259,13 @@ def download_source(source):
 @click.command()
 @click.argument("sources_file", type=click.Path(exists=True), default="sources.json")
 @click.option(
+    "--out_format",
+    "-of",
+    default="GPKG",
+    type=click.Choice(["GPKG", "OpenFileGDB", "Parquet"], case_sensitive=False),
+    help="Output file format",
+)
+@click.option(
     "--source_alias",
     "-s",
     default=None,
@@ -267,12 +278,12 @@ def download_source(source):
     "--out_path",
     "-o",
     type=click.Path(exists=True),
-    default=None,
+    default="data",
     help="Output path to cache data (local folder or object storage)",
 )
 @verbose_opt
 @quiet_opt
-def download(sources_file, source_alias, dry_run, out_path, verbose, quiet):
+def download(sources_file, out_format, source_alias, dry_run, out_path, verbose, quiet):
     """Download sources defined in provided file"""
     configure_logging((verbose - quiet))
 
@@ -286,30 +297,33 @@ def download(sources_file, source_alias, dry_run, out_path, verbose, quiet):
 
     sources = validate_sources(sources)
 
-    # download each data source
+    # download each data source, dump to file
     if not dry_run:
         for source in sources:
             df = download_source(source)
 
-            # load to postgres, writing everything to the same initial table
-            LOG.info(f"Writing {source['alias']} to postgres")
-            db = create_engine(os.environ.get("DATABASE_URL"))
-            df.to_postgis("designations_source", db, if_exists="append")
+            # determine file extension from format
+            if out_format == "OpenFileGDB":
+                extension = "gdb"
+            else:
+                extension = out_format.lower()
 
-            # dump to file if out_path specified
-            if out_path:
-                out_file = os.path.join(
-                    out_path,
-                    (
-                        "rr_"
-                        + str(source["index"]).zfill(2)
-                        + "_"
-                        + source["alias"].lower()
-                        + ".parquet"
-                    ),
-                )
-                LOG.info(f"Writing {source['alias']} to {out_file}")
+            layer = (
+                "hr_" + str(source["index"]).zfill(2) + "_" + source["alias"].lower()
+            )
+
+            out_file = os.path.join(out_path, layer + "." + extension)
+
+            # one file per layer, overwrite existing file
+            # (rather than switching between write and append mode)
+            if out_format in ["OpenFileGDB", "GPKG"]:
+                df.to_file(out_file, driver=out_format, layer=layer)
+
+            # parquet is one file per layer as default
+            elif out_format == "Parquet":
                 df.to_parquet(out_file)
+
+            LOG.info(f"{source['alias']} written to {out_file}")
 
 
 if __name__ == "__main__":
