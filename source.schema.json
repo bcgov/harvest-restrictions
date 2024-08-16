@@ -33,7 +33,7 @@
                 "type": ["string", "null"]
             },
             "primary_key": {
-                "description": "The column holding primary key for source",
+                "description": "The source column holding the primary key",
                 "type": ["string", "null"]
             },
             "field mapper": {
@@ -48,20 +48,10 @@
                         "description": "Forest harvesting restriction level associated with the designation",
                         "type": "integer",
                         "enum": [1, 2, 3, 4, 5, 6]
-                    },
-                    "og_restriction": {
-                        "description": "Oil and gas restriction level associated with the designation",
-                        "type": "integer",
-                        "enum": [0, 1, 2, 3, 4, 5, 6]
-                    },
-                    "mining_restriction": {
-                        "description": "Mining restriction level associated with the designation",
-                        "type": "integer",
-                        "enum": [0, 1, 2, 3, 4, 5, 6]
                     }
                 }
             }
         },
-        "required": ["alias", "description", "source_type", "source", "query", "primary_key", "field_mapper", "data"]
+        "required": ["alias", "description", "source_type", "source", "query", "field_mapper", "data"]
     }
 }

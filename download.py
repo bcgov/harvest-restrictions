@@ -117,7 +117,7 @@ def validate_bcgw(source):
                 f"Validation error: {source['alias']} - Primary key - {source['primary_key']} is not present in {table}"
             )
 
-    # are other required columns in field mapping present?
+    # required columns in field mapping present?
     for column in source["field_mapper"].values():
         if (
             column
@@ -187,6 +187,10 @@ def download_source(source):
             as_gdf=True,
             lowercase=True,
         )
+        # if primary key not provided in config, default to the pk noted in bcdata
+        # for the given tabel
+        if not source["primary_key"] and source["source"] in bcdata.primary_keys:
+            source["primary_key"] = bcdata.primary_keys[source["source"]]
 
     # download file
     elif source["source_type"] == "FILE":

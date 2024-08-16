@@ -4,219 +4,197 @@
         "description": "National Park",
         "source_type": "BCGW",
         "source": "WHSE_ADMIN_BOUNDARIES.CLAB_NATIONAL_PARKS",
-        "primary_key": "NATIONAL_PARK_ID",
         "query": null,
         "field_mapper": {"name": "ENGLISH_NAME"},
-        "data": {"harvest_restriction": 1, "og_restriction": 0, "mine_restriction": 0}
+        "data": {"harvest_restriction": 1}
     },
     {   "alias": "park_er",
         "source_type": "BCGW",
         "description": "Ecological Reserve",
         "source": "WHSE_TANTALIS.TA_PARK_ECORES_PA_SVW",
-        "primary_key": null,
         "query": "PROTECTED_LANDS_DESIGNATION = 'ECOLOGICAL RESERVE'",
         "field_mapper": {"name": "PROTECTED_LANDS_NAME"},
-        "data": {"harvest_restriction": 1, "og_restriction": 0, "mine_restriction": 0}
+        "data": {"harvest_restriction": 1}
     },
     {
         "alias": "park_provincial",
         "source_type": "BCGW",
         "description": "Provincial Park",
         "source": "WHSE_TANTALIS.TA_PARK_ECORES_PA_SVW",
-        "primary_key": null,
         "query": "PROTECTED_LANDS_DESIGNATION = 'PROVINCIAL PARK'",
         "field_mapper": {"name": "PROTECTED_LANDS_NAME"},
-        "data": {"harvest_restriction": 1, "og_restriction": 0, "mine_restriction": 0}
+        "data": {"harvest_restriction": 1}
     },
     {
         "alias": "park_conservancy",
         "source_type": "BCGW",
         "description": "Conservancy",
         "source": "WHSE_TANTALIS.TA_CONSERVANCY_AREAS_SVW",
-        "primary_key": null,
         "query": null,
         "field_mapper": {"name": "CONSERVANCY_AREA_NAME"},
-        "data": {"harvest_restriction": 1, "og_restriction": 0, "mine_restriction": 0}
+        "data": {"harvest_restriction": 1}
     },
     {
         "alias": "park_protectedarea",
         "source_type": "BCGW",
         "description": "Protected Area",
         "source": "WHSE_TANTALIS.TA_PARK_ECORES_PA_SVW",
-        "primary_key": null,
         "query": "PROTECTED_LANDS_DESIGNATION = 'PROTECTED AREA'",
         "field_mapper": {"name": "PROTECTED_LANDS_NAME"},
-        "data": {"harvest_restriction": 1, "og_restriction": 0, "mine_restriction": 0}
+        "data": {"harvest_restriction": 1}
     },
     {
         "alias": "heritage_site",
         "source_type": "BCGW",
         "description": "Heritage Site",
         "source": "WHSE_HUMAN_CULTURAL_ECONOMIC.HIST_HISTORIC_ENVIRONMENTS_SP",
-        "primary_key": null,
         "query": null,
         "field_mapper": {"name": "COMMON_SITE_NAME"},
-        "data": {"harvest_restriction": 1, "og_restriction": 0, "mine_restriction": 0}
+        "data": {"harvest_restriction": 1}
     },
     {
         "alias": "park_recreationarea",
         "source_type": "BCGW",
         "description": "Recreation Area",
         "source": "WHSE_TANTALIS.TA_PARK_ECORES_PA_SVW",
-        "primary_key": null,
         "query": "PROTECTED_LANDS_DESIGNATION = 'RECREATION AREA'",
         "field_mapper": {"name": "PROTECTED_LANDS_NAME"},
-        "data": {"harvest_restriction": 1, "og_restriction": 0, "mine_restriction": 0}
+        "data": {"harvest_restriction": 1}
     },
     {
         "alias": "park_regional",
         "source_type": "BCGW",
         "description": "Regional Park",
         "source": "WHSE_BASEMAPPING.GBA_LOCAL_REG_GREENSPACES_SP",
-        "primary_key": null,
         "query": "PARK_TYPE LIKE 'Regional%'",
         "field_mapper": {"name": "PARK_NAME"},
-        "data": {"harvest_restriction": 1, "og_restriction": 0, "mine_restriction": 0}
+        "data": {"harvest_restriction": 1}
     },
     {
         "alias": "uwr_no_harvest",
         "source_type": "BCGW",
         "description": "Ungulate Winter Range: No harvest",
         "source": "WHSE_WILDLIFE_MANAGEMENT.WCP_UNGULATE_WINTER_RANGE_SP",
-        "primary_key": null,
         "query": "TIMBER_HARVEST_CODE = 'NO HARVEST ZONE'",
         "field_mapper": {"name": "UWR_NUMBER"},
-        "data": {"harvest_restriction": 2, "og_restriction": 0, "mine_restriction": 0}
+        "data": {"harvest_restriction": 2}
     },
     {
         "alias": "wha_no_harvest",
         "source_type": "BCGW",
         "description": "Wildlife Habitat Area: No harvest",
         "source": "WHSE_WILDLIFE_MANAGEMENT.WCP_WILDLIFE_HABITAT_AREA_POLY",
-        "primary_key": null,
         "query": "(TIMBER_HARVEST_CODE = 'NO HARVEST ZONE' AND FEATURE_NOTES NOT LIKE '%not a legal boundary%') OR(TIMBER_HARVEST_CODE = 'NO HARVEST ZONE' AND FEATURE_NOTES IS NULL)",
         "field_mapper": {"name": "COMMON_SPECIES_NAME"},
-        "data": {"harvest_restriction": 2, "og_restriction": 0, "mine_restriction": 0}
+        "data": {"harvest_restriction": 2}
     },
     {
         "alias": "biodiv_mining_tourism_areas",
         "source_type": "BCGW",
         "description": "Biodiversity Mining and Tourism Area",
         "source": "WHSE_LAND_USE_PLANNING.RMP_PLAN_LEGAL_POLY_SVW",
-        "primary_key": null,
         "query": "LEGAL_FEAT_OBJECTIVE = 'Biodiversity, Mining and Tourism Areas (BMTA)'",
         "field_mapper": {"name": "LEGAL_FEAT_ATRB_1_VALUE"},
-        "data": {"harvest_restriction": 2, "og_restriction": 0, "mine_restriction": 0}
+        "data": {"harvest_restriction": 2}
     },
     {
         "alias": "sea_to_sky_wildland",
         "source_type": "BCGW",
         "description": "Sea to Sky Wildland Zone",
         "source": "WHSE_LAND_USE_PLANNING.RMP_PLAN_LEGAL_POLY_SVW",
-        "primary_key": null,
         "query": "STRGC_LAND_RSRCE_PLAN_NAME = 'Sea to Sky Land and Resource Management Plan' AND LEGAL_FEAT_OBJECTIVE = 'Wildland Area'",
         "field_mapper": {"name": "LEGAL_FEAT_ATRB_4_VALUE"},
-        "data": {"harvest_restriction": 2, "og_restriction": 0, "mine_restriction": 0}
+        "data": {"harvest_restriction": 2}
     },
     {
         "alias": "mk_wildland",
         "source_type": "BCGW",
         "description": "Special Wildland RMZ in Muskwa Kechia MA",
         "source": "WHSE_LAND_USE_PLANNING.RMP_PLAN_NON_LEGAL_POLY_SVW",
-        "primary_key": null,
         "query": "NON_LEGAL_FEAT_ID IN (65488,65490,65491,65492,65497,65501,65508)",
         "field_mapper": {"name": "NON_LEGAL_FEAT_ATRB_4_VALUE"},
-        "data": {"harvest_restriction": 2, "og_restriction": 0, "mine_restriction": 0}
+        "data": {"harvest_restriction": 2}
     },
     {
         "alias": "n_c_wildland",
         "source_type": "BCGW",
         "description": "Nlhaxten/Cayoosh Wildland Area",
         "source": "WHSE_LAND_USE_PLANNING.RMP_PLAN_LEGAL_POLY_SVW",
-        "primary_key": null,
         "query": "STRGC_LAND_RSRCE_PLAN_NAME = 'Lillooet Land and Resource Management Plan' AND LEGAL_FEAT_OBJECTIVE = 'Wildland Area'",
         "field_mapper": {"name": "LEGAL_FEAT_ATRB_4_VALUE"},
-        "data": {"harvest_restriction": 2, "og_restriction": 0, "mine_restriction": 0}
+        "data": {"harvest_restriction": 2}
     },
     {
         "alias": "s_cayoosh_wildland",
         "source_type": "BCGW",
         "description": "South Chilcotin Mountains Mining and Tourism Areas",
         "source": "WHSE_LAND_USE_PLANNING.RMP_PLAN_LEGAL_POLY_SVW",
-        "primary_key": null,
         "query": "STRGC_LAND_RSRCE_PLAN_NAME = 'Lillooet Land and Resource Management Plan' AND LEGAL_FEAT_OBJECTIVE = 'Mining and Tourism Area'",
         "field_mapper": {"name": "LEGAL_FEAT_ATRB_4_VALUE"},
-        "data": {"harvest_restriction": 2, "og_restriction": 0, "mine_restriction": 0}
+        "data": {"harvest_restriction": 2}
     },
     {
         "alias": "ngo_fee_simple",
         "source_type": "BCGW",
         "description": "NGO Fee Simple Conservation Lands",
         "source": "WHSE_LEGAL_ADMIN_BOUNDARIES.WCL_CONSERVATION_AREAS_NGO_SP",
-        "primary_key": null,
         "query": null,
         "field_mapper": {"name": "CONSERVATION_AREAS_NGO_ID"},
-        "data": {"harvest_restriction": 2, "og_restriction": 0, "mine_restriction": 0}
+        "data": {"harvest_restriction": 2}
     },
     {
         "alias": "great_bear_sfma",
         "source_type": "BCGW",
         "description": "Great Bear Rainforest (GBR) Special Forest Management Areas",
         "source": "WHSE_ADMIN_BOUNDARIES.FADM_SPECIAL_PROTECTION_AREA",
-        "primary_key": null,
         "query": "PROTECTED_AREA_TYPE = 'SFMA'",
         "field_mapper": {"name": "PROTECTED_AREA_TYPE"},
-        "data": {"harvest_restriction": 2, "og_restriction": 0, "mine_restriction": 0}
+        "data": {"harvest_restriction": 2}
     },
     {
         "alias": "great_bear_lrd",
         "source_type": "BCGW",
         "description": "Great Bear Rainforest (GBR) Landscape Reserve Design (LRD)",
         "source": "WHSE_LAND_USE_PLANNING.RMP_LANDSCAPE_RSRV_DESIGN_SP",
-        "primary_key": null,
         "field_mapper": {"name": "LU_NAME"},
         "query": "LRD_STATUS = 'current'",
-        "data": {"harvest_restriction": 2, "og_restriction": 0, "mine_restriction": 0}
+        "data": {"harvest_restriction": 2}
     },
     {
         "alias": "ogma_legal",
         "source_type": "BCGW",
         "description": "Old Growth Management Area (OGMA): Legal",
         "source": "WHSE_LAND_USE_PLANNING.RMP_OGMA_LEGAL_CURRENT_SVW",
-        "primary_key": null,
         "field_mapper": {"name": "LEGAL_OGMA_PROVID"},
         "query": null,
-        "data": {"harvest_restriction": 2, "og_restriction": 0, "mine_restriction": 0}
+        "data": {"harvest_restriction": 2}
     },
     {
         "alias": "great_bear_grizzly_class1",
         "description": "Class1 Coast Grizzly Bear Habitat (Coast LUP)",
         "source": "WHSE_LAND_USE_PLANNING.RMP_PLAN_LEGAL_POLY_SVW",
         "source_type": "BCGW",
-        "primary_key": null,
         "field_mapper": {"name": "LEGAL_FEAT_ATRB_1_NAME"},
         "query": "LEGAL_FEAT_ATRB_1_NAME = 'GRIZZLY_BEAR_HABITAT_CLASS' AND LEGAL_FEAT_ATRB_1_VALUE = '1'",
-        "data": {"harvest_restriction": 2, "og_restriction": 0, "mine_restriction": 0}
+        "data": {"harvest_restriction": 2}
     },
     {
         "alias": "ogma_nonlegal",
         "source_type": "BCGW",
         "description": "Old Growth Management Area (OGMA): Non-Legal",
         "source": "WHSE_LAND_USE_PLANNING.RMP_OGMA_NON_LEGAL_CURRENT_SVW",
-        "primary_key": null,
         "field_mapper": {"name": null},
         "query": null,
-        "data": {"harvest_restriction": 2, "og_restriction": 0, "mine_restriction": 0}
+        "data": {"harvest_restriction": 2}
     },
     {
         "alias": "private_conservation_lands_admin",
         "source_type": "BCGW",
         "description": "Private Conservation Land: Administered Land",
         "source": "WHSE_LEGAL_ADMIN_BOUNDARIES.WCL_CONSERVATION_LANDS_SP",
-        "primary_key": null,
         "field_mapper": {"name": "SITE_NAME"},
         "query": "CONSERVATION_LAND_TYPE = 'Administered Lands'",
-        "data": {"harvest_restriction": 3, "og_restriction": 0, "mine_restriction": 0}
+        "data": {"harvest_restriction": 3}
     },
     {
         "alias": "crd_water_supply_area",
@@ -224,10 +202,10 @@
         "description": "CRD Water Supply Area",
         "source": "/vsizip//vsis3/$OBJECTSTORE_BUCKET/dss_projects_2024/harvest_restrictions/sources/CRD.gdb.zip",
         "layer": "WSA_Boundary",
-        "primary_key": null,
+        "primary_key": "OBJECTID",
         "field_mapper": {"name": "Name"},
         "query": null,
-        "data": {"harvest_restriction": 3, "og_restriction": 0, "mine_restriction": 0}
+        "data": {"harvest_restriction": 3}
     },
     {
         "alias": "gvrd_water_supply_area",
@@ -235,70 +213,64 @@
         "description": "Greater Vancouver Water District",
         "source": "/vsizip//vsis3/$OBJECTSTORE_BUCKET/dss_projects_2024/harvest_restrictions/sources/GVRD_watershed.gdb.zip",
         "layer": "GVRD_watershed",
-        "primary_key": null,
         "query": null,
+        "primary_key": "GlobalID",
         "field_mapper": {"name": "Name"},
-        "data": {"harvest_restriction": 3, "og_restriction": 0, "mine_restriction": 0}
+        "data": {"harvest_restriction": 3}
     },
     {
         "alias": "wildlife_management_area",
         "source_type": "BCGW",
         "description": "Wildlife Management Area (WMA)",
         "source": "WHSE_TANTALIS.TA_WILDLIFE_MGMT_AREAS_SVW",
-        "primary_key": null,
         "query": null,
         "field_mapper": {"name": "WILDLIFE_MANAGEMENT_AREA_NAME"},
-        "data": {"harvest_restriction": 3, "og_restriction": 0, "mine_restriction": 0}
+        "data": {"harvest_restriction": 3}
     },
     {
         "alias": "creston_v_wma",
         "source_type": "BCGW",
         "description": "Creston Valley Wildlife Management Area",
         "source": "WHSE_TANTALIS.TA_WILDLIFE_MGMT_AREAS_SVW",
-        "primary_key": null,
         "query": "ADMIN_AREA_SID = 5364",
         "field_mapper": {"name": "ADMIN_AREA_SID"},
-        "data": {"harvest_restriction": 3, "og_restriction": 0, "mine_restriction": 0}
+        "data": {"harvest_restriction": 3}
     },
     {
         "alias": "vqo_preserve",
         "source_type": "BCGW",
         "description": "Visual Quality Objective (VQO): Preservation",
         "source": "WHSE_FOREST_VEGETATION.REC_VISUAL_LANDSCAPE_INVENTORY",
-        "primary_key": null,
         "query": "REC_MADE_KNOWN_CODE = 'Y' AND REC_EVQO_CODE = 'P'",
         "field_mapper": {"name": "PROJECT_NAME"},
-        "data": {"harvest_restriction": 3, "og_restriction": 0, "mine_restriction": 0}
+        "data": {"harvest_restriction": 3}
     },
     {
         "alias": "vqo_retain",
         "description": "Visual Quality Objective (VQO): Retention",
         "source": "WHSE_FOREST_VEGETATION.REC_VISUAL_LANDSCAPE_INVENTORY",
         "source_type": "BCGW",
-        "primary_key": null,
         "query": "REC_MADE_KNOWN_CODE = 'Y' AND REC_EVQO_CODE = 'R'",
         "field_mapper": {"name": "PROJECT_NAME"},
-        "data": {"harvest_restriction": 3, "og_restriction": 0, "mine_restriction": 0}
+        "data": {"harvest_restriction": 3}
     },
     {
         "alias": "designated_area",
         "description": "FADM Designated Area",
         "source": "WHSE_ADMIN_BOUNDARIES.FADM_DESIGNATED_AREAS",
         "source_type": "BCGW",
-        "primary_key": null,
         "query": "EXPIRED_OR_CANCELLED = 'N'",
         "field_mapper": {"name": "DESIGNATED_AREA_NAME"},
-        "data": {"harvest_restriction": 3, "og_restriction": 0, "mine_restriction": 0}
+        "data": {"harvest_restriction": 3}
     },
     {
         "alias": "atlin_taku_fra",
         "description": "Atlin-Taku Forest Retention Areas",
         "source": "WHSE_LAND_USE_PLANNING.RMP_PLAN_LEGAL_POLY_SVW",
         "source_type": "BCGW",
-        "primary_key": null,
         "query": "STRGC_LAND_RSRCE_PLAN_NAME = 'Atlin - Taku Strategic Land and Resource Plan' AND LEGAL_FEAT_OBJECTIVE = 'Forest Retention Area'",
         "field_mapper": {"name": "LEGAL_FEAT_ID"},
-        "data": {"harvest_restriction": 3, "og_restriction": 0, "mine_restriction": 0}
+        "data": {"harvest_restriction": 3}
     },
     {
         "alias": "migratory_bird_sanctuaries",
@@ -306,70 +278,64 @@
         "source": "/vsizip//vsis3/$OBJECTSTORE_BUCKET/dss_projects_2024/harvest_restrictions/sources/CPCAD-BDCAPC_Nov2023.gdb.zip",
         "source_type": "FILE",
         "layer": "CPCAD_Nov2023_Albers",
-        "primary_key": null,
         "query": "LOC = 2 And BIOME = 'T' And TYPE_E = 'Migratory Bird Sanctuary'",
-        "field_mapper": {"name": "PARENT_ID"},
-        "data": {"harvest_restriction": 3, "og_restriction": 0, "mine_restriction": 0}
+        "primary_key": "PARENT_ID",
+        "field_mapper": {"name": "NAME_E"},
+        "data": {"harvest_restriction": 3}
     },
     {
         "alias": "private_conservation_lands_reserve",
         "description": "Private Conservation Land: Reserve Land",
         "source": "WHSE_LEGAL_ADMIN_BOUNDARIES.WCL_CONSERVATION_LANDS_SP",
         "source_type": "BCGW",
-        "primary_key": null,
         "query": "CONSERVATION_LAND_TYPE = 'Reserve Lands'",
         "field_mapper": {"name": "SITE_NAME"},
-        "data": {"harvest_restriction": 4, "og_restriction": 0, "mine_restriction": 0}
+        "data": {"harvest_restriction": 4}
     },
     {
         "alias": "uwr_conditional_harvest",
         "description": "Ungulate Winter Range: Conditional harvest",
         "source": "WHSE_WILDLIFE_MANAGEMENT.WCP_UNGULATE_WINTER_RANGE_SP",
         "source_type": "BCGW",
-        "primary_key": null,
         "query": "TIMBER_HARVEST_CODE = 'CONDITIONAL HARVEST ZONE'",
         "field_mapper": {"name": "UWR_NUMBER"},
-        "data": {"harvest_restriction": 4, "og_restriction": 0, "mine_restriction": 0}
+        "data": {"harvest_restriction": 4}
     },
     {
         "alias": "wha_conditional_harvest",
         "description": "Wildlife Habitat Area: Conditional harvest",
         "source": "WHSE_WILDLIFE_MANAGEMENT.WCP_WILDLIFE_HABITAT_AREA_POLY",
         "source_type": "BCGW",
-        "primary_key": null,
         "query": "(TIMBER_HARVEST_CODE = 'CONDITIONAL HARVEST ZONE' AND FEATURE_NOTES NOT LIKE '%not a legal boundary%') OR (TIMBER_HARVEST_CODE = 'CONDITIONAL HARVEST ZONE' AND FEATURE_NOTES IS NULL)",
         "field_mapper": {"name": "COMMON_SPECIES_NAME"},
-        "data": {"harvest_restriction": 4, "og_restriction": 0, "mine_restriction": 0}
+        "data": {"harvest_restriction": 4}
     },
     {
         "alias": "vqo_partretain",
         "description": "Visual Quality Objective (VQO): Partial Retention",
         "source": "WHSE_FOREST_VEGETATION.REC_VISUAL_LANDSCAPE_INVENTORY",
         "source_type": "BCGW",
-        "primary_key": null,
         "query": "REC_MADE_KNOWN_CODE = 'Y' AND REC_RVQC_CODE = 'pr'",
         "field_mapper": {"name": "PROJECT_NAME"},
-        "data": {"harvest_restriction": 4, "og_restriction": 0, "mine_restriction": 0}
+        "data": {"harvest_restriction": 4}
     },
     {
         "alias": "vqo_modify",
         "description": "Visual Quality Objective (VQO): Modification",
         "source": "WHSE_FOREST_VEGETATION.REC_VISUAL_LANDSCAPE_INVENTORY",
         "source_type": "BCGW",
-        "primary_key": null,
         "query": "REC_MADE_KNOWN_CODE = 'Y' AND REC_RVQC_CODE = 'm'",
         "field_mapper": {"name": "PROJECT_NAME"},
-        "data": {"harvest_restriction": 4, "og_restriction": 0, "mine_restriction": 0}
+        "data": {"harvest_restriction": 4}
     },
     {
         "alias": "community_watershed",
         "description": "Community Watershed",
         "source": "WHSE_WATER_MANAGEMENT.WLS_COMMUNITY_WS_PUB_SVW",
         "source_type": "BCGW",
-        "primary_key": null,
         "query": null,
         "field_mapper": {"name": "CW_NAME"},
-        "data": {"harvest_restriction": 4, "og_restriction": 0, "mine_restriction": 0}
+        "data": {"harvest_restriction": 4}
     },
     {
         "alias": "national_wildlife_area",
@@ -377,30 +343,28 @@
         "source": "/vsizip//vsis3/$OBJECTSTORE_BUCKET/dss_projects_2024/harvest_restrictions/sources/CPCAD-BDCAPC_Nov2023.gdb.zip",
         "source_type": "FILE",
         "layer": "CPCAD_Nov2023_Albers",
-        "primary_key": null,
         "query": "LOC = 2 AND BIOME = 'T' AND TYPE_E = 'National Wildlife Area'",
-        "field_mapper": {"name": "PARENT_ID"},
-        "data": {"harvest_restriction": 4, "og_restriction": 0, "mine_restriction": 0}
+        "primary_key": "PARENT_ID",
+        "field_mapper": {"name": "NAME_E"},
+        "data": {"harvest_restriction": 4}
     },
     {
         "alias": "for_rec_site",
         "description": "Forest Recreation Site",
         "source": "WHSE_FOREST_TENURE.FTEN_RECREATION_POLY_SVW",
         "source_type": "BCGW",
-        "primary_key": null,
         "query": "PROJECT_TYPE in ('Recreation Site', 'Recreation Trail','Recreation Reserve', 'Interpretative Forest') and FILE_STATUS_CODE = 'HI' and RETIREMENT_DATE IS NULL",
         "field_mapper": {"name": "PROJECT_NAME"},
-        "data": {"harvest_restriction": 4, "og_restriction": 0, "mine_restriction": 0}
+        "data": {"harvest_restriction": 4}
     },
     {
         "alias": "lakes_corridors",
         "description": "Lakes South Landscape Corridor",
         "source": "WHSE_LAND_USE_PLANNING.RMP_PLAN_LEGAL_POLY_SVW",
         "source_type": "BCGW",
-        "primary_key": null,
         "query": "STRGC_LAND_RSRCE_PLAN_NAME = 'Lakes South Sustainable Resource Management Plan' AND LEGAL_FEAT_OBJECTIVE = 'Landscape Corridors'",
         "field_mapper": {"name": "LEGAL_FEAT_ID"},
-        "data": {"harvest_restriction": 4, "og_restriction": 0, "mine_restriction": 0}
+        "data": {"harvest_restriction": 4}
     },
     {
         "alias": "great_bear_fisheries_watersheds",
@@ -408,60 +372,55 @@
         "source": "/vsizip//vsis3/$OBJECTSTORE_BUCKET/dss_projects_2024/harvest_restrictions/sources/GBRO_Schedules_20160120.gdb.zip",
         "source_type": "FILE",
         "layer": "GBRSchE_IFW_20160104",
-        "primary_key": null,
         "query": null,
+        "primary_key": "WS_NUM",
         "field_mapper": {"name": "WS_NUM"},
-        "data": {"harvest_restriction": 4, "og_restriction": 0, "mine_restriction": 0}
+        "data": {"harvest_restriction": 4}
     },
     {
         "alias": "great_bear_ebm_area",
         "description": "Great Bear Rainforest (GBR) Ecosystem-based Management (EBM) Area",
         "source": "WHSE_ADMIN_BOUNDARIES.FADM_SPECIAL_PROTECTION_AREA",
         "source_type": "BCGW",
-        "primary_key": null,
         "query": "PROTECTED_AREA_NAME = 'Great Bear Rainforest'",
         "field_mapper": {"name": "PROTECTED_AREA_NAME"},
-        "data": {"harvest_restriction": 5, "og_restriction": 0, "mine_restriction": 0}
+        "data": {"harvest_restriction": 5}
     },
     {
         "alias": "muskwa_kechika",
         "description": "Muskwa Kechika Management Area",
         "source": "WHSE_LAND_USE_PLANNING.RMP_PLAN_NON_LEGAL_POLY_SVW",
         "source_type": "BCGW",
-        "primary_key": null,
         "query": "NON_LEGAL_FEAT_ID IN (65244,65246,65251,65265,65274,219519,219520,219521,219522,219523,219524,219525,219526,219527,219528,219529,219530,219531,219532,219534,219535,219552,65494,65495)",
         "field_mapper": {"name": "NON_LEGAL_FEAT_ID"},
-        "data": {"harvest_restriction": 5, "og_restriction": 0, "mine_restriction": 0}
+        "data": {"harvest_restriction": 5}
     },
     {
         "alias": "fsw",
         "description": "Fisheries Sensitive Watersheds",
         "source": "WHSE_WILDLIFE_MANAGEMENT.WCP_FISH_SENSITIVE_WS_POLY",
         "source_type": "BCGW",
-        "primary_key": null,
         "query": null,
         "field_mapper": {"name": null},
-        "data": {"harvest_restriction": 5, "og_restriction": 0, "mine_restriction": 0}
+        "data": {"harvest_restriction": 5}
     },
     {
         "alias": "vqo_maxmodify",
         "description": "Visual Quality Objective (VQO): Maximum Modification",
         "source": "WHSE_FOREST_VEGETATION.REC_VISUAL_LANDSCAPE_INVENTORY",
         "source_type": "BCGW",
-        "primary_key": null,
         "query": "REC_MADE_KNOWN_CODE = 'Y' AND REC_EVQO_CODE = 'MM'",
         "field_mapper": {"name": "PROJECT_NAME"},
-        "data": {"harvest_restriction": 5, "og_restriction": 0, "mine_restriction": 0}
+        "data": {"harvest_restriction": 5}
     },
     {
         "alias": "lrmp_cc_nc_hg",
         "description": "Haida Gwaii, Central Coast, North Coast Planning Areas",
         "source": "WHSE_LAND_USE_PLANNING.RMP_STRGC_LAND_RSRCE_PLAN_SVW",
         "source_type": "BCGW",
-        "primary_key": null,
         "query": "STRGC_LAND_RSRCE_PLAN_NAME = 'Haida Gwaii Land Use Objectives Order'",
         "field_mapper": {"name": "STRGC_LAND_RSRCE_PLAN_NAME"},
-        "data": {"harvest_restriction": 5, "og_restriction": 0, "mine_restriction": 0}
+        "data": {"harvest_restriction": 5}
     },
     {
         "alias": "great_bear_grizzly_class2",
@@ -469,10 +428,11 @@
         "source": "/vsizip//vsis3/$OBJECTSTORE_BUCKET/dss_projects_2024/harvest_restrictions/sources/GBRO_Schedules_20160120.gdb.zip",
         "source_type": "FILE",
         "layer": "GBRSchD_GB_20151105",
-        "primary_key": null,
         "query": "GB_CLASS = 2",
-        "field_mapper": {"name": "GB_CLASS"},
-        "data": {"harvest_restriction": 5, "og_restriction": 0, "mine_restriction": 0}
+        "field_mapper": {
+            "name": "GB_CLASS"
+        },
+        "data": {"harvest_restriction": 5}
     },
     {
         "alias": "no_special_restriction",
@@ -480,9 +440,10 @@
         "source": "/vsizip//vsis3/$OBJECTSTORE_BUCKET/dss_projects_2024/harvest_restrictions/sources/BC_Boundary_Terrestrial.gpkg.zip",
         "source_type": "FILE",
         "layer": "BC_Boundary_Terrestrial_Singlepart",
-        "primary_key": null,
         "query": null,
-        "field_mapper": {"name": null},
-        "data": {"harvest_restriction": 6, "og_restriction": 0, "mine_restriction": 0}
+        "field_mapper": {
+            "name": null
+        },
+        "data": {"harvest_restriction": 6}
     }
 ]
