@@ -75,8 +75,9 @@ def validate_file(source):
 
     # are expected columns present?
     columns = [x.lower() for x in df.columns]
-    if source["primary_key"]:
-        if source["primary_key"] not in columns:
+    # is primary key present and not null?
+    if "primary_key" in source and source["primary_key"]:
+        if source["primary_key"].lower() not in columns:
             raise ValueError(
                 f"Validation error: {source['alias']} - primary key is not present - {source['primary_key']}"
             )
@@ -110,8 +111,8 @@ def validate_bcgw(source):
     table_def = bcdata.get_table_definition(table)
     columns = [c["column_name"] for c in table_def["schema"]]
 
-    # is primary key present?
-    if source["primary_key"]:
+    # is primary key present and not null?
+    if "primary_key" in source and source["primary_key"]:
         if source["primary_key"] not in columns:
             raise ValueError(
                 f"Validation error: {source['alias']} - Primary key - {source['primary_key']} is not present in {table}"

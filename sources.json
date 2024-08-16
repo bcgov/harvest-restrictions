@@ -429,9 +429,7 @@
         "source_type": "FILE",
         "layer": "GBRSchD_GB_20151105",
         "query": "GB_CLASS = 2",
-        "field_mapper": {
-            "name": "GB_CLASS"
-        },
+        "field_mapper": {"name": "GB_CLASS"},
         "data": {"harvest_restriction": 5}
     },
     {
@@ -441,9 +439,7 @@
         "source_type": "FILE",
         "layer": "BC_Boundary_Terrestrial_Singlepart",
         "query": null,
-        "field_mapper": {
-            "name": null
-        },
+        "field_mapper": {"name": null},
         "data": {"harvest_restriction": 6}
     }
 ]
