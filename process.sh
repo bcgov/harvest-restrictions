@@ -1,13 +1,16 @@
 #!/bin/bash
 set -euxo pipefail
 
+PSQL="psql $DATABASE_URL -v ON_ERROR_STOP=1"
+
 # load 250k grid
 bcdata bc2pg WHSE_BASEMAPPING.NTS_250K_GRID
 
-# load
+# load source data
+
 
 # create output table
-psql $DATABASE_URL -c "DROP TABLE IF EXISTS designations;
+$PSQL -c "DROP TABLE IF EXISTS designations;
   CREATE TABLE designations (
     designations_id serial primary key,
     index integer,
@@ -27,11 +30,11 @@ psql $DATABASE_URL -c "DROP TABLE IF EXISTS designations;
   );"
 
 # run overlay
-psql $DATABASE_URL -tXA \
+$PSQL -tXA \
 -c "SELECT DISTINCT map_tile
     FROM whse_basemapping.nts_250k_grid
     ORDER BY map_tile" \
-    | parallel --tag psql $DATABASE_URL -f sql/overlay.sql -v tile={1}
+    | parallel --tag $PSQL -f sql/overlay.sql -v tile={1}
 
 # dump result to file
 ogr2ogr   \
@@ -71,7 +74,7 @@ ogr2ogr   \
 zip -r harvest_restrictions.gdb.zip harvest_restrictions.gdb
 
 # summarize results
-psql $DATABASE_URL -f sql/summarize.sql --csv > harvest_restrictions_summary.csv
+$PSQL -f sql/summarize.sql --csv > harvest_restrictions_summary.csv
 
 # post to s3
 aws s3 cp harvest_restrictions.gdb.zip s3://$OBJECTSTORE_BUCKET/dss_projects_2024/harvest_restrictions/harvest_restrictions.gdb.zip

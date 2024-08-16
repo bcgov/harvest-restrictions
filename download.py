@@ -259,13 +259,6 @@ def download_source(source):
 @click.command()
 @click.argument("sources_file", type=click.Path(exists=True), default="sources.json")
 @click.option(
-    "--out_format",
-    "-of",
-    default="GPKG",
-    type=click.Choice(["GPKG", "OpenFileGDB", "Parquet"], case_sensitive=False),
-    help="Output file format",
-)
-@click.option(
     "--source_alias",
     "-s",
     default=None,
@@ -277,9 +270,9 @@ def download_source(source):
 @click.option(
     "--out_path",
     "-o",
-    type=click.Path(exists=True),
+    type=click.Path(),
     default=".",
-    help="Output path to cache data (local folder or object storage)",
+    help="Output path to write data (local or s3://)",
 )
 @verbose_opt
 @quiet_opt
@@ -301,27 +294,12 @@ def download(sources_file, out_format, source_alias, dry_run, out_path, verbose,
     if not dry_run:
         for source in sources:
             df = download_source(source)
-
-            # determine file extension from format
-            if out_format == "OpenFileGDB":
-                extension = "gdb"
-            else:
-                extension = out_format.lower()
-
             layer = (
                 "hr_" + str(source["index"]).zfill(2) + "_" + source["alias"].lower()
             )
-
-            out_file = os.path.join(out_path, layer + "." + extension)
-
-            # one file per layer, overwrite existing file
-            # (rather than switching between write and append mode)
-            if out_format in ["OpenFileGDB", "GPKG"]:
-                df.to_file(out_file, driver=out_format, layer=layer)
-
-            # parquet is one file per layer as default
-            elif out_format == "Parquet":
-                df.to_parquet(out_file)
+            # parquet is one file per layer and direct write to s3 is supported
+            out_file = os.path.join(out_path, layer + ".parquet")
+            df.to_parquet(out_file)
 
             LOG.info(f"{source['alias']} written to {out_file}")
 
