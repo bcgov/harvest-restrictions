@@ -17,7 +17,7 @@ Each source land designation / restriction is defined as a 'layer' in [`sources.
 | `layer`      | For sources of type `FILE`, the layer to use within the file (optional) |
 | `query`      | Query to subset data in source/layer - ECQL for BCGW sources, OGR SQL for files (optional) |
 | `primary_key`| The column holding primary key for the given source          |
-| `field mapp` | Mapping of source column names to new column names   |
+| `field map`  | Mapping of source column names to new column names   |
 | `data`       | Additional data to add to all records of the source, as key(column):value pair |
 
 The `harvest_restriction` key in the `data` field defines the level of restriction a the given source, where restrictions are:
