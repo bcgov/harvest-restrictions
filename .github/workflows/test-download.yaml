@@ -41,4 +41,4 @@ jobs:
           python -m pytest -v -rxXs
       - name: Validate sources.json
         run: |
-          python download.py sources.json --dry_run -v
+          python download.py download sources.json --dry_run -v

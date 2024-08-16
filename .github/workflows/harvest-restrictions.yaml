@@ -33,9 +33,12 @@ jobs:
         DEBIAN_FRONTEND: noninteractive
     steps:
       - uses: actions/checkout@v4
-      - name: Download sources
+      - name: Download sources to S3
         run: |
-          python download.py sources.json -v
+          python download.py download sources.json -v --out_path s3://$OBJECTSTORE_BUCKET/dss_projects_2024/harvest_restrictions/sources
+      - name: Load sources to database
+        run: |
+          python download.py cache2pg sources.json -v --out_table designations --in_path s3://$OBJECTSTORE_BUCKET/dss_projects_2024/harvest_restrictions/sources
       - name: Process overlays
         run: |
-          ./process.sh
+          ./harvest_restrictions.sh

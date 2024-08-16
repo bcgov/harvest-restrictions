@@ -188,12 +188,11 @@ def download_source(source):
             as_gdf=True,
             lowercase=True,
         )
-        # if primary is null / not provided in config, default to the pk noted in bcdata
-        # for the given table
+        # if primary key is not provided in config, default to the pk noted in bcdata
         if ("primary_key" not in source.keys() or not source["primary_key"]) and source[
             "source"
-        ] in bcdata.primary_keys:
-            source["primary_key"] = bcdata.primary_keys[source["source"]]
+        ].lower() in bcdata.primary_keys:
+            source["primary_key"] = bcdata.primary_keys[source["source"].lower()]
         else:
             source["primary_key"] = None
 
@@ -223,7 +222,7 @@ def download_source(source):
     df["__description__"] = source["description"]
     df["__alias__"] = source["alias"].lower()
     df["__primary_key__"] = ""
-    if source["primary_key"]:
+    if "primary_key" in source and source["primary_key"]:
         df["__primary_key__"] = df[source["primary_key"].lower()].astype(
             "str"
         )  # handle pks as strings

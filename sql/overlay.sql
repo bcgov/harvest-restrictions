@@ -16,7 +16,7 @@ with tile as (
       WHEN ST_CoveredBy(s.geom, t.geom) THEN st_makevalid(s.geom)
       ELSE st_makevalid((ST_Intersection(s.geom, t.geom, .1)))
     END as geom
-  from designations_source s
+  from designations s
   inner join whse_basemapping.nts_250k_grid t
   on st_intersects(s.geom, t.geom)
   where map_tile = :'tile'
@@ -82,11 +82,13 @@ sorted AS
     p.primary_key,
     p.name,
     COALESCE(p.harvest_restriction, 0) as harvest_restriction,
+    hrn.harvest_restriction_class_name,
     f.map_tile,
     f.geom
   FROM flattened f
   LEFT OUTER JOIN cleaned p
   ON ST_Contains(p.geom, ST_PointOnSurface(f.geom))
+  INNER JOIN harvest_restriction_class_rank_name_xref hrn on p.harvest_restriction = hrn.harvest_restriction_class_rank
   WHERE p.index is not null
   ORDER BY p.index, p.primary_key
 ),
@@ -100,48 +102,54 @@ aggregated as (
     array_agg(primary_key ORDER BY index) as primary_keys_all,
     array_agg(name ORDER BY index) as names_all,
     array_agg(harvest_restriction ORDER BY index) as harvest_restrictions_all,
+    array_agg(harvest_restriction_class_name ORDER BY index) as harvest_restriction_class_names_all,
     geom
   FROM sorted
   GROUP BY map_tile, geom
 )
 
-INSERT INTO designations (
-  index,
-  alias,
-  description,
-  primary_key,
-  name,
-  harvest_restriction,
-  indexes_all,
-  aliases_all,
-  descriptions_all,
-  primary_keys_all,
-  names_all,
-  harvest_restrictions_all,
-  map_tile,
-  geom
+INSERT INTO harvest_restrictions (
+    land_designation_name,
+    land_designation_type_rank,
+    land_designation_type_code,
+    land_designation_type_name,
+    land_designation_primary_key,
+    harvest_restriction_class_rank,
+    harvest_restriction_class_name,
+    all_land_desig_names,
+    all_land_desig_type_ranks,
+    all_land_desig_type_codes,
+    all_land_desig_type_names,
+    all_land_desig_primary_keys,
+    all_harv_restrict_class_ranks,
+    all_harv_restrict_class_names,
+    map_tile_250k,
+    geom
 )
 SELECT
-  indexes_all[1] as index,
-  aliases_all[1] as alias,
-  descriptions_all[1] as description,
-  primary_keys_all[1] as primary_key,
-  names_all[1] as name,
-  harvest_restrictions_all[1] as harvest_restriction,
-  indexes_all,
-  aliases_all,
-  descriptions_all,
-  primary_keys_all,
-  names_all,
-  harvest_restrictions_all,
-  map_tile,
+  names_all[1] as land_designation_name,
+  indexes_all[1] as land_designation_type_rank,
+  aliases_all[1] as land_designation_type_code,
+  descriptions_all[1] as land_designation_type_name,
+  primary_keys_all[1] as land_designation_primary_key,
+  harvest_restrictions_all[1] as harvest_restriction_class_rank,
+  harvest_restriction_class_names_all[1] as harvest_restriction_class_name,
+  names_all as all_land_desig_names,
+  indexes_all as all_land_desig_type_ranks,
+  aliases_all as all_land_desig_type_codes,
+  descriptions_all as all_land_desig_type_names,
+  primary_keys_all as all_land_desig_primary_keys,
+  harvest_restrictions_all as all_harv_restrict_class_ranks,
+  harvest_restriction_class_names_all as all_harv_restrict_class_names,
+  map_tile as map_tile_250k,
   st_union(geom, .1) as geom
 from aggregated
 group by
+  names_all,
   indexes_all,
   aliases_all,
   descriptions_all,
   primary_keys_all,
-  names_all,
   harvest_restrictions_all,
+  harvest_restriction_class_names_all,
   map_tile;

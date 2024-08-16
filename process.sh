@@ -7,23 +7,38 @@ PSQL="psql $DATABASE_URL -v ON_ERROR_STOP=1"
 # load 250k grid
 bcdata bc2pg WHSE_BASEMAPPING.NTS_250K_GRID
 
+# create harvest restriction rank-name lookup table
+$PSQL -c "DROP TABLE IF EXISTS harvest_restriction_class_rank_name_xref; \
+          CREATE TABLE harvest_restriction_class_rank_name_xref (harvest_restriction_class_rank integer, harvest_restriction_class_name text); \
+          INSERT INTO harvest_restriction_class_rank_name_xref \
+          (harvest_restriction_class_rank, harvest_restriction_class_name) \
+          VALUES \
+          (1, 'Protected'), \
+          (2, 'Prohibited'), \
+          (3, 'High Restricted'), \
+          (4, 'Medium Restricted'), \
+          (5, 'Low Restricted'), \
+          (6, 'No Special Restriction')"
+
 # create output table
-$PSQL -c "DROP TABLE IF EXISTS designations;
-  CREATE TABLE designations (
-    designations_id serial primary key,
-    index integer,
-    alias text,
-    description text,
-    primary_key text,
-    name text,
-    harvest_restriction integer,
-    indexes_all text[],
-    aliases_all text[],
-    descriptions_all text[],
-    primary_keys_all text[],
-    names_all text[],
-    harvest_restrictions_all integer[],
-    map_tile text,
+$PSQL -c "DROP TABLE IF EXISTS harvest_restrictions;
+  CREATE TABLE harvest_restrictions (
+    harvest_restrictions_id serial primary key,
+    land_designation_name text,
+    land_designation_type_rank integer,
+    land_designation_type_code text,
+    land_designation_type_name text,
+    land_designation_primary_key text,
+    harvest_restriction_class_rank integer,
+    harvest_restriction_class_name text,
+    all_land_desig_names text[],
+    all_land_desig_type_ranks text[],
+    all_land_desig_type_codes text[],
+    all_land_desig_type_names text[],
+    all_land_desig_primary_keys text[],
+    all_harv_restrict_class_ranks integer[],
+    all_harv_restrict_class_names text[],
+    map_tile_250k text,
     geom geometry(MULTIPOLYGON, 3005)
   );"
 
@@ -44,36 +59,35 @@ ogr2ogr   \
   -nln harvest_restrictions \
   -lco CREATE_SHAPE_AREA_AND_LENGTH_FIELDS=YES \
   -mapfieldtype Integer64=Integer \
-  -sql "SELECT designations_id as harvest_restrictions_id,
-    lpad(index::text, 2, '0')||alias as harvest_restriction,
-    description,
-    primary_key,
-    name,
-    harvest_restriction as harvest_restriction_class,
-    case
-      when harvest_restriction = 1 then 'Protected'
-      when harvest_restriction = 2 then 'Prohibited'
-      when harvest_restriction = 3 then 'High Restricted'
-      when harvest_restriction = 4 then 'Medium Restricted'
-      when harvest_restriction = 5 then 'Low Restricted'
-      when harvest_restriction = 6 then 'No Special Restriction'
-    end as harvest_restriction_class_desc,
-    array_to_string(aliases_all, ';') as harvest_restrictions_all,
-    array_to_string(descriptions_all, ';') as descriptions_all,
-    array_to_string(primary_keys_all, ';') as primary_keys_all,
-    array_to_string(names_all, ';') as names_all,
-    array_to_string(harvest_restrictions_all, ';') as harvest_restriction_classes_all,
-    map_tile text,
-    geom
-  from designations
-  where harvest_restrictions_all @> ARRAY[6]" # land only
+  -sql "select
+  harvest_restrictions_id,
+  land_designation_name,
+  land_designation_type_rank,
+  land_designation_type_code,
+  land_designation_type_name,
+  land_designation_primary_key,
+  harvest_restriction_class_rank,
+  harvest_restriction_class_name,
+  array_to_string(trim_array(all_land_desig_names, 1), ';') as all_land_desig_names,
+  array_to_string(trim_array(all_land_desig_type_ranks, 1), ';') as all_land_desig_type_ranks,
+  array_to_string(trim_array(all_land_desig_type_codes, 1), ';') as all_land_desig_type_codes,
+  array_to_string(trim_array(all_land_desig_type_names, 1), ';') as all_land_desig_type_names,
+  array_to_string(trim_array(all_land_desig_primary_keys, 1), ';') as all_land_desig_primary_keys,
+  array_to_string(trim_array(all_harv_restrict_class_ranks, 1), ';') as all_harv_restrict_class_ranks,
+  array_to_string(trim_array(all_harv_restrict_class_names, 1), ';') as all_harv_restrict_class_names,
+  map_tile_250k,
+  geom
+from harvest_restrictions
+where
+all_harv_restrict_class_ranks @> ARRAY[6] and
+all_harv_restrict_class_ranks != ARRAY[6]"
 
 # zip output
 zip -r harvest_restrictions.gdb.zip harvest_restrictions.gdb
 
 # summarize results
-$PSQL -f sql/summarize.sql --csv > harvest_restrictions_summary.csv
+#$PSQL -f sql/summarize.sql --csv > harvest_restrictions_summary.csv
 
 # post to s3
-aws s3 cp harvest_restrictions.gdb.zip s3://$OBJECTSTORE_BUCKET/dss_projects_2024/harvest_restrictions/harvest_restrictions.gdb.zip
-aws s3 cp harvest_restrictions_summary.csv s3://$OBJECTSTORE_BUCKET/dss_projects_2024/harvest_restrictions/harvest_restrictions_summary.csv
+#aws s3 cp harvest_restrictions.gdb.zip s3://$OBJECTSTORE_BUCKET/dss_projects_2024/harvest_restrictions/harvest_restrictions.gdb.zip
+#aws s3 cp harvest_restrictions_summary.csv s3://$OBJECTSTORE_BUCKET/dss_projects_2024/harvest_restrictions/harvest_restrictions_summary.csv
