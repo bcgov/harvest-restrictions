@@ -278,7 +278,7 @@ def download_source(source):
     "--out_path",
     "-o",
     type=click.Path(exists=True),
-    default="data",
+    default=".",
     help="Output path to cache data (local folder or object storage)",
 )
 @verbose_opt
