@@ -1,0 +1,16 @@
+name: harvest-restrictions
+run-name: ${{ github.actor }} Full harvest-restrictions workflow
+on:
+  workflow_dispatch:
+env:
+  AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+  AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+  OBJECTSTORE_BUCKET: ${{ secrets.OBJECTSTORE_BUCKET }}
+jobs:
+  download:
+    uses: ./.github/workflows/download.yaml
+    secrets: inherit
+  process:
+    uses: ./.github/workflows/process.yaml
+    secrets: inherit
+    needs: download
