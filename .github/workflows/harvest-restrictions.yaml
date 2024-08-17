@@ -41,4 +41,5 @@ jobs:
           python download.py cache2pg sources.json -v --out_table designations --in_path s3://$OBJECTSTORE_BUCKET/dss_projects_2024/harvest_restrictions/sources
       - name: Process overlays
         run: |
+          git config --global --add safe.directory /__w/harvest-restrictions/harvest-restrictions
           ./harvest_restrictions.sh
