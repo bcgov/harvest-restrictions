@@ -32,7 +32,11 @@ jobs:
     env:
         DEBIAN_FRONTEND: noninteractive
     steps:
-      - uses: actions/checkout@v4
+      - name: Check out repository code
+        uses: actions/checkout@v4
+        with:
+            fetch-tags: true
+            fetch-depth: 0
       - name: Load sources to database
         run: |
           python download.py cache2pg sources.json -v --out_table designations --in_path s3://$OBJECTSTORE_BUCKET/dss_projects_2024/harvest_restrictions/sources
