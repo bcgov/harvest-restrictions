@@ -1,0 +1,26 @@
+name: Download
+on:
+  workflow_dispatch:
+  workflow_call:
+env:
+  AWS_ENDPOINT_URL: "https://nrs.objectstore.gov.bc.ca"
+  AWS_S3_ENDPOINT: "nrs.objectstore.gov.bc.ca"
+  AWS_VIRTUAL_HOSTING: "FALSE"
+  AWS_EC2_METADATA_DISABLED: "true"
+  CPL_VSISTDIN_BUFFER_LIMIT: -1
+  OBJECTSTORE_BUCKET: ${{ secrets.OBJECTSTORE_BUCKET }}
+  AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+  AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+jobs:
+  harvest-restrictions:
+    runs-on: ubuntu-latest
+    name: harvest-restrictions
+    container: ghcr.io/bcgov/harvest-restrictions:main
+    environment: production
+    env:
+        DEBIAN_FRONTEND: noninteractive
+    steps:
+      - uses: actions/checkout@v4
+      - name: Download sources to S3
+        run: |
+          python download.py download sources.json -v --out_path s3://$OBJECTSTORE_BUCKET/dss_projects_2024/harvest_restrictions/sources
