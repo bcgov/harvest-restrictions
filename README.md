@@ -77,14 +77,12 @@ Output files are:
 
 ## Versioning
 
-Note that logging is based on the output of `git describe`. For this to work smoothly:
-
-- tag releases with `v<year>_<month>` and development versions with `v<year>_<month>_dev`
-- manually strip any development version columns written to the log .csv files as required
+Note that logging of results over time is based on the output of `git describe` - for this to function effectively, tag releases with `v<year>_<month>`.
+When a new release has been tagged, update the list of releases to track in `log.py`.
 
 ## designatedlands
 
-This tool is a stripped down version of the [designated lands script](https://github.com/bcgov/designatedlands) and could be used for that analysis - mine and oil and gas restrictions are supported. However, several components of `designatedlands` are not currently supported by this tool:
+This tool is a stripped down version of the [designated lands script](https://github.com/bcgov/designatedlands) and could be used for that analysis by adding mine and oil and gas restriction levels to each source in `sources.json`. Note however that several components of `designatedlands` are not currently supported by this tool:
 
 - raster based analysis
 - config based pre-processing of input sources
