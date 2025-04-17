@@ -5,11 +5,7 @@ import pandas
 
 RELEASES = ["v2023-07", "v2024-04"]
 
-S3 = (
-    "s3://"
-    + os.environ.get("OBJECTSTORE_BUCKET")
-    + "/dss_projects_2024/harvest_restrictions"
-)
+S3 = "s3://" + os.environ.get("BUCKET") + "/dss_projects_2024/harvest_restrictions"
 
 # column header comes from git tag
 tag = subprocess.check_output(["git", "describe", "--tags"]).decode("ascii").strip()

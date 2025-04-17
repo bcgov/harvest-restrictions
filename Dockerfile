@@ -19,11 +19,8 @@ RUN apt-get update && \
     apt-get -qq install -y --no-install-recommends python3-psycopg2 && \
     rm -rf /var/lib/apt/lists/*
 
-RUN curl "https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip" -o "awscliv2.zip" && \
-    unzip awscliv2.zip && \
-    ./aws/install
 
-WORKDIR /home/harvest-restrictions
+WORKDIR /home/harvest_restrictions
 
 COPY requirements*.txt ./
 
@@ -31,5 +28,9 @@ RUN python3 -m venv /opt/venv && \
     /opt/venv/bin/python -m pip install -U pip && \
     /opt/venv/bin/python -m pip install --no-cache-dir --upgrade numpy && \
     /opt/venv/bin/python -m pip install --no-cache-dir -r requirements.txt
+
+RUN curl "https://awscli.amazonaws.com/awscli-exe-linux-x86_64-2.22.21.zip" -o "awscliv2.zip" \
+    && unzip awscliv2.zip \
+    && ./aws/install
 
 ENV PATH="/opt/venv/bin:$PATH"

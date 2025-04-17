@@ -50,13 +50,38 @@ For example, this defines National Parks - data come from the BCGW, all parks ar
 See `source.schema.json` for a full description.
 
 
+## Development and testing setup
+
+### 1. Build postgis image
+
+If working on an `arm64` platform (ie Apple M series machine), pre-built postgis Docker images are not currently available and must be built.
+If working on an `amd64`/ x86-64 platform (ie, most Windows/Linux machines), pre-built images are available and this step can be omitted.
+
+To build the image, see the current `image` tag referenced in the `db` section of this repository's [docker-compose.yml](docker-compose.yml) (eg `postgis:17-3.5`) then build the image locally, replacing `<tag>` with the required tag:
+    
+    git clone https://github.com/postgis/docker-postgis.git
+    cd docker-postgis
+    cd <tag> 
+    docker build .
+    cd ..
+    rm -rf docker-postgis # optionally, remove the repository
+
+
+### 2. Initialize the containers
+
+    git clone git@github.com:bcgov/harvest-restrictions.git
+    cd harvest_restrictions
+    docker compose build . 
+    docker compose up -d
+
+
 ## Usage
 
 1. Edit `sources.json` as required
 
 2. Validate `sources.json`:
 	
-		python download.py --dry-run -v
+		docker compose run -it --rm app python download.py download --dry_run -v
 
 3. Download data to file:
 

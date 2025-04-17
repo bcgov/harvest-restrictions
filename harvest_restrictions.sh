@@ -90,7 +90,7 @@ $PSQL -f sql/land_designations.sql --csv > current_land_designations.csv
 $PSQL -f sql/harvest_restrictions.sql --csv > current_harvest_restrictions.csv
 
 # post output spatial file to s3
-aws s3 cp harvest_restrictions.gdb.zip s3://$OBJECTSTORE_BUCKET/dss_projects_2024/harvest_restrictions/harvest_restrictions.gdb.zip
+aws s3 cp harvest_restrictions.gdb.zip s3://$BUCKET/dss_projects_2024/harvest_restrictions/harvest_restrictions.gdb.zip
 
 # compare to previous outputs
 python log.py
