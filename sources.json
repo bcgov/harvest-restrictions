@@ -275,9 +275,9 @@
     {
         "alias": "migratory_bird_sanctuaries",
         "description": "Migratory Bird Sanctuaries",
-        "source": "/vsizip//vsis3/$BUCKET/dss_projects_2024/harvest_restrictions/sources/CPCAD-BDCAPC_Nov2023.gdb.zip",
+        "source": "/vsizip//vsis3/$BUCKET/dss_projects_2024/harvest_restrictions/sources/ProtectedConservedArea_2023.gdb.zip",
         "source_type": "FILE",
-        "layer": "CPCAD_Nov2023_Albers",
+        "layer": "ProtectedConservedArea_2023",
         "query": "LOC = 2 And BIOME = 'T' And TYPE_E = 'Migratory Bird Sanctuary'",
         "primary_key": "PARENT_ID",
         "field_mapper": {"name": "NAME_E"},
@@ -340,9 +340,9 @@
     {
         "alias": "national_wildlife_area",
         "description": "National Wildlife Areas",
-        "source": "/vsizip//vsis3/$BUCKET/dss_projects_2024/harvest_restrictions/sources/CPCAD-BDCAPC_Nov2023.gdb.zip",
+        "source": "/vsizip//vsis3/$BUCKET/dss_projects_2024/harvest_restrictions/sources/ProtectedConservedArea_2023.gdb.zip",
         "source_type": "FILE",
-        "layer": "CPCAD_Nov2023_Albers",
+        "layer": "ProtectedConservedArea_2023",
         "query": "LOC = 2 AND BIOME = 'T' AND TYPE_E = 'National Wildlife Area'",
         "primary_key": "PARENT_ID",
         "field_mapper": {"name": "NAME_E"},

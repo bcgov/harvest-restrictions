@@ -77,21 +77,23 @@ To build the image, see the current `image` tag referenced in the `db` section o
 
 ## Usage
 
-1. Edit `sources.json` as required
+1. Identify any file based sources for which download cannot be scripted, manually upload file to object storage.
 
-2. Validate `sources.json`:
+2. Edit `sources.json` as required
+
+3. Validate `sources.json`:
 	
 		docker compose run -it --rm app python download.py download --dry_run -v
 
-3. Download data to file:
+4. Download data to file:
 
 		python download.py download -v
 
-4. Load downloaded files to database:
+5. Load downloaded files to database:
 
         python download.py cache2pg -v --out_table designations
 
-4. Run overlays, dump results to file, log result summaries to csv:
+6. Run overlays, dump results to file, log result summaries to csv:
 
 		./harvest_restrictions.sh
 
