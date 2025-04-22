@@ -45,8 +45,8 @@ h = h.rename(columns={"area_ha": tag})
 
 # calculate diff and pct diff
 previous_tag = RELEASES[-1]
-d["diff"] = d[previous_tag] - d[tag]
-h["diff"] = h[previous_tag] - h[tag]
+d["diff"] = d[tag] - d[previous_tag]
+h["diff"] = h[tag] - h[previous_tag]
 d["pct_diff"] = (d["diff"] / d[previous_tag]) * 100
 h["pct_diff"] = (h["diff"] / h[previous_tag]) * 100
 
