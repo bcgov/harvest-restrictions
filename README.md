@@ -85,17 +85,17 @@ To build the image, see the current `image` tag referenced in the `db` section o
 	
 		docker compose run -it --rm app python download.py download --dry_run -v
 
-4. Download data to file:
+4. Download data to file (specifying output path):
 
-		python download.py download -v
+		docker compose run -it --rm app python download.py download -v -o s3://$BUCKET/dss_projects_2024/harvest_restrictions/sources
 
-5. Load downloaded files to database:
+5. Load downloaded files to database (specifying input path):
 
-        python download.py cache2pg -v --out_table designations
+        docker compose run -it --rm app python download.py cache2pg -v --out_table designations -p s3://$BUCKET/dss_projects_2024/harvest_restrictions/sources
 
 6. Run overlays, dump results to file, log result summaries to csv:
 
-		./harvest_restrictions.sh
+		docker compose run -it --rm app harvest_restrictions.sh
 
 Output files are:
 

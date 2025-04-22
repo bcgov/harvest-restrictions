@@ -183,7 +183,6 @@ def download_source(source):
     if source["source_type"] == "BCGW":
         df = bcdata.get_data(
             source["source"],
-            crs="EPSG:3005",
             query=source["query"],
             as_gdf=True,
             lowercase=True,
