@@ -2,8 +2,10 @@
 set -euxo pipefail
 
 
-# post outputs to s3
+# compare current output to previous release
+python log.py
 
+# post output files to object storage
 aws s3 cp harvest_restrictions.gdb.zip \
   s3://$BUCKET/dss_projects_2024/harvest_restrictions/harvest_restrictions.gdb.zip
 

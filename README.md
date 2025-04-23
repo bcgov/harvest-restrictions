@@ -97,20 +97,23 @@ To build the image, see the current `image` tag referenced in the `db` section o
 
 		docker compose run -it --rm app ./harvest_restrictions.sh
 
-7. Review output files:
+7. Tag a draft release and upload to object storage:
+
+        docker compose run -it --rm app git tag -a vYYYY-MM-DRAFT -m vYYYY-MM-DRAFT
+        docker compose run -it --rm app ./release.sh
+
+8. Review the output spatial file and change logs:
 
     - `harvest_restrictions.gdb.zip`        
     - `log_land_designations.csv`
     - `log_harvest_restrictions.csv`
 
-8. Once results are confirmed to be reasonable/correct, tag the current commit as a release:
+9. Once results are confirmed to be reasonable/correct, tag the current commit as the release, re-run the comparison with the new tag and create the release:
 
-        docker compose run -it --rm app git tag `v<YYYY>_<MM>`
-
-9. Re-run the log (using the new tag as the final column name) and upload results to object storage:
-
-        docker compose run -it --rm app python log.py
+        docker compose run -it --rm app git tag vYYYY_MM
         docker compose run -it --rm app ./release.sh
+
+10. Optionally, re-run the entire analysis by manually calling the [Github Actions workflow](https://github.com/bcgov/harvest-restrictions/actions/workflows/harvest-restrictions.yaml).
 
 
 ## designatedlands

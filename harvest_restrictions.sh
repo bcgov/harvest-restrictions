@@ -88,6 +88,3 @@ zip -r harvest_restrictions.gdb.zip harvest_restrictions.gdb
 # summarize results
 $PSQL -f sql/land_designations.sql --csv > current_land_designations.csv
 $PSQL -f sql/harvest_restrictions.sql --csv > current_harvest_restrictions.csv
-
-# compare to previous outputs
-python log.py

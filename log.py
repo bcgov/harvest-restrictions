@@ -28,8 +28,9 @@ h_columns = [
     "harvest_restriction_class_name",
 ]
 
-# extract release tags from columns
+# extract release tags from columns, discarding any with DRAFT in the name
 releases = list(set(d_log.columns).difference(set(d_columns + ["diff", "pct_diff"])))
+releases = [r for r in releases if "DRAFT" not in r.upper()]
 
 # strip existing diff columns
 d_log = d_log[d_columns + releases]
