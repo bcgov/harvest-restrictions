@@ -97,16 +97,21 @@ To build the image, see the current `image` tag referenced in the `db` section o
 
 		docker compose run -it --rm app ./harvest_restrictions.sh
 
-Output files are:
+7. Review output files:
 
-- `harvest_restrictions.gdb.zip`        
-- `log_land_designations.csv`
-- `log_harvest_restrictions.csv`
+    - `harvest_restrictions.gdb.zip`        
+    - `log_land_designations.csv`
+    - `log_harvest_restrictions.csv`
 
-## Versioning
+8. Once results are confirmed to be reasonable/correct, tag the current commit as a release:
 
-Note that logging of results over time is based on the output of `git describe` - for this to function effectively, tag releases with `v<year>_<month>`.
-When a new release has been tagged, update the list of releases to track in `log.py`.
+        docker compose run -it --rm app git tag `v<YYYY>_<MM>`
+
+9. Re-run the log (using the new tag as the final column name) and upload results to object storage:
+
+        docker compose run -it --rm app python log.py
+        docker compose run -it --rm app ./release.sh
+
 
 ## designatedlands
 

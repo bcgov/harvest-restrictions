@@ -3,11 +3,10 @@ import subprocess
 
 import pandas
 
-RELEASES = ["v2023-07", "v2024-04", "v2025-04-beta"]
 
 S3 = "s3://" + os.environ.get("BUCKET") + "/dss_projects_2024/harvest_restrictions"
 
-# column header comes from git tag
+# current release column header comes from git tag
 tag = subprocess.check_output(["git", "describe", "--tags"]).decode("ascii").strip()
 
 # read data
@@ -23,13 +22,18 @@ d_columns = [
     "harvest_restriction_class_name",
     "land_designation_type_code",
     "land_designation_type_name",
-] + RELEASES
+]
 h_columns = [
     "harvest_restriction_class_rank",
     "harvest_restriction_class_name",
-] + RELEASES
-d_log = d_log[d_columns]
-h_log = h_log[h_columns]
+]
+
+# extract release tags from columns
+releases = list(set(d_log.columns).difference(set(d_columns + ["diff", "pct_diff"])))
+
+# strip existing diff columns
+d_log = d_log[d_columns + releases]
+h_log = h_log[h_columns + releases]
 
 # summary columns - drop everything but keys and current area totals
 d_summary = d_summary[["land_designation_type_rank", "area_ha"]]
@@ -44,7 +48,7 @@ d = d.rename(columns={"area_ha": tag})
 h = h.rename(columns={"area_ha": tag})
 
 # calculate diff and pct diff
-previous_tag = RELEASES[-1]
+previous_tag = sorted(releases)[-1]
 d["diff"] = d[tag] - d[previous_tag]
 h["diff"] = h[tag] - h[previous_tag]
 d["pct_diff"] = (d["diff"] / d[previous_tag]) * 100
@@ -57,6 +61,6 @@ h = h.round({tag: 0, "diff": 0, "pct_diff": 2}).set_index(
     "harvest_restriction_class_rank"
 )
 
-# dump results back to s3
-d.to_csv(os.path.join(S3, "log_land_designations.csv"))
-h.to_csv(os.path.join(S3, "log_harvest_restrictions.csv"))
+# dump results to csv
+d.to_csv("log_land_designations.csv")
+h.to_csv("log_harvest_restrictions.csv")
