@@ -61,7 +61,10 @@ d = d.round({tag: 0, "diff": 0, "pct_diff": 2}).set_index("land_designation_type
 h = h.round({tag: 0, "diff": 0, "pct_diff": 2}).set_index(
     "harvest_restriction_class_rank"
 )
-
+d_columns.remove("land_designation_type_rank")
+h_columns.remove("harvest_restriction_class_rank")
 # dump results to csv
-d.to_csv("log_land_designations.csv")
-h.to_csv("log_harvest_restrictions.csv")
+d[d_columns + releases + [tag, "diff", "pct_diff"]].to_csv("log_land_designations.csv")
+h[h_columns + releases + [tag, "diff", "pct_diff"]].to_csv(
+    "log_harvest_restrictions.csv"
+)

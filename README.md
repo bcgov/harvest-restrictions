@@ -110,7 +110,7 @@ To build the image, see the current `image` tag referenced in the `db` section o
 
 9. Once results are confirmed to be reasonable/correct, tag the current commit as the release, re-run the comparison with the new tag and create the release:
 
-        docker compose run -it --rm app git tag vYYYY_MM
+        docker compose run -it --rm app git tag -a vYYYY-MM-DRAFT -m vYYYY-MM-DRAFT
         docker compose run -it --rm app ./release.sh
 
 10. Optionally, re-run the entire analysis by manually calling the [Github Actions workflow](https://github.com/bcgov/harvest-restrictions/actions/workflows/harvest-restrictions.yaml).
