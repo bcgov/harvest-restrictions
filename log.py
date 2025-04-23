@@ -31,7 +31,7 @@ h_columns = [
 # extract release tags from columns, discarding any with DRAFT in the name
 releases = list(set(d_log.columns).difference(set(d_columns + ["diff", "pct_diff"])))
 releases = [r for r in releases if "DRAFT" not in r.upper()]
-
+releases = sorted(releases)
 # strip existing diff columns
 d_log = d_log[d_columns + releases]
 h_log = h_log[h_columns + releases]
@@ -49,7 +49,7 @@ d = d.rename(columns={"area_ha": tag})
 h = h.rename(columns={"area_ha": tag})
 
 # calculate diff and pct diff
-previous_tag = sorted(releases)[-1]
+previous_tag = releases[-1]
 d["diff"] = d[tag] - d[previous_tag]
 h["diff"] = h[tag] - h[previous_tag]
 d["pct_diff"] = (d["diff"] / d[previous_tag]) * 100
