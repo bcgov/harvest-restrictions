@@ -50,36 +50,75 @@ For example, this defines National Parks - data come from the BCGW, all parks ar
 See `source.schema.json` for a full description.
 
 
+## Development and testing setup
+
+### 1. Build postgis image
+
+If working on an `arm64` platform (ie Apple M series machine), pre-built postgis Docker images are not currently available and must be built.
+If working on an `amd64`/ x86-64 platform (ie, most Windows/Linux machines), pre-built images are available and this step can be omitted.
+
+To build the image, see the current `image` tag referenced in the `db` section of this repository's [docker-compose.yml](docker-compose.yml) (eg `postgis:17-3.5`) then build the image locally, replacing `<tag>` with the required tag:
+    
+    git clone https://github.com/postgis/docker-postgis.git
+    cd docker-postgis
+    cd <tag> 
+    docker build .
+    cd ..
+    rm -rf docker-postgis # optionally, remove the repository
+
+
+### 2. Initialize the containers
+
+    git clone git@github.com:bcgov/harvest-restrictions.git
+    cd harvest_restrictions
+    docker compose build . 
+    docker compose up -d
+
+
 ## Usage
 
-1. Edit `sources.json` as required
+1. Identify any file based sources for which download cannot be scripted, manually upload file to object storage.
 
-2. Validate `sources.json`:
+2. If making changes to `download.py`, test the changes:
+
+        docker compose run -it --rm app python -m pytest -v -rxXs
+
+3. Edit `sources.json` as required
+
+4. Validate `sources.json`:
 	
-		python download.py --dry-run -v
+		docker compose run -it --rm app python download.py download --dry_run -v
 
-3. Download data to file:
+5. Download data to file (specifying output path):
 
-		python download.py download -v
+		docker compose run -it --rm app python download.py download -v -o s3://$BUCKET/dss_projects_2024/harvest_restrictions/sources
 
-4. Load downloaded files to database:
+6. Load downloaded files to database (specifying input path):
 
-        python download.py cache2pg -v --out_table designations
+        docker compose run -it --rm app python download.py cache2pg -v --out_table designations -p s3://$BUCKET/dss_projects_2024/harvest_restrictions/sources
 
-4. Run overlays, dump results to file, log result summaries to csv:
+7. Run overlays, dump results to file, log result summaries to csv:
 
-		./harvest_restrictions.sh
+		docker compose run -it --rm app ./harvest_restrictions.sh
 
-Output files are:
+8. Tag a draft release and upload to object storage:
 
-- `harvest_restrictions.gdb.zip`        
-- `log_land_designations.csv`
-- `log_harvest_restrictions.csv`
+        docker compose run -it --rm app git tag -a vYYYY-MM-DRAFT -m vYYYY-MM-DRAFT
+        docker compose run -it --rm app ./release.sh
 
-## Versioning
+9. Review the output spatial file and change logs:
 
-Note that logging of results over time is based on the output of `git describe` - for this to function effectively, tag releases with `v<year>_<month>`.
-When a new release has been tagged, update the list of releases to track in `log.py`.
+    - `harvest_restrictions.gdb.zip`        
+    - `log_land_designations.csv`
+    - `log_harvest_restrictions.csv`
+
+10. Once results are confirmed to be reasonable/correct, tag the current commit as the release, re-run the comparison with the new tag and create the release:
+
+        docker compose run -it --rm app git tag -a vYYYY-MM-DRAFT -m vYYYY-MM-DRAFT
+        docker compose run -it --rm app ./release.sh
+
+11. Optionally, re-run the entire analysis by manually calling the [Github Actions workflow](https://github.com/bcgov/harvest-restrictions/actions/workflows/harvest-restrictions.yaml).
+
 
 ## designatedlands
 

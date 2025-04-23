@@ -9,7 +9,7 @@ env:
   AWS_VIRTUAL_HOSTING: "FALSE"
   AWS_EC2_METADATA_DISABLED: "true"
   CPL_VSISTDIN_BUFFER_LIMIT: -1
-  OBJECTSTORE_BUCKET: ${{ secrets.OBJECTSTORE_BUCKET }}
+  BUCKET: ${{ secrets.BUCKET }}
   AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
   AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
 jobs:
@@ -20,7 +20,7 @@ jobs:
     environment: production
     services:
       postgres:
-        image: postgis/postgis:16-3.4
+        image: postgis/postgis:17-3.5
         env:
           POSTGRES_PASSWORD: postgres
         # Set health checks to wait until postgres has started
@@ -39,8 +39,9 @@ jobs:
             fetch-depth: 0
       - name: Load sources to database
         run: |
-          python download.py cache2pg sources.json -v --out_table designations --in_path s3://$OBJECTSTORE_BUCKET/dss_projects_2024/harvest_restrictions/sources
+          python download.py cache2pg sources.json -v --out_table designations --in_path s3://$BUCKET/dss_projects_2024/harvest_restrictions/sources
       - name: Process overlays
         run: |
           git config --global --add safe.directory /__w/harvest-restrictions/harvest-restrictions
           ./harvest_restrictions.sh
+          ./release.sh

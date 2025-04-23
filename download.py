@@ -183,7 +183,6 @@ def download_source(source):
     if source["source_type"] == "BCGW":
         df = bcdata.get_data(
             source["source"],
-            crs="EPSG:3005",
             query=source["query"],
             as_gdf=True,
             lowercase=True,
@@ -290,7 +289,10 @@ def download(sources_file, source_alias, dry_run, out_path, verbose, quiet):
 
     # if specified, use only one source
     if source_alias:
-        sources = [s for s in sources if s["alias"] == source_alias]
+        if source_alias not in [s["alias"] for s in sources]:
+            raise ValueError(f"Source {source_alias} is not present in {sources_file}")
+        else:
+            sources = [s for s in sources if s["alias"] == source_alias]
 
     sources = validate_sources(sources)
 
@@ -354,7 +356,10 @@ def cache2pg(
 
     # if specified, use only one source
     if source_alias:
-        sources = [s for s in sources if s["alias"] == source_alias]
+        if source_alias not in [s["alias"] for s in sources]:
+            raise ValueError(f"Source {source_alias} is not present in {sources_file}")
+        else:
+            sources = [s for s in sources if s["alias"] == source_alias]
 
     # only validate on dry-run
     if dry_run:

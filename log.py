@@ -3,15 +3,10 @@ import subprocess
 
 import pandas
 
-RELEASES = ["v2023-07", "v2024-04"]
 
-S3 = (
-    "s3://"
-    + os.environ.get("OBJECTSTORE_BUCKET")
-    + "/dss_projects_2024/harvest_restrictions"
-)
+S3 = "s3://" + os.environ.get("BUCKET") + "/dss_projects_2024/harvest_restrictions"
 
-# column header comes from git tag
+# current release column header comes from git tag
 tag = subprocess.check_output(["git", "describe", "--tags"]).decode("ascii").strip()
 
 # read data
@@ -27,13 +22,19 @@ d_columns = [
     "harvest_restriction_class_name",
     "land_designation_type_code",
     "land_designation_type_name",
-] + RELEASES
+]
 h_columns = [
     "harvest_restriction_class_rank",
     "harvest_restriction_class_name",
-] + RELEASES
-d_log = d_log[d_columns]
-h_log = h_log[h_columns]
+]
+
+# extract release tags from columns, discarding any with DRAFT in the name
+releases = list(set(d_log.columns).difference(set(d_columns + ["diff", "pct_diff"])))
+releases = [r for r in releases if "DRAFT" not in r.upper()]
+releases = sorted(releases)
+# strip existing diff columns
+d_log = d_log[d_columns + releases]
+h_log = h_log[h_columns + releases]
 
 # summary columns - drop everything but keys and current area totals
 d_summary = d_summary[["land_designation_type_rank", "area_ha"]]
@@ -48,9 +49,9 @@ d = d.rename(columns={"area_ha": tag})
 h = h.rename(columns={"area_ha": tag})
 
 # calculate diff and pct diff
-previous_tag = RELEASES[-1]
-d["diff"] = d[previous_tag] - d[tag]
-h["diff"] = h[previous_tag] - h[tag]
+previous_tag = releases[-1]
+d["diff"] = d[tag] - d[previous_tag]
+h["diff"] = h[tag] - h[previous_tag]
 d["pct_diff"] = (d["diff"] / d[previous_tag]) * 100
 h["pct_diff"] = (h["diff"] / h[previous_tag]) * 100
 
@@ -60,7 +61,10 @@ d = d.round({tag: 0, "diff": 0, "pct_diff": 2}).set_index("land_designation_type
 h = h.round({tag: 0, "diff": 0, "pct_diff": 2}).set_index(
     "harvest_restriction_class_rank"
 )
-
-# dump results back to s3
-d.to_csv(os.path.join(S3, "log_land_designations.csv"))
-h.to_csv(os.path.join(S3, "log_harvest_restrictions.csv"))
+d_columns.remove("land_designation_type_rank")
+h_columns.remove("harvest_restriction_class_rank")
+# dump results to csv
+d[d_columns + releases + [tag, "diff", "pct_diff"]].to_csv("log_land_designations.csv")
+h[h_columns + releases + [tag, "diff", "pct_diff"]].to_csv(
+    "log_harvest_restrictions.csv"
+)
