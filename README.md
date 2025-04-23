@@ -79,41 +79,45 @@ To build the image, see the current `image` tag referenced in the `db` section o
 
 1. Identify any file based sources for which download cannot be scripted, manually upload file to object storage.
 
-2. Edit `sources.json` as required
+2. If making changes to `download.py`, test the changes:
 
-3. Validate `sources.json`:
+        docker compose run -it --rm app python -m pytest -v -rxXs
+
+3. Edit `sources.json` as required
+
+4. Validate `sources.json`:
 	
 		docker compose run -it --rm app python download.py download --dry_run -v
 
-4. Download data to file (specifying output path):
+5. Download data to file (specifying output path):
 
 		docker compose run -it --rm app python download.py download -v -o s3://$BUCKET/dss_projects_2024/harvest_restrictions/sources
 
-5. Load downloaded files to database (specifying input path):
+6. Load downloaded files to database (specifying input path):
 
         docker compose run -it --rm app python download.py cache2pg -v --out_table designations -p s3://$BUCKET/dss_projects_2024/harvest_restrictions/sources
 
-6. Run overlays, dump results to file, log result summaries to csv:
+7. Run overlays, dump results to file, log result summaries to csv:
 
 		docker compose run -it --rm app ./harvest_restrictions.sh
 
-7. Tag a draft release and upload to object storage:
+8. Tag a draft release and upload to object storage:
 
         docker compose run -it --rm app git tag -a vYYYY-MM-DRAFT -m vYYYY-MM-DRAFT
         docker compose run -it --rm app ./release.sh
 
-8. Review the output spatial file and change logs:
+9. Review the output spatial file and change logs:
 
     - `harvest_restrictions.gdb.zip`        
     - `log_land_designations.csv`
     - `log_harvest_restrictions.csv`
 
-9. Once results are confirmed to be reasonable/correct, tag the current commit as the release, re-run the comparison with the new tag and create the release:
+10. Once results are confirmed to be reasonable/correct, tag the current commit as the release, re-run the comparison with the new tag and create the release:
 
         docker compose run -it --rm app git tag -a vYYYY-MM-DRAFT -m vYYYY-MM-DRAFT
         docker compose run -it --rm app ./release.sh
 
-10. Optionally, re-run the entire analysis by manually calling the [Github Actions workflow](https://github.com/bcgov/harvest-restrictions/actions/workflows/harvest-restrictions.yaml).
+11. Optionally, re-run the entire analysis by manually calling the [Github Actions workflow](https://github.com/bcgov/harvest-restrictions/actions/workflows/harvest-restrictions.yaml).
 
 
 ## designatedlands

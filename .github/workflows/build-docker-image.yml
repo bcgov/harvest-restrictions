@@ -10,12 +10,6 @@ on:
       - 'requirements.txt'
     tags:
       - 'v*'
-  pull_request:
-    branches:
-      - 'main'
-    paths:
-      - 'Dockerfile'
-      - 'requirements.txt'
 
 env:
   REGISTRY: ghcr.io

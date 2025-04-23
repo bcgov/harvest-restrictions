@@ -1,4 +1,4 @@
-FROM ghcr.io/osgeo/gdal:ubuntu-full-3.9.1
+FROM ghcr.io/osgeo/gdal:ubuntu-full-3.10.1
 
 ENV LANG="C.UTF-8" LC_ALL="C.UTF-8"
 ENV DEBIAN_FRONTEND=noninteractive
@@ -27,7 +27,7 @@ COPY requirements*.txt ./
 RUN python3 -m venv /opt/venv && \
     /opt/venv/bin/python -m pip install -U pip && \
     /opt/venv/bin/python -m pip install --no-cache-dir --upgrade numpy && \
-    /opt/venv/bin/python -m pip install --no-cache-dir -r requirements.txt
+    /opt/venv/bin/python -m pip install --no-cache-dir -r requirements-dev.txt
 
 RUN curl "https://awscli.amazonaws.com/awscli-exe-linux-x86_64-2.22.21.zip" -o "awscliv2.zip" \
     && unzip awscliv2.zip \
