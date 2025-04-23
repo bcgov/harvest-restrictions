@@ -3,7 +3,7 @@ import subprocess
 
 import pandas
 
-RELEASES = ["v2023-07", "v2024-04", "v2025-04"]
+RELEASES = ["v2023-07", "v2024-04", "v2025-04-beta"]
 
 S3 = "s3://" + os.environ.get("BUCKET") + "/dss_projects_2024/harvest_restrictions"
 
