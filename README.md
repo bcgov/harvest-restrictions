@@ -95,7 +95,7 @@ To build the image, see the current `image` tag referenced in the `db` section o
 
 6. Run overlays, dump results to file, log result summaries to csv:
 
-		docker compose run -it --rm app harvest_restrictions.sh
+		docker compose run -it --rm app ./harvest_restrictions.sh
 
 Output files are:
 
