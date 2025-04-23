@@ -49,6 +49,29 @@ For example, this defines National Parks - data come from the BCGW, all parks ar
 
 See `source.schema.json` for a full description.
 
+## Output spatial file
+
+Output `harvest_restrictions.gdb` has the following columns:
+
+| column                            | type    | description                                                      |
+|-----------------------------------|---------|------------------------------------------------------------------|
+| `harvest_restrictions_id`         | Integer | Polygon unique identifier                                        |
+| `land_designation_name`           | String  | The highest ranking designation for given polygon                |
+| `land_designation_type_rank`      | Integer | The rank of the designation type for given polygon               |    
+| `land_designation_type_code`      | String  | The code of the designation type for given polygon               |
+| `land_designation_type_name`      | String  | The name of the designation type for given polygon               |
+| `land_designation_primary_key`    | String  | The primary key value for the highest ranking designation for the given polygon |   
+| `harvest_restriction_class_rank`  | Integer | The rank of the harvest restriction class for given polygon      |    
+| `harvest_restriction_class_name`  | String  | The name of the harvest restriction class for given polygon      |
+| `all_land_desig_names`            | String  | All designations that apply to the given polygon                 |   
+| `all_land_desig_type_ranks`       | String  | All designations ranks that apply to the given polygon           |   
+| `all_land_desig_type_codes`       | String  | All designations types that apply to the given polygon           |   
+| `all_land_desig_type_names`       | String  | All designations type names that apply to the given polygon      |   
+| `all_land_desig_primary_keys`     | String  | Primary key values for all designations that apply to the given polyon |   
+| `all_harv_restrict_class_ranks`   | String  | All harvest restriction class ranks that apply to the given polygon |   
+| `all_harv_restrict_class_names`   | String  | All harvest restriction class names that apply to the given polygon |
+| `map_tile_250k`                   | String  | NTS 1:250,000 tile name                                          |   
+
 
 ## Development and testing setup
 
@@ -86,12 +109,12 @@ To build the image, see the current `image` tag referenced in the `db` section o
 3. Edit `sources.json` as required
 
 4. Validate `sources.json`:
-	
-		docker compose run -it --rm app python download.py download --dry_run -v
+    
+        docker compose run -it --rm app python download.py download --dry_run -v
 
 5. Download data to file (specifying output path):
 
-		docker compose run -it --rm app python download.py download -v -o s3://$BUCKET/dss_projects_2024/harvest_restrictions/sources
+        docker compose run -it --rm app python download.py download -v -o s3://$BUCKET/dss_projects_2024/harvest_restrictions/sources
 
 6. Load downloaded files to database (specifying input path):
 
@@ -99,7 +122,7 @@ To build the image, see the current `image` tag referenced in the `db` section o
 
 7. Run overlays, dump results to file, log result summaries to csv:
 
-		docker compose run -it --rm app ./harvest_restrictions.sh
+        docker compose run -it --rm app ./harvest_restrictions.sh
 
 8. Tag a draft release and upload to object storage:
 
