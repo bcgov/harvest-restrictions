@@ -47,7 +47,7 @@
         "alias": "heritage_site",
         "source_type": "BCGW",
         "description": "Heritage Site",
-        "source": "WHSE_HUMAN_CULTURAL_ECONOMIC.HIST_HISTORIC_ENVIRONMENTS_SP",
+        "source": "WHSE_HUMAN_CULTURAL_ECONOMIC.HIST_HISTORIC_ENVIRONMNT_PA_SV",
         "query": null,
         "field_mapper": {"name": "COMMON_SITE_NAME"},
         "data": {"harvest_restriction": 1}
