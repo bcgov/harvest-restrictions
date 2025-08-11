@@ -94,7 +94,7 @@ To build the image, see the current `image` tag referenced in the `db` section o
 
     git clone git@github.com:bcgov/harvest-restrictions.git
     cd harvest_restrictions
-    docker compose build . 
+    docker compose build
     docker compose up -d
 
 
