@@ -275,9 +275,9 @@
     {
         "alias": "migratory_bird_sanctuaries",
         "description": "Migratory Bird Sanctuaries",
-        "source": "/vsizip//vsicurl/https://data-donnees.az.ec.gc.ca/api/file?path=%2Fspecies%2Fprotectrestore%2Fcanadian-protected-conserved-areas-database%2FDatabases%2FProtectedConservedArea_2023.zip/ProtectedConservedArea_2023/ProtectedConservedArea_2023.gdb",
+        "source": "/vsizip//vsis3/$BUCKET/dss_projects_2025/GeoBC/harvest_restrictions/ProtectedConservedArea_2024.gdb.zip",
         "source_type": "FILE",
-        "layer": "ProtectedConservedArea_2023",
+        "layer": "ProtectedConservedArea_2024",
         "query": "LOC = 2 And BIOME = 'T' And TYPE_E = 'Migratory Bird Sanctuary'",
         "primary_key": "PARENT_ID",
         "field_mapper": {"name": "NAME_E"},
@@ -340,9 +340,9 @@
     {
         "alias": "national_wildlife_area",
         "description": "National Wildlife Areas",
-        "source": "/vsizip//vsicurl/https://data-donnees.az.ec.gc.ca/api/file?path=%2Fspecies%2Fprotectrestore%2Fcanadian-protected-conserved-areas-database%2FDatabases%2FProtectedConservedArea_2023.zip/ProtectedConservedArea_2023/ProtectedConservedArea_2023.gdb",
+        "source": "/vsizip//vsis3/$BUCKET/dss_projects_2025/GeoBC/harvest_restrictions/ProtectedConservedArea_2024.gdb.zip",
         "source_type": "FILE",
-        "layer": "ProtectedConservedArea_2023",
+        "layer": "ProtectedConservedArea_2024",
         "query": "LOC = 2 AND BIOME = 'T' AND TYPE_E = 'National Wildlife Area'",
         "primary_key": "PARENT_ID",
         "field_mapper": {"name": "NAME_E"},
