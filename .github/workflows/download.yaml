@@ -24,4 +24,4 @@ jobs:
       - uses: actions/checkout@v4
       - name: Download sources to S3
         run: |
-          python download.py download sources.json -v --out_path s3://$BUCKET/dss_projects_2024/harvest_restrictions/sources
+          python download.py download sources.json -v --out_path s3://$BUCKET/dss_projects_2025/GeoBC/harvest_restrictions/sources

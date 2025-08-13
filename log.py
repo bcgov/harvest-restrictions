@@ -4,7 +4,9 @@ import subprocess
 import pandas
 
 
-S3 = "s3://" + os.environ.get("BUCKET") + "/dss_projects_2024/harvest_restrictions"
+S3 = (
+    "s3://" + os.environ.get("BUCKET") + "/dss_projects_2025/GeoBC/harvest_restrictions"
+)
 
 # current release column header comes from git tag
 tag = subprocess.check_output(["git", "describe", "--tags"]).decode("ascii").strip()

@@ -114,11 +114,11 @@ To build the image, see the current `image` tag referenced in the `db` section o
 
 5. Download data to file (specifying output path):
 
-        docker compose run -it --rm app python download.py download -v -o s3://$BUCKET/dss_projects_2024/harvest_restrictions/sources
+        docker compose run -it --rm app python download.py download -v -o s3://$BUCKET/dss_projects_2025/GeoBC/harvest_restrictions/sources
 
 6. Load downloaded files to database (specifying input path):
 
-        docker compose run -it --rm app python download.py cache2pg -v --out_table designations -p s3://$BUCKET/dss_projects_2024/harvest_restrictions/sources
+        docker compose run -it --rm app python download.py cache2pg -v --out_table designations -p s3://$BUCKET/dss_projects_2025/GeoBC/harvest_restrictions/sources
 
 7. Run overlays, dump results to file, log result summaries to csv:
 
@@ -126,7 +126,7 @@ To build the image, see the current `image` tag referenced in the `db` section o
 
 8. Tag a draft release and upload to object storage:
 
-        docker compose run -it --rm app git tag -a vYYYY-MM-DRAFT -m vYYYY-MM-DRAFT
+        git tag -a vYYYY-MM-DRAFT -m vYYYY-MM-DRAFT
         docker compose run -it --rm app ./release.sh
 
 9. Review the output spatial file and change logs:
