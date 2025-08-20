@@ -51,14 +51,11 @@ $PSQL -tXA \
 
 # dump result to file
 ogr2ogr   \
-  -f OpenFileGDB \
-  harvest_restrictions.gdb \
+  -f GPKG \
+  harvest_restrictions.gdb.zip \
   "PG:$DATABASE_URL" \
-  --config OPENFILEGDB_DEFAULT_STRING_WIDTH 255 \
   -nlt MULTIPOLYGON \
   -nln harvest_restrictions \
-  -lco CREATE_SHAPE_AREA_AND_LENGTH_FIELDS=YES \
-  -mapfieldtype Integer64=Integer \
   -sql "select
   harvest_restrictions_id,
   land_designation_name,
@@ -81,9 +78,6 @@ from harvest_restrictions
 where
 all_harv_restrict_class_ranks @> ARRAY[6] and
 all_harv_restrict_class_ranks != ARRAY[6]"
-
-# zip output
-zip -r harvest_restrictions.gdb.zip harvest_restrictions.gdb
 
 # summarize results
 $PSQL -f sql/land_designations.sql --csv > current_land_designations.csv
