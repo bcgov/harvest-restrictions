@@ -17,6 +17,7 @@ RUN apt-get update && \
     apt-get -qq install -y --no-install-recommends python3-dev && \
     apt-get -qq install -y --no-install-recommends python3-venv && \
     apt-get -qq install -y --no-install-recommends python3-psycopg2 && \
+    apt-get -qq install -y --no-install-recommends jq && \
     rm -rf /var/lib/apt/lists/*
 
 
