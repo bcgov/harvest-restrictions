@@ -52,7 +52,7 @@ $PSQL -tXA \
 # dump result to file
 ogr2ogr   \
   -f GPKG \
-  harvest_restrictions.gdb.zip \
+  harvest_restrictions.gpkg.zip \
   "PG:$DATABASE_URL" \
   -nlt MULTIPOLYGON \
   -nln harvest_restrictions \

@@ -1,6 +1,6 @@
 services:
   db:
-    image: postgis:17-3.5
+    image: imresamu/postgis:17-3.5-bullseye
     container_name: harvest_restrictions-db
     ports:
       - ${DB_PORT}:5432
