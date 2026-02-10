@@ -1,4 +1,4 @@
-FROM ghcr.io/osgeo/gdal:ubuntu-full-3.10.3
+FROM ghcr.io/osgeo/gdal:ubuntu-full-3.12.2
 
 ENV LANG="C.UTF-8" LC_ALL="C.UTF-8"
 ENV DEBIAN_FRONTEND=noninteractive

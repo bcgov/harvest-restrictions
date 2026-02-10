@@ -1,6 +1,6 @@
---------------------
+-- ------------------
 -- ## clean/subdivide geoms
---------------------
+-- ------------------
 create temporary table cleaned as
 
 with tile as (
@@ -13,8 +13,8 @@ with tile as (
     s.name,
     s.harvest_restriction,
     CASE
-      WHEN ST_CoveredBy(s.geom, t.geom) THEN st_makevalid(s.geom)
-      ELSE st_makevalid((ST_Intersection(s.geom, t.geom, .1)))
+      WHEN ST_CoveredBy(ST_ReducePrecision(s.geom, .1), ST_ReducePrecision(t.geom, .1)) THEN ST_MakeValid(ST_ReducePrecision(s.geom, .1))
+      ELSE ST_MakeValid((ST_Intersection(ST_ReducePrecision(s.geom, .1), ST_ReducePrecision(t.geom, .1), .1)))
     END as geom
   from designations s
   inner join whse_basemapping.nts_250k_grid t
@@ -39,9 +39,9 @@ from tile
 create index on cleaned using gist (geom);
 
 
---------------------
+-- ------------------
 -- ## run the overlay
---------------------
+-- ------------------
 
 -- dump poly rings and convert to lines
 with rings as

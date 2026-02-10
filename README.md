@@ -75,28 +75,12 @@ Output `harvest_restrictions.gdb` has the following columns:
 
 ## Development and testing setup
 
-### 1. Build postgis image
-
-If working on an `arm64` platform (ie Apple M series machine), pre-built postgis Docker images are not currently available and must be built.
-If working on an `amd64`/ x86-64 platform (ie, most Windows/Linux machines), pre-built images are available and this step can be omitted.
-
-To build the image, see the current `image` tag referenced in the `db` section of this repository's [docker-compose.yml](docker-compose.yml) (eg `postgis:17-3.5`) then build the image locally, replacing `<tag>` with the required tag:
-    
-    git clone https://github.com/postgis/docker-postgis.git
-    cd docker-postgis
-    cd <tag> 
-    docker build .
-    cd ..
-    rm -rf docker-postgis # optionally, remove the repository
-
-
-### 2. Initialize the containers
-
     git clone git@github.com:bcgov/harvest-restrictions.git
     cd harvest_restrictions
     docker compose build
     docker compose up -d
 
+Committing changes requires `pre-commit` - install via your package manager of choice.
 
 ## Usage
 
@@ -106,7 +90,7 @@ To build the image, see the current `image` tag referenced in the `db` section o
 
         docker compose run -it --rm app python -m pytest -v -rxXs
 
-3. Edit `sources.json` as required
+3. Edit `sources.json` as required (note that sources will likely be provided as a csv file)
 
 4. Validate `sources.json`:
     
@@ -114,11 +98,11 @@ To build the image, see the current `image` tag referenced in the `db` section o
 
 5. Download data to file (specifying output path):
 
-        docker compose run -it --rm app python download.py download -v -o s3://$BUCKET/dss_projects_2025/GeoBC/harvest_restrictions/sources
+        docker compose run -it --rm app python download.py download -v -o s3://$BUCKET/dss_projects_2026/GeoBC/harvest_restrictions/sources
 
 6. Load downloaded files to database (specifying input path):
 
-        docker compose run -it --rm app python download.py cache2pg -v --out_table designations -p s3://$BUCKET/dss_projects_2025/GeoBC/harvest_restrictions/sources
+        docker compose run -it --rm app python download.py cache2pg -v --out_table designations -p s3://$BUCKET/dss_projects_2026/GeoBC/harvest_restrictions/sources
 
 7. Run overlays, dump results to file, log result summaries to csv:
 

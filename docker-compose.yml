@@ -1,6 +1,6 @@
 services:
   db:
-    image: postgis:17-3.5
+    image: imresamu/postgis:17-3.5-bullseye
     container_name: harvest_restrictions-db
     ports:
       - ${DB_PORT}:5432
@@ -29,6 +29,8 @@ services:
       - AWS_SECRET_ACCESS_KEY=${AWS_SECRET_ACCESS_KEY}
       - AWS_VIRTUAL_HOSTING=${AWS_VIRTUAL_HOSTING}
       - AWS_EC2_METADATA_DISABLED=${AWS_EC2_METADATA_DISABLED}
+      - AWS_REQUEST_CHECKSUM_CALCULATION=when_required
+      - AWS_RESPONSE_CHECKSUM_VALIDATION=when_required
       - CPL_VSISTDIN_BUFFER_LIMIT=${CPL_VSISTDIN_BUFFER_LIMIT}
       - CPL_VSIL_CURL_USE_HEAD=NO
     depends_on:
