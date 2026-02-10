@@ -1,4 +1,4 @@
-bcdata == 0.15.0
+bcdata == 0.16.0post1
 jsonschema
 pyarrow
 python-slugify

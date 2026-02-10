@@ -89,7 +89,7 @@ Output `harvest_restrictions.gdb` has the following columns:
 
         docker compose run -it --rm app python -m pytest -v -rxXs
 
-3. Edit `sources.json` as required
+3. Edit `sources.json` as required (note that sources will likely be provided as a csv file)
 
 4. Validate `sources.json`:
     
