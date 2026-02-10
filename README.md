@@ -80,6 +80,7 @@ Output `harvest_restrictions.gdb` has the following columns:
     docker compose build
     docker compose up -d
 
+Committing changes requires `pre-commit` - install via your package manager of choice.
 
 ## Usage
 
@@ -97,11 +98,11 @@ Output `harvest_restrictions.gdb` has the following columns:
 
 5. Download data to file (specifying output path):
 
-        docker compose run -it --rm app python download.py download -v -o s3://$BUCKET/dss_projects_2025/GeoBC/harvest_restrictions/sources
+        docker compose run -it --rm app python download.py download -v -o s3://$BUCKET/dss_projects_2026/GeoBC/harvest_restrictions/sources
 
 6. Load downloaded files to database (specifying input path):
 
-        docker compose run -it --rm app python download.py cache2pg -v --out_table designations -p s3://$BUCKET/dss_projects_2025/GeoBC/harvest_restrictions/sources
+        docker compose run -it --rm app python download.py cache2pg -v --out_table designations -p s3://$BUCKET/dss_projects_2026/GeoBC/harvest_restrictions/sources
 
 7. Run overlays, dump results to file, log result summaries to csv:
 

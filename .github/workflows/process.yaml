@@ -12,6 +12,8 @@ env:
   BUCKET: ${{ secrets.BUCKET }}
   AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
   AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+  AWS_REQUEST_CHECKSUM_CALCULATION: when_required
+  AWS_RESPONSE_CHECKSUM_VALIDATION: when_required
 jobs:
   harvest-restrictions:
     runs-on: ubuntu-latest
@@ -39,7 +41,7 @@ jobs:
             fetch-depth: 0
       - name: Load sources to database
         run: |
-          python download.py cache2pg sources.json -v --out_table designations --in_path s3://$BUCKET/dss_projects_2025/GeoBC/harvest_restrictions/sources
+          python download.py cache2pg sources.json -v --out_table designations --in_path s3://$BUCKET/dss_projects_2026/GeoBC/harvest_restrictions/sources
       - name: Process overlays
         run: |
           git config --global --add safe.directory /__w/harvest-restrictions/harvest-restrictions
