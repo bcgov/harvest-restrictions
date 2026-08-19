@@ -24,6 +24,10 @@ RUN ARCH=$(uname -m) \
     && rm -rf awscliv2.zip aws
 
 WORKDIR /home/harvest_restrictions
+COPY requirements*.txt ./
 
-RUN pipx install bcdata==0.16.0
-ENV PATH="/root/.local/bin:$PATH"
+RUN python3 -m venv /opt/venv && \
+    /opt/venv/bin/python -m pip install -U pip && \
+    /opt/venv/bin/python -m pip install --no-cache-dir -r requirements-dev.txt
+
+ENV PATH="/opt/venv/bin:$PATH"
