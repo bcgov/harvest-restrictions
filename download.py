@@ -1,12 +1,10 @@
 import json
 import logging
 import os
-from pathlib import Path
 import sys
 
 import bcdata
 import click
-from cligj import verbose_opt, quiet_opt
 from datetime import datetime
 import geopandas
 import jsonschema
@@ -22,6 +20,13 @@ from sqlalchemy import create_engine
 
 LOG_FORMAT = "%(asctime)s:%(levelname)s:%(name)s: %(message)s"
 LOG = logging.getLogger(__name__)
+
+
+# inlined from cligj (unmaintained), as per
+# https://github.com/rasterio/rasterio/pull/3364
+verbose_opt = click.option("--verbose", "-v", count=True, help="Increase verbosity.")
+
+quiet_opt = click.option("--quiet", "-q", count=True, help="Decrease verbosity.")
 
 
 def configure_logging(verbosity):
@@ -120,9 +125,7 @@ def validate_bcgw(source):
 
     # required columns in field mapping present?
     for column in source["field_mapper"].values():
-        if (
-            column
-        ):  # allow null source columns (adds the new column, but with no values from source)
+        if column:  # allow null source columns (adds the new column, but with no values from source)
             if column.upper() not in columns:
                 raise ValueError(
                     f"Validation error: {source['alias']} - column {column} is not present in {table}, modify config 'field_mapper'"
