@@ -96,13 +96,13 @@ Committing changes requires `pre-commit` - install via your package manager of c
     
         docker compose run -it --rm runner python download.py download --dry_run -v
 
-5. Download data to file (specifying output path):
+5. Cache all restriction data listed in `sources.json` to geoparquet (specifying output path):
 
-        docker compose run -it --rm runner python download.py download -v -o s3://$BUCKET/harvest_restrictions/sources
+        docker compose run -it --rm runner python download.py download -v -o s3://$BUCKET/harvest_restrictions/restrictions
 
-6. Load downloaded files to database (specifying input path):
+6. Load restrictions layers from geoparquet to postgresql (specifying input path):
 
-        docker compose run -it --rm runner python download.py cache2pg -v --out_table designations -p s3://$BUCKET/harvest_restrictions/sources
+        docker compose run -it --rm runner python download.py cache2pg -v --out_table designations -p s3://$BUCKET/harvest_restrictions/restrictions
 
 7. Run overlays, dump results to file, log result summaries to csv:
 

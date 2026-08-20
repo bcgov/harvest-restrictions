@@ -1,4 +1,6 @@
 -- create class lookup
+CREATE EXTENSION postgis;
+
 CREATE TABLE harvest_restriction_class_rank_name_xref (harvest_restriction_class_rank integer, harvest_restriction_class_name text); 
 
 INSERT INTO harvest_restriction_class_rank_name_xref 
