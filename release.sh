@@ -2,7 +2,7 @@
 set -euxo pipefail
 
 # compare current output to previous release
-python log.py
+python harvest_restrictions.py log
 
 # create csv listing data sources from the json
 echo "index,harvest_restriction,alias,description,source,source_type,layer,query,name_field" > sources.csv

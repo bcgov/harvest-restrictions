@@ -86,7 +86,7 @@ Committing changes requires `pre-commit` - install via your package manager of c
 
 1. Identify any file based sources for which download cannot be scripted, manually upload file to object storage.
 
-2. If making changes to `download.py`, test the changes:
+2. If making changes to `harvest_restrictions.py`, test the changes:
 
         docker compose run -it --rm runner python -m pytest -v -rxXs
 
@@ -94,19 +94,19 @@ Committing changes requires `pre-commit` - install via your package manager of c
 
 4. Validate `sources.json`:
     
-        docker compose run -it --rm runner python download.py download --dry_run -v
+        docker compose run -it --rm runner python harvest_restrictions.py download --dry_run -v
 
 5. Cache all restriction data listed in `sources.json` to geoparquet (specifying output path):
 
-        docker compose run -it --rm runner python download.py download -v -o s3://$BUCKET/harvest_restrictions/restrictions
+        docker compose run -it --rm runner python harvest_restrictions.py download -v -o s3://$BUCKET/harvest_restrictions/restrictions
 
 6. Load restrictions layers from geoparquet to postgresql (specifying input path):
 
-        docker compose run -it --rm runner python download.py cache2pg -v --out_table designations -p s3://$BUCKET/harvest_restrictions/restrictions
+        docker compose run -it --rm runner python harvest_restrictions.py cache2pg -v --out_table designations -p s3://$BUCKET/harvest_restrictions/restrictions
 
 7. Run overlays, dump results to file, log result summaries to csv:
 
-        docker compose run -it --rm runner ./harvest_restrictions.sh
+        docker compose run -it --rm runner python harvest_restrictions.py overlay -v
 
 8. Tag a draft release and upload to object storage:
 
