@@ -1,5 +1,3 @@
-import os
-
 import pytest
 
 from download import download_source, validate_sources, parse_sources
@@ -26,7 +24,7 @@ def test_data():
             "alias": "crd_water_supply_area",
             "description": "CRD Water Supply Area",
             "source_type": "FILE",
-            "source": "/vsizip//vsis3/$BUCKET/dss_projects_2024/harvest_restrictions/sources/CRD.gdb.zip",
+            "source": "/vsizip//vsis3/$BUCKET/harvest_restrictions/sources/CRD.gdb.zip",
             "layer": "WSA_Boundary",
             "query": None,
             "primary_key": None,

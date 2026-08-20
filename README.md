@@ -98,11 +98,11 @@ Committing changes requires `pre-commit` - install via your package manager of c
 
 5. Download data to file (specifying output path):
 
-        docker compose run -it --rm runner python download.py download -v -o s3://$BUCKET/dss_projects_2026/GeoBC/harvest_restrictions/sources
+        docker compose run -it --rm runner python download.py download -v -o s3://$BUCKET/harvest_restrictions/sources
 
 6. Load downloaded files to database (specifying input path):
 
-        docker compose run -it --rm runner python download.py cache2pg -v --out_table designations -p s3://$BUCKET/dss_projects_2026/GeoBC/harvest_restrictions/sources
+        docker compose run -it --rm runner python download.py cache2pg -v --out_table designations -p s3://$BUCKET/harvest_restrictions/sources
 
 7. Run overlays, dump results to file, log result summaries to csv:
 
