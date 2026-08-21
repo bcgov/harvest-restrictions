@@ -30,4 +30,4 @@ jobs:
       - name: Publish release
         run: |
           git config --global --add safe.directory /__w/harvest-restrictions/harvest-restrictions
-          ./release.sh
+          python harvest_restrictions.py release -v

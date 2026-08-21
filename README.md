@@ -84,12 +84,6 @@ Committing changes requires `pre-commit` - install via your package manager of c
 
 The `harvest_restrictions` object storage bucket must have [versioning](https://docs.aws.amazon.com/AmazonS3/latest/userguide/Versioning.html) enabled - `overlay` publishes to fixed keys tagged with the current commit hash and run id, and `release` looks up the tagged object *version* matching a given commit (and optionally run id) to promote into a permanent, uniquely-named deliverable. See "Object storage layout" below for the full picture.
 
-Versioning is bucket-wide and can't be scoped to a prefix, but the `harvest_restrictions/restrictions/` prefix (raw per-source cache written by `cache`, read by `load-db`) doesn't need old versions retained - it's overwritten on every `cache` run with no lasting significance. [`s3-lifecycle-restrictions-prefix.json`](s3-lifecycle-restrictions-prefix.json) expires noncurrent versions there after one day; apply it once when setting up the bucket:
-
-    aws s3api put-bucket-lifecycle-configuration --bucket $BUCKET --lifecycle-configuration file://s3-lifecycle-restrictions-prefix.json
-
-(`put-bucket-lifecycle-configuration` replaces the bucket's entire lifecycle configuration, so if other rules exist, merge them into this same file first.)
-
 ## Usage
 
 1. Identify any file based sources for which download cannot be scripted, manually upload file to object storage.
@@ -127,13 +121,13 @@ Versioning is bucket-wide and can't be scoped to a prefix, but the `harvest_rest
 
         git tag -a vYYYY-MM -m vYYYY-MM
 
-10. Push the tag - this triggers the [Release workflow](https://github.com/bcgov/harvest-restrictions/actions/workflows/release.yaml), which publishes 4 dated deliverables from that commit's already-published, already-reviewed output, and appends the release to the change log:
+10. Push the tag - this triggers the [Release workflow](https://github.com/bcgov/harvest-restrictions/actions/workflows/release.yaml), which publishes 5 dated deliverables from that commit's already-published, already-reviewed output, and appends the release to the change log:
 
         git push origin vYYYY-MM
 
     Alternatively, run the release step locally instead of pushing the tag:
 
-        docker compose run -it --rm app ./release.sh
+        docker compose run -it --rm runner python harvest_restrictions.py release -v
 
 11. Optionally, re-run the entire download/process pipeline by manually calling the [harvest-restrictions workflow](https://github.com/bcgov/harvest-restrictions/actions/workflows/harvest-restrictions.yaml).
 
@@ -156,6 +150,7 @@ Everything lives under `s3://$BUCKET/harvest_restrictions/`, in four tiers:
 
 - `releases/harvest_restrictions_<release_tag>.gpkg.zip`, `releases/harvest_restrictions_sources_<release_tag>.gpkg.zip`
 - `releases/land_designations_summary_<release_tag>.csv`, `releases/harvest_restrictions_summary_<release_tag>.csv` - the exact reviewed diff report that was approved for this release
+- `releases/sources_<release_tag>.csv` - a flattened csv of `sources.json` as it stood for this release
 
 **Latest-release pointers** - written only by `release`, at fixed keys, overwritten on every release. For scripts/mapping applications that just want the current release without tracking release tags - point at these instead of the `releases/` archive. Fully redundant with the matching `releases/` copy, so safe to prune under any lifecycle policy:
 

@@ -1,3 +1,4 @@
+import csv
 import json
 import logging
 import os
@@ -576,6 +577,40 @@ H_COLUMNS = [
 LAND_DESIGNATIONS_LOG = "land_designations_log.csv"
 HARVEST_RESTRICTIONS_LOG = "harvest_restrictions_log.csv"
 
+SOURCES_CSV_COLUMNS = [
+    "harvest_restriction",
+    "alias",
+    "description",
+    "source",
+    "source_type",
+    "layer",
+    "query",
+    "name_field",
+]
+
+
+def write_sources_csv(sources_file, out_file):
+    """flatten sources_file to a csv, for publishing alongside release outputs"""
+    with open(sources_file, "r") as f:
+        sources = json.load(f)
+    with open(out_file, "w", newline="") as f:
+        writer = csv.writer(f)
+        writer.writerow(["index"] + SOURCES_CSV_COLUMNS)
+        for index, source in enumerate(sources, start=1):
+            writer.writerow(
+                [
+                    index,
+                    source["data"].get("harvest_restriction"),
+                    source["alias"],
+                    source["description"],
+                    source["source"],
+                    source["source_type"],
+                    source.get("layer"),
+                    source["query"],
+                    source["field_mapper"].get("name"),
+                ]
+            )
+
 
 def log(bucket):
     """Compare current overlay summaries to the most recently released version, writing a review report
@@ -746,10 +781,11 @@ def overlay(db_url, out_file, designations_table, bucket, verbose, quiet):
 def release(run_id, bucket, verbose, quiet):
     """Publish a dated release from the current commit's already-published, already-reviewed overlay output
 
-    Publishes 4 files under releases/, each release-tag-stamped and never overwritten, so every
+    Publishes 5 files under releases/, each release-tag-stamped and never overwritten, so every
     past release stays retrievable regardless of any noncurrent-version lifecycle policy:
     releases/harvest_restrictions_<tag>.gpkg.zip, releases/harvest_restrictions_sources_<tag>.gpkg.zip,
-    releases/land_designations_summary_<tag>.csv, releases/harvest_restrictions_summary_<tag>.csv.
+    releases/land_designations_summary_<tag>.csv, releases/harvest_restrictions_summary_<tag>.csv,
+    releases/sources_<tag>.csv.
 
     Also overwrites two fixed-name "latest" copies of the geopackages at the root
     (harvest_restrictions_latest.gpkg.zip, harvest_restrictions_sources_latest.gpkg.zip), for
@@ -835,6 +871,15 @@ def release(run_id, bucket, verbose, quiet):
         s3_download_version(bucket, key, version_id, key)
         s3_upload_and_tag(bucket, key, f"releases/{dated_key}", tags)
         LOG.info(f"{dated_key} published to s3://{bucket}/{s3_key(f'releases/{dated_key}')}")
+
+    # publish a dated csv listing the data sources used in this release
+    sources_csv = "sources.csv"
+    write_sources_csv("sources.json", sources_csv)
+    dated_sources_csv = f"sources_{release_tag}.csv"
+    s3_upload_and_tag(bucket, sources_csv, f"releases/{dated_sources_csv}", tags)
+    LOG.info(
+        f"{dated_sources_csv} published to s3://{bucket}/{s3_key(f'releases/{dated_sources_csv}')}"
+    )
 
     # append this release's totals to the durable change log - release is the only writer of
     # these two files, so the current version is always the complete up-to-date history
