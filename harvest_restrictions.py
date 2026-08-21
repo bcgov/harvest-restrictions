@@ -661,6 +661,25 @@ def add_gpkg_layer(out_file, source_file, layer_name, spatial=True):
     subprocess.run(cmd, check=True)
 
 
+def zip_file(local_file):
+    """compress local_file into local_file + '.zip', containing just that one file
+
+    Uses sozip (bundled with GDAL) rather than plain zip, so the result is seek-optimized -
+    GDAL's /vsizip/ reader can fetch just the bytes it needs instead of decompressing the
+    whole archive.
+    """
+    out_zip = local_file + ".zip"
+    subprocess.run(
+        ["sozip", "--overwrite", "--junk-paths", out_zip, local_file], check=True
+    )
+    return out_zip
+
+
+def vsizip_path(local_zip):
+    """GDAL /vsizip/ path to the single file zip_file() compressed into local_zip"""
+    return f"/vsizip/{local_zip}/{os.path.splitext(local_zip)[0]}"
+
+
 def s3_download_current(bucket, key, local_file):
     """download the current (latest) version of an s3 object to local_file
 
@@ -821,13 +840,13 @@ def log(bucket):
 @click.option(
     "--out_file",
     "-o",
-    default="harvest_restrictions.parquet",
-    help="Output geoparquet path",
+    default="harvest_restrictions.gpkg",
+    help="Output geopackage path",
 )
 @click.option(
     "--designations_table",
     default="designations",
-    help="Name of the source designations table (as loaded by load-db), dumped to geoparquet alongside overlay outputs",
+    help="Name of the source designations table (as loaded by load-db), dumped to geopackage alongside overlay outputs",
 )
 @click.option(
     "--bucket",
@@ -871,14 +890,14 @@ def overlay(db_url, out_file, designations_table, bucket, verbose, quiet):
         f"| parallel --tag {psql} -f sql/overlay.sql -v tile={{1}}"
     )
 
-    # dump result to geoparquet
-    export_overlay(db_url, out_file, "Parquet")
+    # dump result to geopackage
+    export_overlay(db_url, out_file, "GPKG")
     LOG.info(f"Overlay results written to {out_file}")
 
-    # dump source designations table to geoparquet
-    sources_file = "harvest_restrictions_sources.parquet"
+    # dump source designations table to geopackage
+    sources_file = "harvest_restrictions_sources.gpkg"
     subprocess.run(
-        ["ogr2ogr", "-f", "Parquet", sources_file, f"PG:{db_url}", designations_table],
+        ["ogr2ogr", "-f", "GPKG", sources_file, f"PG:{db_url}", designations_table],
         check=True,
     )
     LOG.info(f"{designations_table} written to {sources_file}")
@@ -893,6 +912,10 @@ def overlay(db_url, out_file, designations_table, bucket, verbose, quiet):
     # flatten sources.json to a csv, for review alongside the rest of this run's draft output
     write_sources_csv("sources.json", SOURCES_CSV)
 
+    # compress the spatial outputs for publishing - draft/ geopackages are stored zipped
+    out_zip = zip_file(out_file)
+    sources_zip = zip_file(sources_file)
+
     # publish outputs to object storage, tagged with the current commit and this run, under the
     # draft/ prefix so they never collide with the plain-named "latest confirmed release"
     # pointers release() publishes separately at the root. The raw land_designations.csv/
@@ -901,8 +924,8 @@ def overlay(db_url, out_file, designations_table, bucket, verbose, quiet):
     # carry the same current-run totals (in their "current" column) plus the diff against the
     # previous release
     for local_file, key in [
-        (out_file, draft_key(os.path.basename(out_file))),
-        (sources_file, draft_key(sources_file)),
+        (out_zip, draft_key(os.path.basename(out_zip))),
+        (sources_zip, draft_key(os.path.basename(sources_zip))),
         (LAND_DESIGNATIONS_SUMMARY, draft_key(LAND_DESIGNATIONS_SUMMARY)),
         (HARVEST_RESTRICTIONS_SUMMARY, draft_key(HARVEST_RESTRICTIONS_SUMMARY)),
         (SOURCES_CSV, draft_key(SOURCES_CSV)),
@@ -1004,11 +1027,11 @@ def release(run_id, bucket, clean_draft, verbose, quiet):
     # from the same overlay run even if the commit was run more than once
     if not run_id:
         _, found_tags = s3_find_version(
-            bucket, draft_key("harvest_restrictions.parquet"), commit=commit
+            bucket, draft_key("harvest_restrictions.gpkg.zip"), commit=commit
         )
         if not found_tags:
             raise ValueError(
-                f"No s3://{bucket}/{s3_key(draft_key('harvest_restrictions.parquet'))} object "
+                f"No s3://{bucket}/{s3_key(draft_key('harvest_restrictions.gpkg.zip'))} object "
                 f"tagged commit={commit} found - run overlay against this commit before releasing it"
             )
         run_id = found_tags.get("run_id")
@@ -1027,23 +1050,24 @@ def release(run_id, bucket, clean_draft, verbose, quiet):
     # separate draft/ prefix, so the two naming schemes never collide
     gpkg_file = f"harvest_restrictions_{release_tag}.gpkg"
 
-    for parquet_key, layer_name, latest_file in [
+    for draft_gpkg_zip, layer_name, latest_file in [
         (
-            "harvest_restrictions.parquet",
+            "harvest_restrictions.gpkg.zip",
             "harvest_restrictions",
             "harvest_restrictions.gpkg",
         ),
         (
-            "harvest_restrictions_sources.parquet",
+            "harvest_restrictions_sources.gpkg.zip",
             "designations",
             "harvest_restrictions_sources.gpkg",
         ),
     ]:
-        local_parquet = s3_download_tagged(bucket, draft_key(parquet_key), tag_filter)
-        add_gpkg_layer(gpkg_file, local_parquet, layer_name)
-        LOG.info(f"{layer_name} layer added to {gpkg_file}, from {parquet_key}")
+        local_zip = s3_download_tagged(bucket, draft_key(draft_gpkg_zip), tag_filter)
+        source = vsizip_path(local_zip)
+        add_gpkg_layer(gpkg_file, source, layer_name)
+        LOG.info(f"{layer_name} layer added to {gpkg_file}, from {draft_gpkg_zip}")
 
-        add_gpkg_layer(latest_file, local_parquet, layer_name)
+        add_gpkg_layer(latest_file, source, layer_name)
         s3_upload_and_tag(bucket, latest_file, latest_file, tags)
         LOG.info(f"{latest_file} published to s3://{bucket}/{s3_key(latest_file)}")
 
@@ -1115,8 +1139,8 @@ def release(run_id, bucket, clean_draft, verbose, quiet):
 
     if clean_draft:
         for draft in [
-            draft_key("harvest_restrictions.parquet"),
-            draft_key("harvest_restrictions_sources.parquet"),
+            draft_key("harvest_restrictions.gpkg.zip"),
+            draft_key("harvest_restrictions_sources.gpkg.zip"),
             draft_key(LAND_DESIGNATIONS_SUMMARY),
             draft_key(HARVEST_RESTRICTIONS_SUMMARY),
             draft_key(SOURCES_CSV),

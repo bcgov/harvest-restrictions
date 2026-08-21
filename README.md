@@ -110,11 +110,11 @@ The `harvest_restrictions` object storage bucket must have [versioning](https://
 
         docker compose run -it --rm runner python harvest_restrictions.py load-db -v --out_table designations --truncate -p s3://$BUCKET/harvest_restrictions/cache
 
-7. Run overlays, dump resulting layer and summaries to geoparquet/csv, and publish these outputs to object storage tagged with the current commit hash. This also compares the new summaries to the most recently released version and writes updated change logs:
+7. Run overlays, dump resulting layer and summaries to geopackage/csv, and publish these outputs to object storage tagged with the current commit hash. This also compares the new summaries to the most recently released version and writes updated change logs:
 
         docker compose run -it --rm runner python harvest_restrictions.py overlay -v
 
-8. Review the change report (and `harvest_restrictions.parquet`, e.g. for external/client review - both are already published to object storage under the `draft/` prefix, tagged with the current commit):
+8. Review the change report (and `harvest_restrictions.gpkg.zip`, e.g. for external/client review - both are already published to object storage under the `draft/` prefix, tagged with the current commit):
 
     - `land_designations_summary.csv`
     - `harvest_restrictions_summary.csv`
@@ -147,8 +147,8 @@ s3://$BUCKET/harvest_restrictions/
 │   ├── hr_02_park_er.parquet
 │   └── ...
 ├── draft/                                    # unreviewed overlay output, written by overlay
-│   ├── harvest_restrictions.parquet
-│   ├── harvest_restrictions_sources.parquet
+│   ├── harvest_restrictions.gpkg.zip
+│   ├── harvest_restrictions_sources.gpkg.zip
 │   ├── land_designations_summary.csv
 │   ├── harvest_restrictions_summary.csv
 │   └── sources.csv
@@ -172,7 +172,7 @@ s3://$BUCKET/harvest_restrictions/
 
 **`draft/`** - written by `overlay` on every run (each new version tagged `commit`/`run_id`), overwritten on the next run. Transient by design - safe to prune under any noncurrent-version lifecycle policy, or delete outright once released with `release --clean_draft`. Kept in its own prefix so it can never collide with the plain-named "latest confirmed release" pointers `release` publishes separately at the root (see `draft_key()`):
 
-- `harvest_restrictions.parquet`, `harvest_restrictions_sources.parquet` - the raw overlay result and its source designations
+- `harvest_restrictions.gpkg.zip`, `harvest_restrictions_sources.gpkg.zip` - the raw overlay result and its source designations, each a zipped geopackage
 - `land_designations_summary.csv`, `harvest_restrictions_summary.csv` - a disposable rollup, rebuilt from scratch on every `overlay` run (by `log`), comparing the *most recent release* against the *current* run with `current`/`diff`/`pct_diff` columns. Retains every category present in either side - a category new to this run or dropped since the previous release still gets its labels, with `diff`/`pct_diff` left as `NaN` rather than misleadingly implying zero area. This is what you review in step 8 above, and what `release` reads (via the `current` column) to append this run's totals to the durable change log - there's no separate current-only file, since this already carries the same totals plus the diff.
 - `sources.csv` - a flattened `sources.json` as it stood for this run, for review alongside the summary csvs
 
