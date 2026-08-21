@@ -117,11 +117,15 @@ The `harvest_restrictions` object storage bucket must have [versioning](https://
 
     If results are not correct, address the issue, commit the fix, and re-run from step 7.
 
-9. Once results are confirmed to be reasonable/correct, tag the commit as a release:
+9. If needed, build a geopackage for external (e.g. client) review before committing to a release. This reads the same commit's already-published output, and has no lasting effect - no release tag, no change to the change log - so it's safe to re-run against draft work as many times as needed:
+
+        docker compose run -it --rm runner python harvest_restrictions.py preview -v
+
+10. Once results are confirmed to be reasonable/correct, tag the commit as a release:
 
         git tag -a vYYYY-MM -m vYYYY-MM
 
-10. Push the tag - this triggers the [Release workflow](https://github.com/bcgov/harvest-restrictions/actions/workflows/release.yaml), which tags the current commit's already-published outputs (from step 7) with the release and builds/publishes the geopackage deliverable:
+11. Push the tag - this triggers the [Release workflow](https://github.com/bcgov/harvest-restrictions/actions/workflows/release.yaml), which tags the current commit's already-published outputs (from step 7) with the release, builds/publishes the geopackage deliverable, and appends the release to the change log:
 
         git push origin vYYYY-MM
 
@@ -129,15 +133,21 @@ The `harvest_restrictions` object storage bucket must have [versioning](https://
 
         docker compose run -it --rm app ./release.sh
 
-11. Optionally, re-run the entire download/process pipeline by manually calling the [harvest-restrictions workflow](https://github.com/bcgov/harvest-restrictions/actions/workflows/harvest-restrictions.yaml).
+12. Optionally, re-run the entire download/process pipeline by manually calling the [harvest-restrictions workflow](https://github.com/bcgov/harvest-restrictions/actions/workflows/harvest-restrictions.yaml).
 
 
 ## Change history and review reports
 
 Two kinds of csv track area totals by category over time, both held in object storage at `s3://$BUCKET/harvest_restrictions/`:
 
-- `land_designations_log.csv` / `harvest_restrictions_log.csv` - the durable log, long/tidy format (one row per category per release: `release_tag`, `release_date`, `commit`, category columns, `area_ha`). Only ever appended to, and only at release time (by `release`) - this is the source of truth for area over time, suited to plotting/analysis across all past releases.
+- `land_designations_log.csv` / `harvest_restrictions_log.csv` - the durable log, long/tidy format (one row per category per release: `release_tag`, `release_date`, `commit`, `run_id`, category columns, `area_ha`). Only ever appended to, and only at release time (by `release`) - this is the source of truth for area over time, suited to plotting/analysis across all past releases.
 - `land_designations_summary.csv` / `harvest_restrictions_summary.csv` - a small, disposable rollup, rebuilt from scratch on every `overlay` run (by `log`). Summarizes the *most recent release* from the log against the *current* run, with `diff`/`pct_diff` columns - this is what you review in step 8 above before deciding whether to release.
+
+### commit vs run_id
+
+Every object `overlay` publishes is tagged with both `commit` (the git commit that produced it) and `run_id` (a UTC timestamp identifying that specific invocation of `overlay`). These are usually interchangeable - `release`/`preview` default to the most recent run of a given commit - but they diverge if `overlay` is run more than once against the same commit (the underlying source data can change even with no code change). If a second run happens after you've reviewed the first, pass `--run_id` to `release`/`preview` to pin the exact run that was actually reviewed, rather than picking up whatever ran most recently.
+
+The logs were backfilled from pre-existing wide-format records. `v2024-08`, `v2025-04`, and `v2026-02-DRAFT` carry real `commit`/`release_date` values from their matching git tags. `v2023-07`, `v2024-04`, and `v2025-08` have no corresponding git tag (either never tagged, or - for `v2025-08` - the tag on record is named `v2025-08-DRAFT`, not `v2025-08`) - for those three, `release_date` is approximated as the first of the tag's named month and `commit` is left blank.
 
 
 ## designatedlands

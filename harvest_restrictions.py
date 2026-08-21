@@ -3,7 +3,7 @@ import logging
 import os
 import subprocess
 import sys
-from datetime import datetime
+from datetime import datetime, timezone
 
 import bcdata
 import click
@@ -484,10 +484,14 @@ def s3_upload_and_tag(bucket, local_file, key, tags):
     s3_put_tags(bucket, key, tags)
 
 
-def s3_find_version(bucket, key, tag_key, tag_value=None):
-    """find the most recent version of an s3 object carrying tag_key (optionally matching tag_value)
+def s3_find_version(bucket, key, **tags):
+    """find the most recent version of an s3 object matching all given tags
 
-    returns (version_id, tags) for the first match, or (None, None)
+    a tag value of None means the tag key must be present, with any value - e.g.
+    s3_find_version(bucket, key, commit=sha, run_id=None) requires a specific commit but
+    accepts any run_id, while s3_find_version(bucket, key, commit=sha, run_id=rid) pins both.
+
+    returns (version_id, tags) for the first (most recent) match, or (None, None)
     """
     out = subprocess.run(
         ["aws", "s3api", "list-object-versions", "--bucket", bucket, "--prefix", s3_key(key)],
@@ -498,9 +502,12 @@ def s3_find_version(bucket, key, tag_key, tag_value=None):
     versions = [v for v in json.loads(out).get("Versions", []) if v["Key"] == s3_key(key)]
     versions.sort(key=lambda v: v["LastModified"], reverse=True)
     for v in versions:
-        tags = s3_get_tags(bucket, key, v["VersionId"])
-        if tag_key in tags and (tag_value is None or tags[tag_key] == tag_value):
-            return v["VersionId"], tags
+        version_tags = s3_get_tags(bucket, key, v["VersionId"])
+        if all(
+            k in version_tags and (expected is None or version_tags[k] == expected)
+            for k, expected in tags.items()
+        ):
+            return v["VersionId"], version_tags
     return None, None
 
 
@@ -522,12 +529,40 @@ def s3_download_version(bucket, key, version_id, local_file):
     )
 
 
+def build_gpkg(bucket, commit, out_file, version_id=None, run_id=None):
+    """download the commit-tagged geoparquet and convert it to a geopackage
+
+    version_id can be passed in if already known (avoids a redundant lookup), otherwise the
+    most recent version tagged commit=<commit> is used (optionally narrowed to a specific
+    run_id, to pin an exact run when a commit has been run through overlay more than once).
+    Returns the parquet version_id used.
+    """
+    parquet_key = "harvest_restrictions.parquet"
+    if version_id is None:
+        tag_filter = {"commit": commit}
+        if run_id:
+            tag_filter["run_id"] = run_id
+        version_id, _ = s3_find_version(bucket, parquet_key, **tag_filter)
+        if not version_id:
+            raise ValueError(
+                f"No s3://{bucket}/{s3_key(parquet_key)} object tagged commit={commit}"
+                + (f", run_id={run_id}" if run_id else "")
+                + " found - run overlay against this commit first"
+            )
+    s3_download_version(bucket, parquet_key, version_id, parquet_key)
+    subprocess.run(
+        ["ogr2ogr", "-f", "GPKG", out_file, parquet_key, "-nln", "harvest_restrictions"],
+        check=True,
+    )
+    return version_id
+
+
 def s3_download_release(bucket, key, local_file):
     """download the most recently released version of key to local_file
 
     returns True if a released version was found and downloaded, False otherwise
     """
-    version_id, _ = s3_find_version(bucket, key, "release")
+    version_id, _ = s3_find_version(bucket, key, release=None)
     if not version_id:
         return False
     s3_download_version(bucket, key, version_id, local_file)
@@ -651,6 +686,7 @@ def overlay(db_url, out_file, designations_table, bucket, verbose, quiet):
         )
 
     commit = subprocess.check_output(["git", "rev-parse", "HEAD"]).decode("ascii").strip()
+    run_id = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
 
     psql = f"psql {db_url} -v ON_ERROR_STOP=1"
 
@@ -684,7 +720,7 @@ def overlay(db_url, out_file, designations_table, bucket, verbose, quiet):
     # compare current summaries to the most recently released version
     log(bucket)
 
-    # publish outputs to object storage, tagged with the current commit
+    # publish outputs to object storage, tagged with the current commit and this run
     for local_file, key in [
         (out_file, os.path.basename(out_file)),
         (sources_file, sources_file),
@@ -693,11 +729,20 @@ def overlay(db_url, out_file, designations_table, bucket, verbose, quiet):
         ("land_designations_summary.csv", "land_designations_summary.csv"),
         ("harvest_restrictions_summary.csv", "harvest_restrictions_summary.csv"),
     ]:
-        s3_upload_and_tag(bucket, local_file, key, {"commit": commit})
-        LOG.info(f"{local_file} published to s3://{bucket}/{s3_key(key)}, tagged commit={commit}")
+        s3_upload_and_tag(bucket, local_file, key, {"commit": commit, "run_id": run_id})
+        LOG.info(
+            f"{local_file} published to s3://{bucket}/{s3_key(key)}, "
+            f"tagged commit={commit}, run_id={run_id}"
+        )
+    LOG.info(f"run_id={run_id} - pass --run_id to release/preview to pin this exact run")
 
 
 @cli.command()
+@click.option(
+    "--run_id",
+    default=None,
+    help="Pin a specific overlay run to release, if this commit has been run more than once. Defaults to the most recent run of this commit",
+)
 @click.option(
     "--out_file",
     "-o",
@@ -712,7 +757,7 @@ def overlay(db_url, out_file, designations_table, bucket, verbose, quiet):
 )
 @verbose_opt
 @quiet_opt
-def release(out_file, bucket, verbose, quiet):
+def release(run_id, out_file, bucket, verbose, quiet):
     """Tag the current commit's published overlay outputs as a release, and publish the geopackage deliverable
 
     Runs against the current commit's already-published, already-reviewed outputs only - it does not
@@ -739,10 +784,26 @@ def release(out_file, bucket, verbose, quiet):
         .strip()
     )
 
-    # tag this commit's already-published outputs with the release
+    # resolve which run of this commit to release - defaults to the most recent, but
+    # once resolved it's pinned for every key below, so all 6 published objects for
+    # this release come from the same overlay run even if the commit was run more than once
     parquet_key = "harvest_restrictions.parquet"
     d_summary_key = "current_land_designations.csv"
     h_summary_key = "current_harvest_restrictions.csv"
+    if not run_id:
+        _, parquet_tags = s3_find_version(bucket, parquet_key, commit=commit)
+        if not parquet_tags:
+            raise ValueError(
+                f"No s3://{bucket}/{s3_key(parquet_key)} object tagged commit={commit} found "
+                "- run overlay against this commit before releasing it"
+            )
+        run_id = parquet_tags.get("run_id")
+    LOG.info(f"Releasing commit={commit}, run_id={run_id}")
+
+    # tag this commit's already-published outputs with the release
+    tag_filter = {"commit": commit}
+    if run_id:
+        tag_filter["run_id"] = run_id
     version_ids = {}
     for key in [
         parquet_key,
@@ -752,23 +813,20 @@ def release(out_file, bucket, verbose, quiet):
         "land_designations_summary.csv",
         "harvest_restrictions_summary.csv",
     ]:
-        version_id, _ = s3_find_version(bucket, key, "commit", commit)
+        version_id, _ = s3_find_version(bucket, key, **tag_filter)
         if not version_id:
             raise ValueError(
-                f"No s3://{bucket}/{s3_key(key)} object tagged commit={commit} found "
-                "- run overlay against this commit before releasing it"
+                f"No s3://{bucket}/{s3_key(key)} object tagged commit={commit}"
+                + (f", run_id={run_id}" if run_id else "")
+                + " found - run overlay against this commit before releasing it"
             )
         s3_add_tags(bucket, key, {"release": release_tag}, version_id)
-        LOG.info(f"{key} (commit {commit}) tagged release={release_tag}")
+        LOG.info(f"{key} (commit {commit}, run_id {run_id}) tagged release={release_tag}")
         version_ids[key] = version_id
 
     # build the geopackage deliverable from that same reviewed parquet version - the
     # geopackage itself is only ever built at release time
-    s3_download_version(bucket, parquet_key, version_ids[parquet_key], parquet_key)
-    subprocess.run(
-        ["ogr2ogr", "-f", "GPKG", out_file, parquet_key, "-nln", "harvest_restrictions"],
-        check=True,
-    )
+    build_gpkg(bucket, commit, out_file, version_ids[parquet_key])
     s3_upload_and_tag(
         bucket, out_file, os.path.basename(out_file), {"commit": commit, "release": release_tag}
     )
@@ -784,6 +842,7 @@ def release(out_file, bucket, verbose, quiet):
         row["release_tag"] = release_tag
         row["release_date"] = release_date
         row["commit"] = short_commit
+        row["run_id"] = run_id
 
     if s3_download_release(bucket, LAND_DESIGNATIONS_LOG, LAND_DESIGNATIONS_LOG):
         d_history = pandas.concat([pandas.read_csv(LAND_DESIGNATIONS_LOG), d_row], ignore_index=True)
@@ -803,6 +862,63 @@ def release(out_file, bucket, verbose, quiet):
         bucket, HARVEST_RESTRICTIONS_LOG, HARVEST_RESTRICTIONS_LOG, {"commit": commit, "release": release_tag}
     )
     LOG.info(f"Appended release {release_tag} to {LAND_DESIGNATIONS_LOG} and {HARVEST_RESTRICTIONS_LOG}")
+
+
+@cli.command()
+@click.option(
+    "--commit",
+    default=None,
+    help="Commit to preview, defaults to the current HEAD",
+)
+@click.option(
+    "--run_id",
+    default=None,
+    help="Pin a specific overlay run to preview, if this commit has been run more than once. Defaults to the most recent run of this commit",
+)
+@click.option(
+    "--out_file",
+    "-o",
+    default="harvest_restrictions.gpkg.zip",
+    help="Output geopackage path",
+)
+@click.option(
+    "--bucket",
+    "-b",
+    default=os.environ.get("BUCKET"),
+    help="Object storage bucket to read published outputs from, defaults to $BUCKET environment variable if set",
+)
+@verbose_opt
+@quiet_opt
+def preview(commit, run_id, out_file, bucket, verbose, quiet):
+    """Build a preview geopackage for a commit's already-published overlay output, for review (e.g. by a client)
+
+    This does not tag anything as a release and does not touch the change log - it is safe to run
+    (and re-run) against draft work with no lasting effect. Once a version is actually approved, tag it
+    and run release instead.
+    """
+    configure_logging((verbose - quiet))
+
+    if not bucket:
+        raise ValueError(
+            "Target object storage bucket not provided, set --bucket or $BUCKET"
+        )
+    if not commit:
+        commit = subprocess.check_output(["git", "rev-parse", "HEAD"]).decode("ascii").strip()
+
+    build_gpkg(bucket, commit, out_file, run_id=run_id)
+    LOG.info(f"Preview geopackage for commit {commit} written to {out_file}")
+
+    # pull the change summary already published alongside that commit's overlay output
+    tag_filter = {"commit": commit}
+    if run_id:
+        tag_filter["run_id"] = run_id
+    for key in ["land_designations_summary.csv", "harvest_restrictions_summary.csv"]:
+        version_id, _ = s3_find_version(bucket, key, **tag_filter)
+        if version_id:
+            s3_download_version(bucket, key, version_id, key)
+            LOG.info(f"{key} written")
+        else:
+            LOG.warning(f"No {key} found tagged commit={commit}")
 
 
 if __name__ == "__main__":
