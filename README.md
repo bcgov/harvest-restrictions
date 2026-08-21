@@ -144,6 +144,7 @@ Everything lives under `s3://$BUCKET/harvest_restrictions/`, in four tiers:
 
 - `draft/harvest_restrictions.parquet`, `draft/harvest_restrictions_sources.parquet`
 - `draft/land_designations_summary.csv`, `draft/harvest_restrictions_summary.csv` - a disposable rollup, rebuilt from scratch on every `overlay` run (by `log`), comparing the *most recent release* against the *current* run with `current`/`diff`/`pct_diff` columns. Retains every category present in either side - a category new to this run or dropped since the previous release still gets its labels, with `diff`/`pct_diff` left as `NaN` rather than misleadingly implying zero area. This is what you review in step 8 above, and what `release` reads (via the `current` column) to append this run's totals to the durable change log - there's no separate current-only file, since this already carries the same totals plus the diff.
+- `draft/sources.csv` - a flattened `sources.json` as it stood for this run, for review alongside the summary csvs
 
 **Durable change log** - written only by `release`, at fixed `LOG_`-prefixed keys, deliberately distinct-looking to flag them as append-only and load-bearing rather than another disposable draft/latest object. Each release rewrites the *entire* file with its row appended, so the current version is always the complete history - old versions are redundant and don't need retaining either:
 
@@ -154,7 +155,7 @@ Everything lives under `s3://$BUCKET/harvest_restrictions/`, in four tiers:
 - `releases/harvest_restrictions_<release_tag>.gpkg` - a single file, directly readable by ogr/QGIS with no unzip step, bundling every release deliverable as one table each:
     - `harvest_restrictions`, `designations` - spatial layers (the overlay result and its source designations)
     - `land_designations_summary`, `harvest_restrictions_summary` - non-spatial tables, the exact reviewed diff report that was approved for this release
-    - `sources` - non-spatial table, a flattened `sources.json` as it stood for this release
+    - `sources` - non-spatial table, `overlay`'s reviewed `draft/sources.csv` for the released run
 
 **Latest-release pointers** - written only by `release`, at fixed plain-named keys (no suffix), overwritten on every release. The same five deliverables as separate files rather than one geopackage, for scripts/mapping applications that just want the current release without tracking release tags - point at these instead of the `releases/` archive. Fully redundant with the matching `releases/` copy, so safe to prune under any lifecycle policy:
 
