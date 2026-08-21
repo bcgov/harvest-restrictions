@@ -100,15 +100,15 @@ The `harvest_restrictions` object storage bucket must have [versioning](https://
 
 5. Download all restriction sources listed in `sources.json`, saving to geoparquet (specifying output path):
 
-        docker compose run -it --rm runner python harvest_restrictions.py cache -v -o s3://$BUCKET/harvest_restrictions/restrictions
+        docker compose run -it --rm runner python harvest_restrictions.py cache -v -o s3://$BUCKET/harvest_restrictions/cache
 
     To force a clean re-download (e.g. after removing/renaming sources, or if a cached file is suspected stale), clear the cache first - `clear-cache` only ever removes the `hr_*.parquet` files `cache` itself writes, so it's safe to point at a shared prefix:
 
-        docker compose run -it --rm runner python harvest_restrictions.py clear-cache -v -p s3://$BUCKET/harvest_restrictions/restrictions
+        docker compose run -it --rm runner python harvest_restrictions.py clear-cache -v -p s3://$BUCKET/harvest_restrictions/cache
 
 6. Load restrictions layers from cached geoparquet to postgresql (specifying input path):
 
-        docker compose run -it --rm runner python harvest_restrictions.py load-db -v --out_table designations -p s3://$BUCKET/harvest_restrictions/restrictions
+        docker compose run -it --rm runner python harvest_restrictions.py load-db -v --out_table designations -p s3://$BUCKET/harvest_restrictions/cache
 
 7. Run overlays, dump resulting layer and summaries to geoparquet/csv, and publish these outputs to object storage tagged with the current commit hash. This also compares the new summaries to the most recently released version and writes updated change logs:
 
