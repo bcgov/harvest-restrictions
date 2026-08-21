@@ -121,7 +121,7 @@ The `harvest_restrictions` object storage bucket must have [versioning](https://
 
         git tag -a vYYYY-MM -m vYYYY-MM
 
-10. Push the tag - this triggers the [Release workflow](https://github.com/bcgov/harvest-restrictions/actions/workflows/release.yaml), which publishes 5 dated deliverables from that commit's already-published, already-reviewed output, and appends the release to the change log:
+10. Push the tag - this triggers the [Release workflow](https://github.com/bcgov/harvest-restrictions/actions/workflows/release.yaml), which publishes a single dated geopackage bundling that commit's already-published, already-reviewed output, and appends the release to the change log:
 
         git push origin vYYYY-MM
 
@@ -145,15 +145,16 @@ Everything lives under `s3://$BUCKET/harvest_restrictions/`, in four tiers:
 
 - `land_designations_log.csv` / `harvest_restrictions_log.csv` - long/tidy format, one row per category per release (`release_tag`, `release_date`, `commit`, `run_id`, category columns, `area_ha`). This is the source of truth for area over time, suited to plotting/analysis across all past releases.
 
-**Permanent per-release archive** - written only by `release`, under `releases/`, one set per release tag at a key unique to that release - never overwritten, so every past release stays retrievable by tag regardless of any lifecycle policy:
+**Permanent per-release archive** - written only by `release`, under `releases/`, one geopackage per release tag at a key unique to that release - never overwritten, so every past release stays retrievable by tag regardless of any lifecycle policy:
 
-- `releases/harvest_restrictions_<release_tag>.gpkg.zip`, `releases/harvest_restrictions_sources_<release_tag>.gpkg.zip`
-- `releases/land_designations_summary_<release_tag>.csv`, `releases/harvest_restrictions_summary_<release_tag>.csv` - the exact reviewed diff report that was approved for this release
-- `releases/sources_<release_tag>.csv` - a flattened csv of `sources.json` as it stood for this release
+- `releases/harvest_restrictions_<release_tag>.gpkg` - a single file, directly readable by ogr/QGIS with no unzip step, bundling every release deliverable as one table each:
+    - `harvest_restrictions`, `designations` - spatial layers (the overlay result and its source designations)
+    - `land_designations_summary`, `harvest_restrictions_summary` - non-spatial tables, the exact reviewed diff report that was approved for this release
+    - `sources` - non-spatial table, a flattened `sources.json` as it stood for this release
 
-**Latest-release pointers** - written only by `release`, at fixed keys, overwritten on every release. For scripts/mapping applications that just want the current release without tracking release tags - point at these instead of the `releases/` archive. Fully redundant with the matching `releases/` copy, so safe to prune under any lifecycle policy:
+**Latest-release pointers** - written only by `release`, at a fixed key, overwritten on every release. For scripts/mapping applications that just want the current release without tracking release tags - point at this instead of the `releases/` archive. Fully redundant with the matching `releases/` copy, so safe to prune under any lifecycle policy:
 
-- `harvest_restrictions_latest.gpkg.zip`, `harvest_restrictions_sources_latest.gpkg.zip`
+- `harvest_restrictions_latest.gpkg`
 
 ### commit vs run_id
 

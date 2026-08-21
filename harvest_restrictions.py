@@ -541,30 +541,32 @@ def s3_download_version(bucket, key, version_id, local_file):
     )
 
 
-def build_gpkg(bucket, commit, parquet_key, layer_name, out_file, run_id=None):
-    """download the commit-tagged geoparquet at parquet_key and convert it to a geopackage
+def s3_download_tagged(bucket, key, tag_filter, local_file=None):
+    """download the most recent version of an s3 object matching tag_filter to local_file
 
-    Uses the most recent version tagged commit=<commit> (optionally narrowed to a specific
-    run_id, to pin an exact run when a commit has been run through overlay more than once).
-    Returns the parquet version_id used.
+    Raises if no matching version is found. local_file defaults to key's basename.
     """
-    tag_filter = {"commit": commit}
-    if run_id:
-        tag_filter["run_id"] = run_id
-    version_id, _ = s3_find_version(bucket, parquet_key, **tag_filter)
+    local_file = local_file or os.path.basename(key)
+    version_id, _ = s3_find_version(bucket, key, **tag_filter)
     if not version_id:
+        tag_desc = ", ".join(f"{k}={v}" for k, v in tag_filter.items() if v)
         raise ValueError(
-            f"No s3://{bucket}/{s3_key(parquet_key)} object tagged commit={commit}"
-            + (f", run_id={run_id}" if run_id else "")
-            + " found - run overlay against this commit first"
+            f"No s3://{bucket}/{s3_key(key)} object tagged {tag_desc} found - "
+            "run overlay against this commit before releasing it"
         )
-    local_parquet = os.path.basename(parquet_key)
-    s3_download_version(bucket, parquet_key, version_id, local_parquet)
-    subprocess.run(
-        ["ogr2ogr", "-f", "GPKG", out_file, local_parquet, "-nln", layer_name],
-        check=True,
-    )
-    return version_id
+    s3_download_version(bucket, key, version_id, local_file)
+    return local_file
+
+
+def add_gpkg_layer(out_file, source_file, layer_name, spatial=True):
+    """add source_file as a new layer (or non-spatial table) in out_file, creating it if needed"""
+    cmd = ["ogr2ogr", "-f", "GPKG"]
+    if os.path.exists(out_file):
+        cmd.append("-update")
+    cmd += [out_file, source_file, "-nln", layer_name]
+    if not spatial:
+        cmd += ["-nlt", "NONE", "-oo", "AUTODETECT_TYPE=YES"]
+    subprocess.run(cmd, check=True)
 
 
 def s3_download_current(bucket, key, local_file):
@@ -831,17 +833,21 @@ def overlay(db_url, out_file, designations_table, bucket, verbose, quiet):
 def release(run_id, bucket, verbose, quiet):
     """Publish a dated release from the current commit's already-published, already-reviewed overlay output
 
-    Publishes 5 files under releases/, each release-tag-stamped and never overwritten, so every
-    past release stays retrievable regardless of any noncurrent-version lifecycle policy:
-    releases/harvest_restrictions_<tag>.gpkg.zip, releases/harvest_restrictions_sources_<tag>.gpkg.zip,
-    releases/land_designations_summary_<tag>.csv, releases/harvest_restrictions_summary_<tag>.csv,
-    releases/sources_<tag>.csv.
+    Publishes a single geopackage under releases/, release-tag-stamped and never overwritten, so
+    every past release stays retrievable regardless of any noncurrent-version lifecycle policy:
+    releases/harvest_restrictions_<tag>.gpkg. It bundles every release deliverable as one table
+    each - a single file, directly readable by ogr/QGIS with no unzip step:
 
-    Also overwrites two fixed-name "latest" copies of the geopackages at the root
-    (harvest_restrictions_latest.gpkg.zip, harvest_restrictions_sources_latest.gpkg.zip), for
-    scripts/mapping applications that want the current release without tracking release tags -
-    these are fully redundant with the releases/ copies, so it's fine to prune their version
-    history under any lifecycle policy.
+    - harvest_restrictions, designations - spatial layers (the overlay result and its source
+      designations)
+    - land_designations_summary, harvest_restrictions_summary - non-spatial tables, the reviewed
+      diff report that was approved for this release
+    - sources - non-spatial table, a flattened sources.json as it stood for this release
+
+    Also overwrites a fixed-name "latest" copy at the root (harvest_restrictions_latest.gpkg),
+    for scripts/mapping applications that want the current release without tracking release tags
+    - fully redundant with the releases/ copy, so it's fine to prune its version history under
+    any lifecycle policy.
 
     Also appends this release's totals to the durable change log. Does not require a database
     connection, so it can run standalone (e.g. in a workflow triggered by a tag push, with no
@@ -874,8 +880,8 @@ def release(run_id, bucket, verbose, quiet):
     )
 
     # resolve which run of this commit to release - defaults to the most recent, but once
-    # resolved it's pinned for everything below, so all 4 release files come from the same
-    # overlay run even if the commit was run more than once
+    # resolved it's pinned for everything below, so every table in the release geopackage comes
+    # from the same overlay run even if the commit was run more than once
     if not run_id:
         _, found_tags = s3_find_version(
             bucket, "harvest_restrictions.parquet", commit=commit
@@ -893,53 +899,43 @@ def release(run_id, bucket, verbose, quiet):
 
     tags = {"commit": commit, "run_id": run_id, "release": release_tag}
 
-    # build and publish the two dated geopackages under releases/ - never overwritten, so
-    # past releases stay retrievable regardless of any noncurrent-version lifecycle policy.
-    # also overwrite a fixed-name "latest" copy of each at the root, for scripts/mapping
-    # applications that just want the current release - safe to prune under any lifecycle
-    # policy, since it's fully redundant with the releases/ copy
+    # build the single release geopackage, one table at a time - add_gpkg_layer creates it fresh
+    # on the first call and appends on every call after
+    gpkg_file = f"harvest_restrictions_{release_tag}.gpkg"
+
     for parquet_key, layer_name in [
         ("harvest_restrictions.parquet", "harvest_restrictions"),
         ("harvest_restrictions_sources.parquet", "designations"),
     ]:
-        stem, _ = os.path.splitext(parquet_key)
-        out_file = f"{stem}_{release_tag}.gpkg.zip"
-        build_gpkg(bucket, commit, parquet_key, layer_name, out_file, run_id=run_id)
-        s3_upload_and_tag(bucket, out_file, f"releases/{out_file}", tags)
-        LOG.info(
-            f"{out_file} published to s3://{bucket}/{s3_key(f'releases/{out_file}')}"
-        )
+        local_parquet = s3_download_tagged(bucket, parquet_key, tag_filter)
+        add_gpkg_layer(gpkg_file, local_parquet, layer_name)
+        LOG.info(f"{layer_name} layer added to {gpkg_file}, from {parquet_key}")
 
-        latest_file = f"{stem}_latest.gpkg.zip"
-        s3_upload_and_tag(bucket, out_file, latest_file, tags)
-        LOG.info(f"{latest_file} published to s3://{bucket}/{s3_key(latest_file)}")
+    for key, table_name in [
+        (LAND_DESIGNATIONS_SUMMARY, "land_designations_summary"),
+        (HARVEST_RESTRICTIONS_SUMMARY, "harvest_restrictions_summary"),
+    ]:
+        s3_download_tagged(bucket, key, tag_filter, local_file=key)
+        add_gpkg_layer(gpkg_file, key, table_name, spatial=False)
+        LOG.info(f"{table_name} table added to {gpkg_file}, from {key}")
 
-    # publish the dated summary csvs under releases/ - the reviewed diff report, permanently
-    # retrievable
-    for key in [LAND_DESIGNATIONS_SUMMARY, HARVEST_RESTRICTIONS_SUMMARY]:
-        version_id, _ = s3_find_version(bucket, key, **tag_filter)
-        if not version_id:
-            raise ValueError(
-                f"No s3://{bucket}/{s3_key(key)} object tagged commit={commit}"
-                + (f", run_id={run_id}" if run_id else "")
-                + " found - run overlay against this commit before releasing it"
-            )
-        stem, ext = os.path.splitext(key)
-        dated_key = f"{stem}_{release_tag}{ext}"
-        s3_download_version(bucket, key, version_id, key)
-        s3_upload_and_tag(bucket, key, f"releases/{dated_key}", tags)
-        LOG.info(
-            f"{dated_key} published to s3://{bucket}/{s3_key(f'releases/{dated_key}')}"
-        )
-
-    # publish a dated csv listing the data sources used in this release
+    # add a table listing the data sources used in this release
     sources_csv = "sources.csv"
     write_sources_csv("sources.json", sources_csv)
-    dated_sources_csv = f"sources_{release_tag}.csv"
-    s3_upload_and_tag(bucket, sources_csv, f"releases/{dated_sources_csv}", tags)
-    LOG.info(
-        f"{dated_sources_csv} published to s3://{bucket}/{s3_key(f'releases/{dated_sources_csv}')}"
-    )
+    add_gpkg_layer(gpkg_file, sources_csv, "sources", spatial=False)
+    LOG.info(f"sources table added to {gpkg_file}, from {sources_csv}")
+
+    # publish the geopackage under releases/ - never overwritten, so past releases stay
+    # retrievable regardless of any noncurrent-version lifecycle policy. Also overwrite a
+    # fixed-name "latest" copy at the root, for scripts/mapping applications that just want the
+    # current release - safe to prune under any lifecycle policy, since it's fully redundant
+    # with the releases/ copy
+    s3_upload_and_tag(bucket, gpkg_file, f"releases/{gpkg_file}", tags)
+    LOG.info(f"{gpkg_file} published to s3://{bucket}/{s3_key(f'releases/{gpkg_file}')}")
+
+    latest_file = "harvest_restrictions_latest.gpkg"
+    s3_upload_and_tag(bucket, gpkg_file, latest_file, tags)
+    LOG.info(f"{latest_file} published to s3://{bucket}/{s3_key(latest_file)}")
 
     # append this release's totals to the durable change log - release is the only writer of
     # these two files, so the current version is always the complete up-to-date history. Sourced
