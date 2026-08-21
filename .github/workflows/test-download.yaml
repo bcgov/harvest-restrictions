@@ -14,6 +14,8 @@ on:
       - 'requirements*.txt'
       - 'download.py'
       - 'test_download.py'
+permissions:
+  contents: read
 env:
   AWS_ENDPOINT_URL: "https://nrs.objectstore.gov.bc.ca"
   AWS_S3_ENDPOINT: "nrs.objectstore.gov.bc.ca"
