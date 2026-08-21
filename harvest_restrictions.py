@@ -574,8 +574,8 @@ H_COLUMNS = [
     "harvest_restriction_class_name",
 ]
 
-LAND_DESIGNATIONS_CURRENT = "land_designations_current.csv"
-HARVEST_RESTRICTIONS_CURRENT = "harvest_restrictions_current.csv"
+LAND_DESIGNATIONS = "land_designations.csv"
+HARVEST_RESTRICTIONS = "harvest_restrictions.csv"
 LAND_DESIGNATIONS_CHANGE = "land_designations_change.csv"
 HARVEST_RESTRICTIONS_CHANGE = "harvest_restrictions_change.csv"
 LAND_DESIGNATIONS_LOG = "land_designations_log.csv"
@@ -671,14 +671,14 @@ def log(bucket):
     previous_release = d_history.sort_values("release_date")["release_tag"].iloc[-1]
 
     d = build_change(
-        LAND_DESIGNATIONS_CURRENT,
+        LAND_DESIGNATIONS,
         d_history,
         previous_release,
         "land_designation_type_rank",
         D_COLUMNS,
     )
     h = build_change(
-        HARVEST_RESTRICTIONS_CURRENT,
+        HARVEST_RESTRICTIONS,
         h_history,
         previous_release,
         "harvest_restriction_class_rank",
@@ -759,8 +759,8 @@ def overlay(db_url, out_file, designations_table, bucket, verbose, quiet):
     LOG.info(f"{designations_table} written to {sources_file}")
 
     # summarize results
-    run(f"{psql} -f sql/land_designations.sql --csv > {LAND_DESIGNATIONS_CURRENT}")
-    run(f"{psql} -f sql/harvest_restrictions.sql --csv > {HARVEST_RESTRICTIONS_CURRENT}")
+    run(f"{psql} -f sql/land_designations.sql --csv > {LAND_DESIGNATIONS}")
+    run(f"{psql} -f sql/harvest_restrictions.sql --csv > {HARVEST_RESTRICTIONS}")
 
     # compare current summaries to the most recently released version
     log(bucket)
@@ -769,8 +769,8 @@ def overlay(db_url, out_file, designations_table, bucket, verbose, quiet):
     for local_file, key in [
         (out_file, os.path.basename(out_file)),
         (sources_file, sources_file),
-        (LAND_DESIGNATIONS_CURRENT, LAND_DESIGNATIONS_CURRENT),
-        (HARVEST_RESTRICTIONS_CURRENT, HARVEST_RESTRICTIONS_CURRENT),
+        (LAND_DESIGNATIONS, LAND_DESIGNATIONS),
+        (HARVEST_RESTRICTIONS, HARVEST_RESTRICTIONS),
         (LAND_DESIGNATIONS_CHANGE, LAND_DESIGNATIONS_CHANGE),
         (HARVEST_RESTRICTIONS_CHANGE, HARVEST_RESTRICTIONS_CHANGE),
     ]:
@@ -899,8 +899,8 @@ def release(run_id, bucket, verbose, quiet):
 
     # append this release's totals to the durable change log - release is the only writer of
     # these two files, so the current version is always the complete up-to-date history
-    d_current_key = LAND_DESIGNATIONS_CURRENT
-    h_current_key = HARVEST_RESTRICTIONS_CURRENT
+    d_current_key = LAND_DESIGNATIONS
+    h_current_key = HARVEST_RESTRICTIONS
     d_version_id, _ = s3_find_version(bucket, d_current_key, **tag_filter)
     h_version_id, _ = s3_find_version(bucket, h_current_key, **tag_filter)
     if not d_version_id or not h_version_id:

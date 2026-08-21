@@ -139,7 +139,7 @@ Everything lives under `s3://$BUCKET/harvest_restrictions/`, in four tiers:
 **Draft/working objects** - written by `overlay` on every run, at fixed keys (each new version tagged `commit`/`run_id`), overwritten on the next run. Transient by design - safe to prune under any noncurrent-version lifecycle policy:
 
 - `harvest_restrictions.parquet`, `harvest_restrictions_sources.parquet`
-- `land_designations_current.csv`, `harvest_restrictions_current.csv`
+- `land_designations.csv`, `harvest_restrictions.csv`
 - `land_designations_change.csv`, `harvest_restrictions_change.csv` - a disposable rollup, rebuilt from scratch on every `overlay` run (by `log`), comparing the *most recent release* against the *current* run with `diff`/`pct_diff` columns. Retains every category present in either side - a category new to this run or dropped since the previous release still gets its labels, with `diff`/`pct_diff` left as `NaN` rather than misleadingly implying zero area. This is what you review in step 8 above.
 
 **Durable change log** - written only by `release`, at fixed keys. Each release rewrites the *entire* file with its row appended, so the current version is always the complete history - old versions are redundant and don't need retaining either:
