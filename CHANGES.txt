@@ -20,8 +20,8 @@ v2026-08
     │   └── ...
     │
     ├── draft/                                        # outputs for review on completion of overlay (tagged commit/run_id, overwritten each run)
-    │   ├── harvest_restrictions.parquet
-    │   ├── harvest_restrictions_sources.parquet
+    │   ├── harvest_restrictions.gpkg.zip
+    │   ├── harvest_restrictions_sources.gpkg.zip
     │   ├── land_designations_summary.csv
     │   ├── harvest_restrictions_summary.csv
     │   └── sources.csv
