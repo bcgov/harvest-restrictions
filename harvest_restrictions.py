@@ -660,9 +660,14 @@ def build_change(current_file, history, previous_release, key, columns):
     merged["diff"] = merged["current"] - merged[previous_release]
     merged["pct_diff"] = (merged["diff"] / merged[previous_release]) * 100
 
-    return merged.round(
-        {previous_release: 0, "current": 0, "diff": 0, "pct_diff": 2}
-    ).set_index(key)
+    # key, descriptive columns, current, previous, diff, pct_diff - explicit rather than
+    # relying on whatever order the merge happens to produce
+    column_order = [key, *descriptive, "current", previous_release, "diff", "pct_diff"]
+    return (
+        merged[column_order]
+        .round({previous_release: 0, "current": 0, "diff": 0, "pct_diff": 2})
+        .set_index(key)
+    )
 
 
 def log(bucket):
