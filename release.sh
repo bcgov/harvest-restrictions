@@ -1,8 +1,8 @@
 #!/bin/bash
 set -euxo pipefail
 
-# tag this commit's already-published overlay outputs as a release, and
-# publish the geopackage deliverable (only built at release time)
+# publish this commit's already-reviewed overlay output as a dated release (4 files:
+# 2 geopackages, 2 summary csvs), and append it to the durable change log
 python harvest_restrictions.py release -v
 
 # create csv listing data sources from the json

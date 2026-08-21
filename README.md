@@ -82,7 +82,13 @@ Output `harvest_restrictions.gdb` has the following columns:
 
 Committing changes requires `pre-commit` - install via your package manager of choice.
 
-The `harvest_restrictions` object storage bucket must have [versioning](https://docs.aws.amazon.com/AmazonS3/latest/userguide/Versioning.html) enabled - `overlay` and `release` identify a given run's outputs by tagging the relevant object *version* with the commit hash / release tag, rather than by object key.
+The `harvest_restrictions` object storage bucket must have [versioning](https://docs.aws.amazon.com/AmazonS3/latest/userguide/Versioning.html) enabled - `overlay` publishes to fixed keys tagged with the current commit hash and run id, and `release` looks up the tagged object *version* matching a given commit (and optionally run id) to promote into a permanent, uniquely-named deliverable. See "Object storage layout" below for the full picture.
+
+Versioning is bucket-wide and can't be scoped to a prefix, but the `harvest_restrictions/restrictions/` prefix (raw per-source cache written by `cache`, read by `load-db`) doesn't need old versions retained - it's overwritten on every `cache` run with no lasting significance. [`s3-lifecycle-restrictions-prefix.json`](s3-lifecycle-restrictions-prefix.json) expires noncurrent versions there after one day; apply it once when setting up the bucket:
+
+    aws s3api put-bucket-lifecycle-configuration --bucket $BUCKET --lifecycle-configuration file://s3-lifecycle-restrictions-prefix.json
+
+(`put-bucket-lifecycle-configuration` replaces the bucket's entire lifecycle configuration, so if other rules exist, merge them into this same file first.)
 
 ## Usage
 
@@ -110,22 +116,18 @@ The `harvest_restrictions` object storage bucket must have [versioning](https://
 
         docker compose run -it --rm runner python harvest_restrictions.py overlay -v
 
-8. Review the change logs (and geoparquet spatial output if required):
+8. Review the change summary (and `harvest_restrictions.parquet`, e.g. for external/client review - both are already published to object storage, tagged with the current commit):
 
     - `land_designations_summary.csv`
     - `harvest_restrictions_summary.csv`
 
     If results are not correct, address the issue, commit the fix, and re-run from step 7.
 
-9. If needed, build a geopackage for external (e.g. client) review before committing to a release. This reads the same commit's already-published output, and has no lasting effect - no release tag, no change to the change log - so it's safe to re-run against draft work as many times as needed:
-
-        docker compose run -it --rm runner python harvest_restrictions.py preview -v
-
-10. Once results are confirmed to be reasonable/correct, tag the commit as a release:
+9. Once results are confirmed to be reasonable/correct, tag the commit as a release:
 
         git tag -a vYYYY-MM -m vYYYY-MM
 
-11. Push the tag - this triggers the [Release workflow](https://github.com/bcgov/harvest-restrictions/actions/workflows/release.yaml), which tags the current commit's already-published outputs (from step 7) with the release, builds/publishes the geopackage deliverable, and appends the release to the change log:
+10. Push the tag - this triggers the [Release workflow](https://github.com/bcgov/harvest-restrictions/actions/workflows/release.yaml), which publishes 4 dated deliverables from that commit's already-published, already-reviewed output, and appends the release to the change log:
 
         git push origin vYYYY-MM
 
@@ -133,21 +135,33 @@ The `harvest_restrictions` object storage bucket must have [versioning](https://
 
         docker compose run -it --rm app ./release.sh
 
-12. Optionally, re-run the entire download/process pipeline by manually calling the [harvest-restrictions workflow](https://github.com/bcgov/harvest-restrictions/actions/workflows/harvest-restrictions.yaml).
+11. Optionally, re-run the entire download/process pipeline by manually calling the [harvest-restrictions workflow](https://github.com/bcgov/harvest-restrictions/actions/workflows/harvest-restrictions.yaml).
 
 
-## Change history and review reports
+## Object storage layout
 
-Two kinds of csv track area totals by category over time, both held in object storage at `s3://$BUCKET/harvest_restrictions/`:
+Everything lives under `s3://$BUCKET/harvest_restrictions/`, in three tiers:
 
-- `land_designations_log.csv` / `harvest_restrictions_log.csv` - the durable log, long/tidy format (one row per category per release: `release_tag`, `release_date`, `commit`, `run_id`, category columns, `area_ha`). Only ever appended to, and only at release time (by `release`) - this is the source of truth for area over time, suited to plotting/analysis across all past releases.
-- `land_designations_summary.csv` / `harvest_restrictions_summary.csv` - a small, disposable rollup, rebuilt from scratch on every `overlay` run (by `log`). Summarizes the *most recent release* from the log against the *current* run, with `diff`/`pct_diff` columns - this is what you review in step 8 above before deciding whether to release.
+**Draft/working objects** - written by `overlay` on every run, at fixed keys (each new version tagged `commit`/`run_id`), overwritten on the next run. Transient by design - safe to prune under any noncurrent-version lifecycle policy:
+
+- `harvest_restrictions.parquet`, `harvest_restrictions_sources.parquet`
+- `current_land_designations.csv`, `current_harvest_restrictions.csv`
+- `land_designations_summary.csv`, `harvest_restrictions_summary.csv` - a disposable rollup, rebuilt from scratch on every `overlay` run (by `log`), summarizing the *most recent release* against the *current* run with `diff`/`pct_diff` columns. This is what you review in step 8 above.
+
+**Durable change log** - written only by `release`, at fixed keys. Each release rewrites the *entire* file with its row appended, so the current version is always the complete history - old versions are redundant and don't need retaining either:
+
+- `land_designations_log.csv` / `harvest_restrictions_log.csv` - long/tidy format, one row per category per release (`release_tag`, `release_date`, `commit`, `run_id`, category columns, `area_ha`). This is the source of truth for area over time, suited to plotting/analysis across all past releases.
+
+**Permanent per-release deliverables** - written only by `release`, one set per release tag, at a key unique to that release - never overwritten, so every past release stays retrievable regardless of any lifecycle policy:
+
+- `harvest_restrictions_<release_tag>.gpkg.zip`, `harvest_restrictions_sources_<release_tag>.gpkg.zip`
+- `land_designations_summary_<release_tag>.csv`, `harvest_restrictions_summary_<release_tag>.csv` - the exact reviewed diff report that was approved for this release
 
 ### commit vs run_id
 
-Every object `overlay` publishes is tagged with both `commit` (the git commit that produced it) and `run_id` (a UTC timestamp identifying that specific invocation of `overlay`). These are usually interchangeable - `release`/`preview` default to the most recent run of a given commit - but they diverge if `overlay` is run more than once against the same commit (the underlying source data can change even with no code change). If a second run happens after you've reviewed the first, pass `--run_id` to `release`/`preview` to pin the exact run that was actually reviewed, rather than picking up whatever ran most recently.
+Every object `overlay` publishes is tagged with both `commit` (the git commit that produced it) and `run_id` (a UTC timestamp identifying that specific invocation of `overlay`). These are usually interchangeable - `release` defaults to the most recent run of a given commit - but they diverge if `overlay` is run more than once against the same commit (the underlying source data can change even with no code change). If a second run happens after you've reviewed the first, pass `--run_id` to `release` to pin the exact run that was actually reviewed, rather than picking up whatever ran most recently.
 
-The logs were backfilled from pre-existing wide-format records. `v2024-08`, `v2025-04`, and `v2026-02-DRAFT` carry real `commit`/`release_date` values from their matching git tags. `v2023-07`, `v2024-04`, and `v2025-08` have no corresponding git tag (either never tagged, or - for `v2025-08` - the tag on record is named `v2025-08-DRAFT`, not `v2025-08`) - for those three, `release_date` is approximated as the first of the tag's named month and `commit` is left blank.
+The logs were backfilled from pre-existing wide-format records. `v2024-08`, `v2025-04`, `v2025-08`, and `v2026-02` carry real `commit`/`release_date` values from their matching git tags (the latter two were originally recorded under the old `-DRAFT` tag naming convention, since renamed). `v2023-07` and `v2024-04` have no corresponding git tag at all - for those two, `release_date` is approximated as the first of the tag's named month and `commit` is left blank.
 
 
 ## designatedlands
