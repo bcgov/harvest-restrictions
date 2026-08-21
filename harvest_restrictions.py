@@ -574,6 +574,10 @@ H_COLUMNS = [
     "harvest_restriction_class_name",
 ]
 
+LAND_DESIGNATIONS_CURRENT = "land_designations_current.csv"
+HARVEST_RESTRICTIONS_CURRENT = "harvest_restrictions_current.csv"
+LAND_DESIGNATIONS_SUMMARY = "land_designations_summary.csv"
+HARVEST_RESTRICTIONS_SUMMARY = "harvest_restrictions_summary.csv"
 LAND_DESIGNATIONS_LOG = "land_designations_log.csv"
 HARVEST_RESTRICTIONS_LOG = "harvest_restrictions_log.csv"
 
@@ -642,10 +646,10 @@ def log(bucket):
         H_COLUMNS + ["area_ha"]
     ].rename(columns={"area_ha": previous_release})
 
-    d_summary = pandas.read_csv("current_land_designations.csv")[
+    d_summary = pandas.read_csv(LAND_DESIGNATIONS_CURRENT)[
         ["land_designation_type_rank", "area_ha"]
     ].rename(columns={"area_ha": "current"})
-    h_summary = pandas.read_csv("current_harvest_restrictions.csv")[
+    h_summary = pandas.read_csv(HARVEST_RESTRICTIONS_CURRENT)[
         ["harvest_restriction_class_rank", "area_ha"]
     ].rename(columns={"area_ha": "current"})
 
@@ -668,9 +672,9 @@ def log(bucket):
     )
 
     # dump results to csv
-    d.to_csv("land_designations_summary.csv")
-    h.to_csv("harvest_restrictions_summary.csv")
-    LOG.info("land_designations_summary.csv and harvest_restrictions_summary.csv written")
+    d.to_csv(LAND_DESIGNATIONS_SUMMARY)
+    h.to_csv(HARVEST_RESTRICTIONS_SUMMARY)
+    LOG.info(f"{LAND_DESIGNATIONS_SUMMARY} and {HARVEST_RESTRICTIONS_SUMMARY} written")
 
 
 @cli.command()
@@ -741,8 +745,8 @@ def overlay(db_url, out_file, designations_table, bucket, verbose, quiet):
     LOG.info(f"{designations_table} written to {sources_file}")
 
     # summarize results
-    run(f"{psql} -f sql/land_designations.sql --csv > current_land_designations.csv")
-    run(f"{psql} -f sql/harvest_restrictions.sql --csv > current_harvest_restrictions.csv")
+    run(f"{psql} -f sql/land_designations.sql --csv > {LAND_DESIGNATIONS_CURRENT}")
+    run(f"{psql} -f sql/harvest_restrictions.sql --csv > {HARVEST_RESTRICTIONS_CURRENT}")
 
     # compare current summaries to the most recently released version
     log(bucket)
@@ -751,10 +755,10 @@ def overlay(db_url, out_file, designations_table, bucket, verbose, quiet):
     for local_file, key in [
         (out_file, os.path.basename(out_file)),
         (sources_file, sources_file),
-        ("current_land_designations.csv", "current_land_designations.csv"),
-        ("current_harvest_restrictions.csv", "current_harvest_restrictions.csv"),
-        ("land_designations_summary.csv", "land_designations_summary.csv"),
-        ("harvest_restrictions_summary.csv", "harvest_restrictions_summary.csv"),
+        (LAND_DESIGNATIONS_CURRENT, LAND_DESIGNATIONS_CURRENT),
+        (HARVEST_RESTRICTIONS_CURRENT, HARVEST_RESTRICTIONS_CURRENT),
+        (LAND_DESIGNATIONS_SUMMARY, LAND_DESIGNATIONS_SUMMARY),
+        (HARVEST_RESTRICTIONS_SUMMARY, HARVEST_RESTRICTIONS_SUMMARY),
     ]:
         s3_upload_and_tag(bucket, local_file, key, {"commit": commit, "run_id": run_id})
         LOG.info(
@@ -856,9 +860,7 @@ def release(run_id, bucket, verbose, quiet):
 
     # publish the dated summary csvs under releases/ - the reviewed diff report, permanently
     # retrievable
-    d_summary_key = "land_designations_summary.csv"
-    h_summary_key = "harvest_restrictions_summary.csv"
-    for key in [d_summary_key, h_summary_key]:
+    for key in [LAND_DESIGNATIONS_SUMMARY, HARVEST_RESTRICTIONS_SUMMARY]:
         version_id, _ = s3_find_version(bucket, key, **tag_filter)
         if not version_id:
             raise ValueError(
@@ -883,8 +885,8 @@ def release(run_id, bucket, verbose, quiet):
 
     # append this release's totals to the durable change log - release is the only writer of
     # these two files, so the current version is always the complete up-to-date history
-    d_current_key = "current_land_designations.csv"
-    h_current_key = "current_harvest_restrictions.csv"
+    d_current_key = LAND_DESIGNATIONS_CURRENT
+    h_current_key = HARVEST_RESTRICTIONS_CURRENT
     d_version_id, _ = s3_find_version(bucket, d_current_key, **tag_filter)
     h_version_id, _ = s3_find_version(bucket, h_current_key, **tag_filter)
     if not d_version_id or not h_version_id:
