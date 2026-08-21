@@ -1,4 +1,5 @@
 import csv
+import glob
 import json
 import logging
 import os
@@ -320,6 +321,51 @@ def cache(sources_file, source_alias, dry_run, out_path, verbose, quiet):
             df.to_parquet(out_file)
 
             LOG.info(f"{source['alias']} written to {out_file}")
+
+
+@cli.command()
+@click.option(
+    "--path",
+    "-p",
+    type=click.Path(),
+    default=".",
+    help="Path to clear cached source parquet files from (local or s3://)",
+)
+@click.option(
+    "--dry_run", "-t", is_flag=True, help="List files that would be removed, do not delete"
+)
+@verbose_opt
+@quiet_opt
+def clear_cache(path, dry_run, verbose, quiet):
+    """Delete cached source parquet files written by cache (hr_*.parquet)"""
+    configure_logging((verbose - quiet))
+
+    if path.startswith("s3://"):
+        cmd = [
+            "aws",
+            "s3",
+            "rm",
+            path,
+            "--recursive",
+            "--exclude",
+            "*",
+            "--include",
+            "hr_*.parquet",
+        ]
+        if dry_run:
+            cmd.append("--dryrun")
+        subprocess.run(cmd, check=True)
+    else:
+        files = glob.glob(os.path.join(path, "hr_*.parquet"))
+        for f in files:
+            if dry_run:
+                LOG.info(f"Would remove {f}")
+            else:
+                os.remove(f)
+                LOG.info(f"Removed {f}")
+
+    verb = "Would clear" if dry_run else "Cleared"
+    LOG.info(f"{verb} cached source parquet files from {path}")
 
 
 @cli.command()
