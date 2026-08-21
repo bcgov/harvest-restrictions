@@ -576,8 +576,8 @@ H_COLUMNS = [
 
 LAND_DESIGNATIONS_CURRENT = "land_designations_current.csv"
 HARVEST_RESTRICTIONS_CURRENT = "harvest_restrictions_current.csv"
-LAND_DESIGNATIONS_SUMMARY = "land_designations_summary.csv"
-HARVEST_RESTRICTIONS_SUMMARY = "harvest_restrictions_summary.csv"
+LAND_DESIGNATIONS_CHANGE = "land_designations_change.csv"
+HARVEST_RESTRICTIONS_CHANGE = "harvest_restrictions_change.csv"
 LAND_DESIGNATIONS_LOG = "land_designations_log.csv"
 HARVEST_RESTRICTIONS_LOG = "harvest_restrictions_log.csv"
 
@@ -616,12 +616,43 @@ def write_sources_csv(sources_file, out_file):
             )
 
 
+def build_change(current_file, history, previous_release, key, columns):
+    """merge this run's area totals with the previous release's, keyed on the given column
+
+    Retains every category present in either side (outer join) rather than just those in
+    the previous release. Descriptive columns are filled from whichever side has them, so a
+    category new to this run (or one dropped since the previous release) still gets its
+    labels. Area/diff/pct_diff are left as genuine NaN (not 0) for a category missing from
+    one side, since 0 would misleadingly imply the category existed with no area.
+    """
+    descriptive = [c for c in columns if c != key]
+
+    previous = history[history["release_tag"] == previous_release][
+        columns + ["area_ha"]
+    ].rename(columns={"area_ha": previous_release})
+    current = pandas.read_csv(current_file)[columns + ["area_ha"]].rename(
+        columns={"area_ha": "current"}
+    )
+
+    merged = previous.merge(current, how="outer", on=key, suffixes=("_previous", ""))
+    for col in descriptive:
+        previous_col = merged.pop(f"{col}_previous")
+        merged[col] = merged[col].combine_first(previous_col)
+
+    merged["diff"] = merged["current"] - merged[previous_release]
+    merged["pct_diff"] = (merged["diff"] / merged[previous_release]) * 100
+
+    return merged.round(
+        {previous_release: 0, "current": 0, "diff": 0, "pct_diff": 2}
+    ).set_index(key)
+
+
 def log(bucket):
-    """Compare current overlay summaries to the most recently released version, writing a review report
+    """Compare current overlay results to the most recently released version, writing a change report
 
     The full change log is a long/tidy append-only record (one row per category per release), kept
     in land_designations_log.csv / harvest_restrictions_log.csv. This report is a small, disposable
-    summary/rollup of that log against the current run, regenerated fresh on every overlay run.
+    rollup of that log against the current run, regenerated fresh on every overlay run.
     """
     if not s3_download_current(bucket, LAND_DESIGNATIONS_LOG, LAND_DESIGNATIONS_LOG):
         raise ValueError(
@@ -639,42 +670,25 @@ def log(bucket):
     # most recent release in the history
     previous_release = d_history.sort_values("release_date")["release_tag"].iloc[-1]
 
-    d_previous = d_history[d_history["release_tag"] == previous_release][
-        D_COLUMNS + ["area_ha"]
-    ].rename(columns={"area_ha": previous_release})
-    h_previous = h_history[h_history["release_tag"] == previous_release][
-        H_COLUMNS + ["area_ha"]
-    ].rename(columns={"area_ha": previous_release})
-
-    d_summary = pandas.read_csv(LAND_DESIGNATIONS_CURRENT)[
-        ["land_designation_type_rank", "area_ha"]
-    ].rename(columns={"area_ha": "current"})
-    h_summary = pandas.read_csv(HARVEST_RESTRICTIONS_CURRENT)[
-        ["harvest_restriction_class_rank", "area_ha"]
-    ].rename(columns={"area_ha": "current"})
-
-    # join the previous release to the current summary
-    d = d_previous.merge(d_summary, how="outer", on="land_designation_type_rank").fillna(0)
-    h = h_previous.merge(h_summary, how="outer", on="harvest_restriction_class_rank").fillna(0)
-
-    # calculate diff and pct diff against the previous release
-    d["diff"] = d["current"] - d[previous_release]
-    h["diff"] = h["current"] - h[previous_release]
-    d["pct_diff"] = (d["diff"] / d[previous_release]) * 100
-    h["pct_diff"] = (h["diff"] / h[previous_release]) * 100
-
-    # clean up
-    d = d.round({previous_release: 0, "current": 0, "diff": 0, "pct_diff": 2}).set_index(
-        "land_designation_type_rank"
+    d = build_change(
+        LAND_DESIGNATIONS_CURRENT,
+        d_history,
+        previous_release,
+        "land_designation_type_rank",
+        D_COLUMNS,
     )
-    h = h.round({previous_release: 0, "current": 0, "diff": 0, "pct_diff": 2}).set_index(
-        "harvest_restriction_class_rank"
+    h = build_change(
+        HARVEST_RESTRICTIONS_CURRENT,
+        h_history,
+        previous_release,
+        "harvest_restriction_class_rank",
+        H_COLUMNS,
     )
 
     # dump results to csv
-    d.to_csv(LAND_DESIGNATIONS_SUMMARY)
-    h.to_csv(HARVEST_RESTRICTIONS_SUMMARY)
-    LOG.info(f"{LAND_DESIGNATIONS_SUMMARY} and {HARVEST_RESTRICTIONS_SUMMARY} written")
+    d.to_csv(LAND_DESIGNATIONS_CHANGE)
+    h.to_csv(HARVEST_RESTRICTIONS_CHANGE)
+    LOG.info(f"{LAND_DESIGNATIONS_CHANGE} and {HARVEST_RESTRICTIONS_CHANGE} written")
 
 
 @cli.command()
@@ -757,8 +771,8 @@ def overlay(db_url, out_file, designations_table, bucket, verbose, quiet):
         (sources_file, sources_file),
         (LAND_DESIGNATIONS_CURRENT, LAND_DESIGNATIONS_CURRENT),
         (HARVEST_RESTRICTIONS_CURRENT, HARVEST_RESTRICTIONS_CURRENT),
-        (LAND_DESIGNATIONS_SUMMARY, LAND_DESIGNATIONS_SUMMARY),
-        (HARVEST_RESTRICTIONS_SUMMARY, HARVEST_RESTRICTIONS_SUMMARY),
+        (LAND_DESIGNATIONS_CHANGE, LAND_DESIGNATIONS_CHANGE),
+        (HARVEST_RESTRICTIONS_CHANGE, HARVEST_RESTRICTIONS_CHANGE),
     ]:
         s3_upload_and_tag(bucket, local_file, key, {"commit": commit, "run_id": run_id})
         LOG.info(
@@ -788,7 +802,7 @@ def release(run_id, bucket, verbose, quiet):
     Publishes 5 files under releases/, each release-tag-stamped and never overwritten, so every
     past release stays retrievable regardless of any noncurrent-version lifecycle policy:
     releases/harvest_restrictions_<tag>.gpkg.zip, releases/harvest_restrictions_sources_<tag>.gpkg.zip,
-    releases/land_designations_summary_<tag>.csv, releases/harvest_restrictions_summary_<tag>.csv,
+    releases/land_designations_change_<tag>.csv, releases/harvest_restrictions_change_<tag>.csv,
     releases/sources_<tag>.csv.
 
     Also overwrites two fixed-name "latest" copies of the geopackages at the root
@@ -858,9 +872,9 @@ def release(run_id, bucket, verbose, quiet):
         s3_upload_and_tag(bucket, out_file, latest_file, tags)
         LOG.info(f"{latest_file} published to s3://{bucket}/{s3_key(latest_file)}")
 
-    # publish the dated summary csvs under releases/ - the reviewed diff report, permanently
+    # publish the dated change csvs under releases/ - the reviewed diff report, permanently
     # retrievable
-    for key in [LAND_DESIGNATIONS_SUMMARY, HARVEST_RESTRICTIONS_SUMMARY]:
+    for key in [LAND_DESIGNATIONS_CHANGE, HARVEST_RESTRICTIONS_CHANGE]:
         version_id, _ = s3_find_version(bucket, key, **tag_filter)
         if not version_id:
             raise ValueError(
