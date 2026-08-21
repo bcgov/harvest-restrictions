@@ -1,0 +1,13 @@
+harvest_restrictions.py changes
+================================
+
+- release.sh removed; sources.csv generation and publishing folded into `release`
+- `release` now publishes one bundled geopackage (spatial layers + summary/sources
+  tables) instead of separate gpkg/csv files
+- overlay's draft (unreviewed) output moved under an s3 draft/ prefix, kept
+  separate from release's plain-named "latest" pointers
+- durable change log files renamed to LOG_<>.csv
+- summary csv merge logic fixed: retains categories from both current and
+  previous release, with NaN (not 0) where one side is missing
+- added `clear-cache` command and `load_db --truncate` option
+- added `release --clean_draft` to remove draft objects after a successful release
