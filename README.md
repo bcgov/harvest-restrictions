@@ -112,8 +112,8 @@ The `harvest_restrictions` object storage bucket must have [versioning](https://
 
 8. Review the change report (and `harvest_restrictions.parquet`, e.g. for external/client review - both are already published to object storage, tagged with the current commit):
 
-    - `land_designations_change.csv`
-    - `harvest_restrictions_change.csv`
+    - `land_designations_summary.csv`
+    - `harvest_restrictions_summary.csv`
 
     If results are not correct, address the issue, commit the fix, and re-run from step 7.
 
@@ -139,8 +139,7 @@ Everything lives under `s3://$BUCKET/harvest_restrictions/`, in four tiers:
 **Draft/working objects** - written by `overlay` on every run, at fixed keys (each new version tagged `commit`/`run_id`), overwritten on the next run. Transient by design - safe to prune under any noncurrent-version lifecycle policy:
 
 - `harvest_restrictions.parquet`, `harvest_restrictions_sources.parquet`
-- `land_designations.csv`, `harvest_restrictions.csv`
-- `land_designations_change.csv`, `harvest_restrictions_change.csv` - a disposable rollup, rebuilt from scratch on every `overlay` run (by `log`), comparing the *most recent release* against the *current* run with `diff`/`pct_diff` columns. Retains every category present in either side - a category new to this run or dropped since the previous release still gets its labels, with `diff`/`pct_diff` left as `NaN` rather than misleadingly implying zero area. This is what you review in step 8 above.
+- `land_designations_summary.csv`, `harvest_restrictions_summary.csv` - a disposable rollup, rebuilt from scratch on every `overlay` run (by `log`), comparing the *most recent release* against the *current* run with `current`/`diff`/`pct_diff` columns. Retains every category present in either side - a category new to this run or dropped since the previous release still gets its labels, with `diff`/`pct_diff` left as `NaN` rather than misleadingly implying zero area. This is what you review in step 8 above, and what `release` reads (via the `current` column) to append this run's totals to the durable change log - there's no separate current-only file, since this already carries the same totals plus the diff.
 
 **Durable change log** - written only by `release`, at fixed keys. Each release rewrites the *entire* file with its row appended, so the current version is always the complete history - old versions are redundant and don't need retaining either:
 
@@ -149,7 +148,7 @@ Everything lives under `s3://$BUCKET/harvest_restrictions/`, in four tiers:
 **Permanent per-release archive** - written only by `release`, under `releases/`, one set per release tag at a key unique to that release - never overwritten, so every past release stays retrievable by tag regardless of any lifecycle policy:
 
 - `releases/harvest_restrictions_<release_tag>.gpkg.zip`, `releases/harvest_restrictions_sources_<release_tag>.gpkg.zip`
-- `releases/land_designations_change_<release_tag>.csv`, `releases/harvest_restrictions_change_<release_tag>.csv` - the exact reviewed diff report that was approved for this release
+- `releases/land_designations_summary_<release_tag>.csv`, `releases/harvest_restrictions_summary_<release_tag>.csv` - the exact reviewed diff report that was approved for this release
 - `releases/sources_<release_tag>.csv` - a flattened csv of `sources.json` as it stood for this release
 
 **Latest-release pointers** - written only by `release`, at fixed keys, overwritten on every release. For scripts/mapping applications that just want the current release without tracking release tags - point at these instead of the `releases/` archive. Fully redundant with the matching `releases/` copy, so safe to prune under any lifecycle policy:

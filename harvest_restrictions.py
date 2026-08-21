@@ -594,8 +594,8 @@ H_COLUMNS = [
 
 LAND_DESIGNATIONS = "land_designations.csv"
 HARVEST_RESTRICTIONS = "harvest_restrictions.csv"
-LAND_DESIGNATIONS_CHANGE = "land_designations_change.csv"
-HARVEST_RESTRICTIONS_CHANGE = "harvest_restrictions_change.csv"
+LAND_DESIGNATIONS_SUMMARY = "land_designations_summary.csv"
+HARVEST_RESTRICTIONS_SUMMARY = "harvest_restrictions_summary.csv"
 LAND_DESIGNATIONS_LOG = "land_designations_log.csv"
 HARVEST_RESTRICTIONS_LOG = "harvest_restrictions_log.csv"
 
@@ -706,9 +706,9 @@ def log(bucket):
     )
 
     # dump results to csv
-    d.to_csv(LAND_DESIGNATIONS_CHANGE)
-    h.to_csv(HARVEST_RESTRICTIONS_CHANGE)
-    LOG.info(f"{LAND_DESIGNATIONS_CHANGE} and {HARVEST_RESTRICTIONS_CHANGE} written")
+    d.to_csv(LAND_DESIGNATIONS_SUMMARY)
+    h.to_csv(HARVEST_RESTRICTIONS_SUMMARY)
+    LOG.info(f"{LAND_DESIGNATIONS_SUMMARY} and {HARVEST_RESTRICTIONS_SUMMARY} written")
 
 
 @cli.command()
@@ -790,14 +790,16 @@ def overlay(db_url, out_file, designations_table, bucket, verbose, quiet):
     # compare current summaries to the most recently released version
     log(bucket)
 
-    # publish outputs to object storage, tagged with the current commit and this run
+    # publish outputs to object storage, tagged with the current commit and this run. The raw
+    # land_designations.csv/harvest_restrictions.csv sql output is a local scratch file only,
+    # consumed above by log() - not published, since land_designations_summary.csv/
+    # harvest_restrictions_summary.csv already carry the same current-run totals (in their
+    # "current" column) plus the diff against the previous release
     for local_file, key in [
         (out_file, os.path.basename(out_file)),
         (sources_file, sources_file),
-        (LAND_DESIGNATIONS, LAND_DESIGNATIONS),
-        (HARVEST_RESTRICTIONS, HARVEST_RESTRICTIONS),
-        (LAND_DESIGNATIONS_CHANGE, LAND_DESIGNATIONS_CHANGE),
-        (HARVEST_RESTRICTIONS_CHANGE, HARVEST_RESTRICTIONS_CHANGE),
+        (LAND_DESIGNATIONS_SUMMARY, LAND_DESIGNATIONS_SUMMARY),
+        (HARVEST_RESTRICTIONS_SUMMARY, HARVEST_RESTRICTIONS_SUMMARY),
     ]:
         s3_upload_and_tag(bucket, local_file, key, {"commit": commit, "run_id": run_id})
         LOG.info(
@@ -827,7 +829,7 @@ def release(run_id, bucket, verbose, quiet):
     Publishes 5 files under releases/, each release-tag-stamped and never overwritten, so every
     past release stays retrievable regardless of any noncurrent-version lifecycle policy:
     releases/harvest_restrictions_<tag>.gpkg.zip, releases/harvest_restrictions_sources_<tag>.gpkg.zip,
-    releases/land_designations_change_<tag>.csv, releases/harvest_restrictions_change_<tag>.csv,
+    releases/land_designations_summary_<tag>.csv, releases/harvest_restrictions_summary_<tag>.csv,
     releases/sources_<tag>.csv.
 
     Also overwrites two fixed-name "latest" copies of the geopackages at the root
@@ -907,9 +909,9 @@ def release(run_id, bucket, verbose, quiet):
         s3_upload_and_tag(bucket, out_file, latest_file, tags)
         LOG.info(f"{latest_file} published to s3://{bucket}/{s3_key(latest_file)}")
 
-    # publish the dated change csvs under releases/ - the reviewed diff report, permanently
+    # publish the dated summary csvs under releases/ - the reviewed diff report, permanently
     # retrievable
-    for key in [LAND_DESIGNATIONS_CHANGE, HARVEST_RESTRICTIONS_CHANGE]:
+    for key in [LAND_DESIGNATIONS_SUMMARY, HARVEST_RESTRICTIONS_SUMMARY]:
         version_id, _ = s3_find_version(bucket, key, **tag_filter)
         if not version_id:
             raise ValueError(
@@ -935,22 +937,20 @@ def release(run_id, bucket, verbose, quiet):
     )
 
     # append this release's totals to the durable change log - release is the only writer of
-    # these two files, so the current version is always the complete up-to-date history
-    d_current_key = LAND_DESIGNATIONS
-    h_current_key = HARVEST_RESTRICTIONS
-    d_version_id, _ = s3_find_version(bucket, d_current_key, **tag_filter)
-    h_version_id, _ = s3_find_version(bucket, h_current_key, **tag_filter)
-    if not d_version_id or not h_version_id:
-        raise ValueError(
-            f"No {d_current_key}/{h_current_key} found tagged commit={commit}"
-            + (f", run_id={run_id}" if run_id else "")
-            + " - run overlay against this commit before releasing it"
-        )
-    s3_download_version(bucket, d_current_key, d_version_id, d_current_key)
-    s3_download_version(bucket, h_current_key, h_version_id, h_current_key)
-
-    d_row = pandas.read_csv(d_current_key)[D_COLUMNS + ["area_ha"]]
-    h_row = pandas.read_csv(h_current_key)[H_COLUMNS + ["area_ha"]]
+    # these two files, so the current version is always the complete up-to-date history. Sourced
+    # from the "current" column of the summary csvs just downloaded above, rather than a
+    # separately-published current-only file - a category with no "current" value there existed
+    # in the previous release but not this run, and is excluded rather than logged as zero area
+    d_row = (
+        pandas.read_csv(LAND_DESIGNATIONS_SUMMARY)[D_COLUMNS + ["current"]]
+        .rename(columns={"current": "area_ha"})
+        .dropna(subset=["area_ha"])
+    )
+    h_row = (
+        pandas.read_csv(HARVEST_RESTRICTIONS_SUMMARY)[H_COLUMNS + ["current"]]
+        .rename(columns={"current": "area_ha"})
+        .dropna(subset=["area_ha"])
+    )
     for row in (d_row, h_row):
         row["release_tag"] = release_tag
         row["release_date"] = release_date
