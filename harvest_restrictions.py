@@ -844,9 +844,15 @@ def release(run_id, bucket, verbose, quiet):
       diff report that was approved for this release
     - sources - non-spatial table, a flattened sources.json as it stood for this release
 
-    Also overwrites a fixed-name "latest" copy at the root (harvest_restrictions_latest.gpkg),
-    for scripts/mapping applications that want the current release without tracking release tags
-    - fully redundant with the releases/ copy, so it's fine to prune its version history under
+    Also overwrites five fixed-name "latest" objects at the root - the same five deliverables as
+    separate files rather than one geopackage, for scripts/mapping applications that want the
+    current release without tracking release tags: harvest_restrictions.gpkg,
+    harvest_restrictions_sources.gpkg, land_designations_summary_latest.csv,
+    harvest_restrictions_summary_latest.csv, sources_latest.csv. The two geopackages have no
+    _latest suffix, since overlay() never publishes anything at those plain names; the three csvs
+    do, since overlay() continuously overwrites those same plain names with each new (unreviewed)
+    run, and these pointers must only ever reflect the last confirmed release. All five are fully
+    redundant with the releases/ geopackage, so it's fine to prune their version history under
     any lifecycle policy.
 
     Also appends this release's totals to the durable change log. Does not require a database
@@ -899,43 +905,68 @@ def release(run_id, bucket, verbose, quiet):
 
     tags = {"commit": commit, "run_id": run_id, "release": release_tag}
 
-    # build the single release geopackage, one table at a time - add_gpkg_layer creates it fresh
-    # on the first call and appends on every call after
+    # build the single dated release geopackage, one table at a time - add_gpkg_layer creates it
+    # fresh on the first call and appends on every call after. Each spatial layer is also built
+    # as its own standalone geopackage, for the fixed-name "latest" pointers at the root - for
+    # scripts/mapping applications that want the current release without tracking release tags.
+    # These have no _latest suffix, since overlay() never publishes anything at these plain
+    # names, so there's no draft-tier object to collide with
     gpkg_file = f"harvest_restrictions_{release_tag}.gpkg"
 
-    for parquet_key, layer_name in [
-        ("harvest_restrictions.parquet", "harvest_restrictions"),
-        ("harvest_restrictions_sources.parquet", "designations"),
+    for parquet_key, layer_name, latest_file in [
+        ("harvest_restrictions.parquet", "harvest_restrictions", "harvest_restrictions.gpkg"),
+        (
+            "harvest_restrictions_sources.parquet",
+            "designations",
+            "harvest_restrictions_sources.gpkg",
+        ),
     ]:
         local_parquet = s3_download_tagged(bucket, parquet_key, tag_filter)
         add_gpkg_layer(gpkg_file, local_parquet, layer_name)
         LOG.info(f"{layer_name} layer added to {gpkg_file}, from {parquet_key}")
 
-    for key, table_name in [
-        (LAND_DESIGNATIONS_SUMMARY, "land_designations_summary"),
-        (HARVEST_RESTRICTIONS_SUMMARY, "harvest_restrictions_summary"),
+        add_gpkg_layer(latest_file, local_parquet, layer_name)
+        s3_upload_and_tag(bucket, latest_file, latest_file, tags)
+        LOG.info(f"{latest_file} published to s3://{bucket}/{s3_key(latest_file)}")
+
+    # the summary csvs are also added to the release geopackage as non-spatial tables, and
+    # published separately as their own fixed-name "latest" pointers - _latest here, since
+    # overlay() continuously overwrites these same plain names with each new (unreviewed) run,
+    # and this pointer must only ever reflect the last confirmed release
+    for key, table_name, latest_key in [
+        (
+            LAND_DESIGNATIONS_SUMMARY,
+            "land_designations_summary",
+            "land_designations_summary_latest.csv",
+        ),
+        (
+            HARVEST_RESTRICTIONS_SUMMARY,
+            "harvest_restrictions_summary",
+            "harvest_restrictions_summary_latest.csv",
+        ),
     ]:
         s3_download_tagged(bucket, key, tag_filter, local_file=key)
         add_gpkg_layer(gpkg_file, key, table_name, spatial=False)
         LOG.info(f"{table_name} table added to {gpkg_file}, from {key}")
 
-    # add a table listing the data sources used in this release
+        s3_upload_and_tag(bucket, key, latest_key, tags)
+        LOG.info(f"{latest_key} published to s3://{bucket}/{s3_key(latest_key)}")
+
+    # add a table listing the data sources used in this release, and publish it as its own
+    # latest pointer too
     sources_csv = "sources.csv"
     write_sources_csv("sources.json", sources_csv)
     add_gpkg_layer(gpkg_file, sources_csv, "sources", spatial=False)
     LOG.info(f"sources table added to {gpkg_file}, from {sources_csv}")
 
-    # publish the geopackage under releases/ - never overwritten, so past releases stay
-    # retrievable regardless of any noncurrent-version lifecycle policy. Also overwrite a
-    # fixed-name "latest" copy at the root, for scripts/mapping applications that just want the
-    # current release - safe to prune under any lifecycle policy, since it's fully redundant
-    # with the releases/ copy
+    sources_latest_key = "sources_latest.csv"
+    s3_upload_and_tag(bucket, sources_csv, sources_latest_key, tags)
+    LOG.info(f"{sources_latest_key} published to s3://{bucket}/{s3_key(sources_latest_key)}")
+
+    # publish the dated geopackage under releases/ - never overwritten, so past releases stay
+    # retrievable regardless of any noncurrent-version lifecycle policy
     s3_upload_and_tag(bucket, gpkg_file, f"releases/{gpkg_file}", tags)
     LOG.info(f"{gpkg_file} published to s3://{bucket}/{s3_key(f'releases/{gpkg_file}')}")
-
-    latest_file = "harvest_restrictions_latest.gpkg"
-    s3_upload_and_tag(bucket, gpkg_file, latest_file, tags)
-    LOG.info(f"{latest_file} published to s3://{bucket}/{s3_key(latest_file)}")
 
     # append this release's totals to the durable change log - release is the only writer of
     # these two files, so the current version is always the complete up-to-date history. Sourced

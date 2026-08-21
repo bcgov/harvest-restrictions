@@ -152,9 +152,10 @@ Everything lives under `s3://$BUCKET/harvest_restrictions/`, in four tiers:
     - `land_designations_summary`, `harvest_restrictions_summary` - non-spatial tables, the exact reviewed diff report that was approved for this release
     - `sources` - non-spatial table, a flattened `sources.json` as it stood for this release
 
-**Latest-release pointers** - written only by `release`, at a fixed key, overwritten on every release. For scripts/mapping applications that just want the current release without tracking release tags - point at this instead of the `releases/` archive. Fully redundant with the matching `releases/` copy, so safe to prune under any lifecycle policy:
+**Latest-release pointers** - written only by `release`, at fixed keys, overwritten on every release. The same five deliverables as separate files rather than one geopackage, for scripts/mapping applications that just want the current release without tracking release tags - point at these instead of the `releases/` archive. Fully redundant with the matching `releases/` copy, so safe to prune under any lifecycle policy:
 
-- `harvest_restrictions_latest.gpkg`
+- `harvest_restrictions.gpkg`, `harvest_restrictions_sources.gpkg` - no `_latest` suffix, since `overlay` never publishes anything at these plain names
+- `land_designations_summary_latest.csv`, `harvest_restrictions_summary_latest.csv`, `sources_latest.csv` - `_latest` here, since `overlay` continuously overwrites the plain-named draft versions of the first two with each new (unreviewed) run - these pointers must only ever reflect the last confirmed release
 
 ### commit vs run_id
 
