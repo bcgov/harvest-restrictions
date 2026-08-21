@@ -293,7 +293,7 @@ def cli():
 @verbose_opt
 @quiet_opt
 def cache(sources_file, source_alias, dry_run, out_path, verbose, quiet):
-    """Download sources defined in provided file"""
+    """Download sources defined in provided sources.json file"""
     configure_logging((verbose - quiet))
 
     # load sources file
@@ -332,12 +332,15 @@ def cache(sources_file, source_alias, dry_run, out_path, verbose, quiet):
     help="Path to clear cached source parquet files from (local or s3://)",
 )
 @click.option(
-    "--dry_run", "-t", is_flag=True, help="List files that would be removed, do not delete"
+    "--dry_run",
+    "-t",
+    is_flag=True,
+    help="List files that would be removed, do not delete",
 )
 @verbose_opt
 @quiet_opt
 def clear_cache(path, dry_run, verbose, quiet):
-    """Delete cached source parquet files written by cache (hr_*.parquet)"""
+    """Delete cached parquet files written by cache (hr_*.parquet)"""
     configure_logging((verbose - quiet))
 
     if path.startswith("s3://"):
@@ -407,9 +410,17 @@ def clear_cache(path, dry_run, verbose, quiet):
 @verbose_opt
 @quiet_opt
 def load_db(
-    sources_file, in_path, db_url, out_table, source_alias, truncate, dry_run, verbose, quiet
+    sources_file,
+    in_path,
+    db_url,
+    out_table,
+    source_alias,
+    truncate,
+    dry_run,
+    verbose,
+    quiet,
 ):
-    """Rather than use a FDW to connect directly to files, load them to the db"""
+    """Load source layers from parquet cache to the postgresql db"""
     configure_logging((verbose - quiet))
 
     # connect to db
@@ -822,12 +833,12 @@ def log(bucket):
     "--bucket",
     "-b",
     default=os.environ.get("BUCKET"),
-    help="Object storage bucket to publish outputs to, defaults to $BUCKET environment variable if set",
+    help="Object storage bucket to write outputs, defaults to $BUCKET environment variable if set",
 )
 @verbose_opt
 @quiet_opt
 def overlay(db_url, out_file, designations_table, bucket, verbose, quiet):
-    """Run per-tile overlay of cached sources in postgres, publishing results/summaries to object storage"""
+    """Run per-tile overlay and write output and rollup/summaries to object storage"""
     configure_logging((verbose - quiet))
 
     if not db_url:
@@ -1017,7 +1028,11 @@ def release(run_id, bucket, clean_draft, verbose, quiet):
     gpkg_file = f"harvest_restrictions_{release_tag}.gpkg"
 
     for parquet_key, layer_name, latest_file in [
-        ("harvest_restrictions.parquet", "harvest_restrictions", "harvest_restrictions.gpkg"),
+        (
+            "harvest_restrictions.parquet",
+            "harvest_restrictions",
+            "harvest_restrictions.gpkg",
+        ),
         (
             "harvest_restrictions_sources.parquet",
             "designations",
@@ -1052,7 +1067,9 @@ def release(run_id, bucket, clean_draft, verbose, quiet):
     # publish the dated geopackage under releases/ - never overwritten, so past releases stay
     # retrievable regardless of any noncurrent-version lifecycle policy
     s3_upload_and_tag(bucket, gpkg_file, f"releases/{gpkg_file}", tags)
-    LOG.info(f"{gpkg_file} published to s3://{bucket}/{s3_key(f'releases/{gpkg_file}')}")
+    LOG.info(
+        f"{gpkg_file} published to s3://{bucket}/{s3_key(f'releases/{gpkg_file}')}"
+    )
 
     # append this release's totals to the durable change log - release is the only writer of
     # these two files, so the current version is always the complete up-to-date history. Sourced
