@@ -20,7 +20,7 @@ jobs:
   harvest-restrictions:
     runs-on: ubuntu-latest
     name: harvest-restrictions
-    container: ghcr.io/bcgov/harvest-restrictions:main
+    container: ghcr.io/bcgov/harvest-restrictions-runner:main
     environment: production
     env:
         DEBIAN_FRONTEND: noninteractive

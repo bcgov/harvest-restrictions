@@ -19,7 +19,7 @@ jobs:
   release:
     runs-on: ubuntu-latest
     name: release
-    container: ghcr.io/bcgov/harvest-restrictions:main
+    container: ghcr.io/bcgov/harvest-restrictions-runner:main
     environment: production
     steps:
       - name: Check out repository code

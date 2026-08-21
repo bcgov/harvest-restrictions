@@ -28,7 +28,7 @@ jobs:
   validate:
     runs-on: ubuntu-latest
     name: test
-    container: ghcr.io/bcgov/harvest-restrictions:main
+    container: ghcr.io/bcgov/harvest-restrictions-runner:main
     environment: production
     env:
         DEBIAN_FRONTEND: noninteractive
