@@ -394,7 +394,7 @@ def load_db(
                 LOG.info(f"{source['alias']} written to {layer}")
 
 
-OVERLAY_SQL = """select
+DUMP_SQL = """select
   harvest_restrictions_id,
   land_designation_name,
   land_designation_type_rank,
@@ -432,7 +432,7 @@ def export_overlay(db_url, out_file, out_format):
             "-nln",
             "harvest_restrictions",
             "-sql",
-            OVERLAY_SQL,
+            DUMP_SQL,
         ],
         check=True,
     )
@@ -444,7 +444,15 @@ def s3_key(key):
 
 def s3_get_tags(bucket, key, version_id=None):
     """return the tags currently set on an s3 object, optionally a specific version, as a dict"""
-    cmd = ["aws", "s3api", "get-object-tagging", "--bucket", bucket, "--key", s3_key(key)]
+    cmd = [
+        "aws",
+        "s3api",
+        "get-object-tagging",
+        "--bucket",
+        bucket,
+        "--key",
+        s3_key(key),
+    ]
     if version_id:
         cmd += ["--version-id", version_id]
     out = subprocess.run(cmd, check=True, capture_output=True, text=True).stdout
@@ -488,12 +496,22 @@ def s3_find_version(bucket, key, **tags):
     returns (version_id, tags) for the first (most recent) match, or (None, None)
     """
     out = subprocess.run(
-        ["aws", "s3api", "list-object-versions", "--bucket", bucket, "--prefix", s3_key(key)],
+        [
+            "aws",
+            "s3api",
+            "list-object-versions",
+            "--bucket",
+            bucket,
+            "--prefix",
+            s3_key(key),
+        ],
         check=True,
         capture_output=True,
         text=True,
     ).stdout
-    versions = [v for v in json.loads(out).get("Versions", []) if v["Key"] == s3_key(key)]
+    versions = [
+        v for v in json.loads(out).get("Versions", []) if v["Key"] == s3_key(key)
+    ]
     versions.sort(key=lambda v: v["LastModified"], reverse=True)
     for v in versions:
         version_tags = s3_get_tags(bucket, key, v["VersionId"])
@@ -659,7 +677,9 @@ def log(bucket):
             f"No {LAND_DESIGNATIONS_LOG} found in s3://{bucket}/harvest_restrictions/ "
             "- release at least one version before comparing to it"
         )
-    if not s3_download_current(bucket, HARVEST_RESTRICTIONS_LOG, HARVEST_RESTRICTIONS_LOG):
+    if not s3_download_current(
+        bucket, HARVEST_RESTRICTIONS_LOG, HARVEST_RESTRICTIONS_LOG
+    ):
         raise ValueError(
             f"No {HARVEST_RESTRICTIONS_LOG} found in s3://{bucket}/harvest_restrictions/ "
             "- release at least one version before comparing to it"
@@ -730,13 +750,18 @@ def overlay(db_url, out_file, designations_table, bucket, verbose, quiet):
             "Target object storage bucket not provided, set --bucket or $BUCKET"
         )
 
-    commit = subprocess.check_output(["git", "rev-parse", "HEAD"]).decode("ascii").strip()
+    commit = (
+        subprocess.check_output(["git", "rev-parse", "HEAD"]).decode("ascii").strip()
+    )
     run_id = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
 
     psql = f"psql {db_url} -v ON_ERROR_STOP=1"
 
     # load 250k grid
     run("bcdata bc2pg WHSE_BASEMAPPING.NTS_250K_GRID")
+
+    # clear any existing data from output table
+    run(f'{psql} -c "TRUNCATE harvest_restrictions"')
 
     # run overlays in parallel per tile
     run(
@@ -822,8 +847,14 @@ def release(run_id, bucket, verbose, quiet):
             "Target object storage bucket not provided, set --bucket or $BUCKET"
         )
 
-    commit = subprocess.check_output(["git", "rev-parse", "HEAD"]).decode("ascii").strip()
-    short_commit = subprocess.check_output(["git", "rev-parse", "--short", "HEAD"]).decode("ascii").strip()
+    commit = (
+        subprocess.check_output(["git", "rev-parse", "HEAD"]).decode("ascii").strip()
+    )
+    short_commit = (
+        subprocess.check_output(["git", "rev-parse", "--short", "HEAD"])
+        .decode("ascii")
+        .strip()
+    )
     release_tag = (
         subprocess.check_output(["git", "describe", "--tags", "--exact-match"])
         .decode("ascii")
@@ -839,7 +870,9 @@ def release(run_id, bucket, verbose, quiet):
     # resolved it's pinned for everything below, so all 4 release files come from the same
     # overlay run even if the commit was run more than once
     if not run_id:
-        _, found_tags = s3_find_version(bucket, "harvest_restrictions.parquet", commit=commit)
+        _, found_tags = s3_find_version(
+            bucket, "harvest_restrictions.parquet", commit=commit
+        )
         if not found_tags:
             raise ValueError(
                 f"No s3://{bucket}/{s3_key('harvest_restrictions.parquet')} object tagged "
@@ -866,7 +899,9 @@ def release(run_id, bucket, verbose, quiet):
         out_file = f"{stem}_{release_tag}.gpkg.zip"
         build_gpkg(bucket, commit, parquet_key, layer_name, out_file, run_id=run_id)
         s3_upload_and_tag(bucket, out_file, f"releases/{out_file}", tags)
-        LOG.info(f"{out_file} published to s3://{bucket}/{s3_key(f'releases/{out_file}')}")
+        LOG.info(
+            f"{out_file} published to s3://{bucket}/{s3_key(f'releases/{out_file}')}"
+        )
 
         latest_file = f"{stem}_latest.gpkg.zip"
         s3_upload_and_tag(bucket, out_file, latest_file, tags)
@@ -886,7 +921,9 @@ def release(run_id, bucket, verbose, quiet):
         dated_key = f"{stem}_{release_tag}{ext}"
         s3_download_version(bucket, key, version_id, key)
         s3_upload_and_tag(bucket, key, f"releases/{dated_key}", tags)
-        LOG.info(f"{dated_key} published to s3://{bucket}/{s3_key(f'releases/{dated_key}')}")
+        LOG.info(
+            f"{dated_key} published to s3://{bucket}/{s3_key(f'releases/{dated_key}')}"
+        )
 
     # publish a dated csv listing the data sources used in this release
     sources_csv = "sources.csv"
@@ -921,11 +958,15 @@ def release(run_id, bucket, verbose, quiet):
         row["run_id"] = run_id
 
     if s3_download_current(bucket, LAND_DESIGNATIONS_LOG, LAND_DESIGNATIONS_LOG):
-        d_history = pandas.concat([pandas.read_csv(LAND_DESIGNATIONS_LOG), d_row], ignore_index=True)
+        d_history = pandas.concat(
+            [pandas.read_csv(LAND_DESIGNATIONS_LOG), d_row], ignore_index=True
+        )
     else:
         d_history = d_row
     if s3_download_current(bucket, HARVEST_RESTRICTIONS_LOG, HARVEST_RESTRICTIONS_LOG):
-        h_history = pandas.concat([pandas.read_csv(HARVEST_RESTRICTIONS_LOG), h_row], ignore_index=True)
+        h_history = pandas.concat(
+            [pandas.read_csv(HARVEST_RESTRICTIONS_LOG), h_row], ignore_index=True
+        )
     else:
         h_history = h_row
 
@@ -933,7 +974,9 @@ def release(run_id, bucket, verbose, quiet):
     h_history.to_csv(HARVEST_RESTRICTIONS_LOG, index=False)
     s3_upload_and_tag(bucket, LAND_DESIGNATIONS_LOG, LAND_DESIGNATIONS_LOG, tags)
     s3_upload_and_tag(bucket, HARVEST_RESTRICTIONS_LOG, HARVEST_RESTRICTIONS_LOG, tags)
-    LOG.info(f"Appended release {release_tag} to {LAND_DESIGNATIONS_LOG} and {HARVEST_RESTRICTIONS_LOG}")
+    LOG.info(
+        f"Appended release {release_tag} to {LAND_DESIGNATIONS_LOG} and {HARVEST_RESTRICTIONS_LOG}"
+    )
 
 
 if __name__ == "__main__":
