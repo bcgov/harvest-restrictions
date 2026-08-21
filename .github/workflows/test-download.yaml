@@ -5,15 +5,15 @@ on:
     paths:
       - '.github/workflows/test-download.yaml'
       - 'requirements*.txt'
-      - 'download.py'
-      - 'test_download.py'
+      - 'harvest_restrictions.py'
+      - 'test_harvest_restrictions.py'
   pull_request:
     branches: [ main ]
     paths:
       - '.github/workflows/test-download.yaml'
       - 'requirements*.txt'
-      - 'download.py'
-      - 'test_download.py'
+      - 'harvest_restrictions.py'
+      - 'test_harvest_restrictions.py'
 permissions:
   contents: read
 env:
@@ -41,4 +41,4 @@ jobs:
           python -m pytest -v -rxXs
       - name: Validate sources.json
         run: |
-          python download.py download sources.json --dry_run -v
+          python harvest_restrictions.py cache sources.json --dry_run -v

@@ -1,7 +1,8 @@
-name: Download
+name: Release
 on:
-  workflow_dispatch:
-  workflow_call:
+  push:
+    tags:
+      - 'v*'
 permissions:
   contents: read
 env:
@@ -9,23 +10,24 @@ env:
   AWS_S3_ENDPOINT: "nrs.objectstore.gov.bc.ca"
   AWS_VIRTUAL_HOSTING: "FALSE"
   AWS_EC2_METADATA_DISABLED: "true"
-  CPL_VSISTDIN_BUFFER_LIMIT: -1
   BUCKET: ${{ secrets.BUCKET }}
   AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
   AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-  CPL_VSIL_CURL_USE_HEAD: "NO"
   AWS_REQUEST_CHECKSUM_CALCULATION: when_required
   AWS_RESPONSE_CHECKSUM_VALIDATION: when_required
 jobs:
-  harvest-restrictions:
+  release:
     runs-on: ubuntu-latest
-    name: harvest-restrictions
+    name: release
     container: ghcr.io/bcgov/harvest-restrictions:main
     environment: production
-    env:
-        DEBIAN_FRONTEND: noninteractive
     steps:
-      - uses: actions/checkout@v4
-      - name: Download sources to S3
+      - name: Check out repository code
+        uses: actions/checkout@v4
+        with:
+            fetch-tags: true
+            fetch-depth: 0
+      - name: Publish release
         run: |
-          python harvest_restrictions.py cache sources.json -v --out_path s3://$BUCKET/harvest_restrictions/sources
+          git config --global --add safe.directory /__w/harvest-restrictions/harvest-restrictions
+          python harvest_restrictions.py release -v
