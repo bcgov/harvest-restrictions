@@ -529,15 +529,14 @@ def s3_download_version(bucket, key, version_id, local_file):
     )
 
 
-def build_gpkg(bucket, commit, out_file, version_id=None, run_id=None):
-    """download the commit-tagged geoparquet and convert it to a geopackage
+def build_gpkg(bucket, commit, parquet_key, layer_name, out_file, version_id=None, run_id=None):
+    """download the commit-tagged geoparquet at parquet_key and convert it to a geopackage
 
     version_id can be passed in if already known (avoids a redundant lookup), otherwise the
     most recent version tagged commit=<commit> is used (optionally narrowed to a specific
     run_id, to pin an exact run when a commit has been run through overlay more than once).
     Returns the parquet version_id used.
     """
-    parquet_key = "harvest_restrictions.parquet"
     if version_id is None:
         tag_filter = {"commit": commit}
         if run_id:
@@ -549,9 +548,10 @@ def build_gpkg(bucket, commit, out_file, version_id=None, run_id=None):
                 + (f", run_id={run_id}" if run_id else "")
                 + " found - run overlay against this commit first"
             )
-    s3_download_version(bucket, parquet_key, version_id, parquet_key)
+    local_parquet = os.path.basename(parquet_key)
+    s3_download_version(bucket, parquet_key, version_id, local_parquet)
     subprocess.run(
-        ["ogr2ogr", "-f", "GPKG", out_file, parquet_key, "-nln", "harvest_restrictions"],
+        ["ogr2ogr", "-f", "GPKG", out_file, local_parquet, "-nln", layer_name],
         check=True,
     )
     return version_id
@@ -758,7 +758,7 @@ def overlay(db_url, out_file, designations_table, bucket, verbose, quiet):
 @verbose_opt
 @quiet_opt
 def release(run_id, out_file, bucket, verbose, quiet):
-    """Tag the current commit's published overlay outputs as a release, and publish the geopackage deliverable
+    """Tag the current commit's published overlay outputs as a release, and publish the geopackage deliverables (harvest_restrictions and sources)
 
     Runs against the current commit's already-published, already-reviewed outputs only - it does not
     require a database connection, so it can run standalone (e.g. in a workflow triggered by a tag push,
@@ -824,13 +824,21 @@ def release(run_id, out_file, bucket, verbose, quiet):
         LOG.info(f"{key} (commit {commit}, run_id {run_id}) tagged release={release_tag}")
         version_ids[key] = version_id
 
-    # build the geopackage deliverable from that same reviewed parquet version - the
-    # geopackage itself is only ever built at release time
-    build_gpkg(bucket, commit, out_file, version_ids[parquet_key])
+    # build the geopackage deliverables from those same reviewed parquet versions - the
+    # geopackages themselves are only ever built at release time
+    build_gpkg(bucket, commit, parquet_key, "harvest_restrictions", out_file, version_ids[parquet_key])
     s3_upload_and_tag(
         bucket, out_file, os.path.basename(out_file), {"commit": commit, "release": release_tag}
     )
     LOG.info(f"{out_file} published to s3://{bucket}/{s3_key(os.path.basename(out_file))}, tagged release={release_tag}")
+
+    sources_key = "harvest_restrictions_sources.parquet"
+    sources_out_file = "harvest_restrictions_sources.gpkg.zip"
+    build_gpkg(bucket, commit, sources_key, "designations", sources_out_file, version_ids[sources_key])
+    s3_upload_and_tag(
+        bucket, sources_out_file, sources_out_file, {"commit": commit, "release": release_tag}
+    )
+    LOG.info(f"{sources_out_file} published to s3://{bucket}/{s3_key(sources_out_file)}, tagged release={release_tag}")
 
     # append this release's summaries to the long-format change history
     s3_download_version(bucket, d_summary_key, version_ids[d_summary_key], d_summary_key)
@@ -905,7 +913,7 @@ def preview(commit, run_id, out_file, bucket, verbose, quiet):
     if not commit:
         commit = subprocess.check_output(["git", "rev-parse", "HEAD"]).decode("ascii").strip()
 
-    build_gpkg(bucket, commit, out_file, run_id=run_id)
+    build_gpkg(bucket, commit, "harvest_restrictions.parquet", "harvest_restrictions", out_file, run_id=run_id)
     LOG.info(f"Preview geopackage for commit {commit} written to {out_file}")
 
     # pull the change summary already published alongside that commit's overlay output

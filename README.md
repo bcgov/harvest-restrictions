@@ -125,7 +125,7 @@ The `harvest_restrictions` object storage bucket must have [versioning](https://
 
         git tag -a vYYYY-MM -m vYYYY-MM
 
-11. Push the tag - this triggers the [Release workflow](https://github.com/bcgov/harvest-restrictions/actions/workflows/release.yaml), which tags the current commit's already-published outputs (from step 7) with the release, builds/publishes the geopackage deliverable, and appends the release to the change log:
+11. Push the tag - this triggers the [Release workflow](https://github.com/bcgov/harvest-restrictions/actions/workflows/release.yaml), which tags the current commit's already-published outputs (from step 7) with the release, builds/publishes the geopackage deliverables (`harvest_restrictions.gpkg.zip` and `harvest_restrictions_sources.gpkg.zip`), and appends the release to the change log:
 
         git push origin vYYYY-MM
 
