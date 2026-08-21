@@ -290,7 +290,7 @@ def cli():
 )
 @verbose_opt
 @quiet_opt
-def download(sources_file, source_alias, dry_run, out_path, verbose, quiet):
+def cache(sources_file, source_alias, dry_run, out_path, verbose, quiet):
     """Download sources defined in provided file"""
     configure_logging((verbose - quiet))
 
@@ -352,7 +352,7 @@ def download(sources_file, source_alias, dry_run, out_path, verbose, quiet):
 )
 @verbose_opt
 @quiet_opt
-def cache2pg(
+def load_db(
     sources_file, in_path, db_url, out_table, source_alias, dry_run, verbose, quiet
 ):
     """Rather than use a FDW to connect directly to files, load them to the db"""
@@ -393,45 +393,7 @@ def cache2pg(
                 LOG.info(f"{source['alias']} written to {layer}")
 
 
-@cli.command()
-@click.option(
-    "--db_url",
-    "-db",
-    help="Target database url, defaults to $DATABASE_URL environment variable if set",
-    default=os.environ.get("DATABASE_URL"),
-)
-@click.option(
-    "--out_file",
-    "-o",
-    default="harvest_restrictions.gpkg.zip",
-    help="Output geopackage path",
-)
-@verbose_opt
-@quiet_opt
-def overlay(db_url, out_file, verbose, quiet):
-    """Run per-tile overlay of cached sources in postgres and dump results to file"""
-    configure_logging((verbose - quiet))
-
-    if not db_url:
-        raise ValueError(
-            "Target database url not provided, set --db_url or $DATABASE_URL"
-        )
-
-    psql = f"psql {db_url} -v ON_ERROR_STOP=1"
-
-    # load 250k grid
-    run("bcdata bc2pg WHSE_BASEMAPPING.NTS_250K_GRID")
-
-    # run overlays in parallel per tile
-    run(
-        f'{psql} -tXA -c "SELECT DISTINCT map_tile '
-        "FROM whse_basemapping.nts_250k_grid "
-        'ORDER BY map_tile" '
-        f"| parallel --tag {psql} -f sql/overlay.sql -v tile={{1}}"
-    )
-
-    # dump result to file
-    sql = """select
+OVERLAY_SQL = """select
   harvest_restrictions_id,
   land_designation_name,
   land_designation_type_rank,
@@ -453,11 +415,15 @@ from harvest_restrictions
 where
 all_harv_restrict_class_ranks @> ARRAY[6] and
 all_harv_restrict_class_ranks != ARRAY[6]"""
+
+
+def export_overlay(db_url, out_file, out_format):
+    """export the overlay result table from postgres to out_file, in the given ogr2ogr format"""
     subprocess.run(
         [
             "ogr2ogr",
             "-f",
-            "GPKG",
+            out_format,
             out_file,
             f"PG:{db_url}",
             "-nlt",
@@ -465,103 +431,378 @@ all_harv_restrict_class_ranks != ARRAY[6]"""
             "-nln",
             "harvest_restrictions",
             "-sql",
-            sql,
+            OVERLAY_SQL,
         ],
         check=True,
     )
+
+
+def s3_key(key):
+    return f"harvest_restrictions/{key}"
+
+
+def s3_get_tags(bucket, key, version_id=None):
+    """return the tags currently set on an s3 object, optionally a specific version, as a dict"""
+    cmd = ["aws", "s3api", "get-object-tagging", "--bucket", bucket, "--key", s3_key(key)]
+    if version_id:
+        cmd += ["--version-id", version_id]
+    out = subprocess.run(cmd, check=True, capture_output=True, text=True).stdout
+    return {t["Key"]: t["Value"] for t in json.loads(out)["TagSet"]}
+
+
+def s3_put_tags(bucket, key, tags, version_id=None):
+    """replace the full tag set on an s3 object, optionally a specific version"""
+    tagging = {"TagSet": [{"Key": k, "Value": v} for k, v in tags.items()]}
+    cmd = [
+        "aws",
+        "s3api",
+        "put-object-tagging",
+        "--bucket",
+        bucket,
+        "--key",
+        s3_key(key),
+        "--tagging",
+        json.dumps(tagging),
+    ]
+    if version_id:
+        cmd += ["--version-id", version_id]
+    subprocess.run(cmd, check=True)
+
+
+def s3_add_tags(bucket, key, tags, version_id=None):
+    """merge tags into whatever tags an s3 object (or object version) already has"""
+    existing = s3_get_tags(bucket, key, version_id)
+    existing.update(tags)
+    s3_put_tags(bucket, key, existing, version_id)
+
+
+def s3_upload_and_tag(bucket, local_file, key, tags):
+    """upload local_file to object storage, tagging the resulting object version"""
+    subprocess.run(
+        ["aws", "s3", "cp", local_file, f"s3://{bucket}/{s3_key(key)}"], check=True
+    )
+    s3_put_tags(bucket, key, tags)
+
+
+def s3_find_version(bucket, key, tag_key, tag_value=None):
+    """find the most recent version of an s3 object carrying tag_key (optionally matching tag_value)
+
+    returns (version_id, tags) for the first match, or (None, None)
+    """
+    out = subprocess.run(
+        ["aws", "s3api", "list-object-versions", "--bucket", bucket, "--prefix", s3_key(key)],
+        check=True,
+        capture_output=True,
+        text=True,
+    ).stdout
+    versions = [v for v in json.loads(out).get("Versions", []) if v["Key"] == s3_key(key)]
+    versions.sort(key=lambda v: v["LastModified"], reverse=True)
+    for v in versions:
+        tags = s3_get_tags(bucket, key, v["VersionId"])
+        if tag_key in tags and (tag_value is None or tags[tag_key] == tag_value):
+            return v["VersionId"], tags
+    return None, None
+
+
+def s3_download_version(bucket, key, version_id, local_file):
+    subprocess.run(
+        [
+            "aws",
+            "s3api",
+            "get-object",
+            "--bucket",
+            bucket,
+            "--key",
+            s3_key(key),
+            "--version-id",
+            version_id,
+            local_file,
+        ],
+        check=True,
+    )
+
+
+def s3_download_release(bucket, key, local_file):
+    """download the most recently released version of key to local_file
+
+    returns True if a released version was found and downloaded, False otherwise
+    """
+    version_id, _ = s3_find_version(bucket, key, "release")
+    if not version_id:
+        return False
+    s3_download_version(bucket, key, version_id, local_file)
+    return True
+
+
+D_COLUMNS = [
+    "land_designation_type_rank",
+    "harvest_restriction_class_rank",
+    "harvest_restriction_class_name",
+    "land_designation_type_code",
+    "land_designation_type_name",
+]
+H_COLUMNS = [
+    "harvest_restriction_class_rank",
+    "harvest_restriction_class_name",
+]
+
+LAND_DESIGNATIONS_LOG = "land_designations_log.csv"
+HARVEST_RESTRICTIONS_LOG = "harvest_restrictions_log.csv"
+
+
+def log(bucket):
+    """Compare current overlay summaries to the most recently released version, writing a review report
+
+    The full change log is a long/tidy append-only record (one row per category per release), kept
+    in land_designations_log.csv / harvest_restrictions_log.csv. This report is a small, disposable
+    summary/rollup of that log against the current run, regenerated fresh on every overlay run.
+    """
+    if not s3_download_release(bucket, LAND_DESIGNATIONS_LOG, LAND_DESIGNATIONS_LOG):
+        raise ValueError(
+            f"No released {LAND_DESIGNATIONS_LOG} found in s3://{bucket}/harvest_restrictions/ "
+            "- release at least one version before comparing to it"
+        )
+    if not s3_download_release(bucket, HARVEST_RESTRICTIONS_LOG, HARVEST_RESTRICTIONS_LOG):
+        raise ValueError(
+            f"No released {HARVEST_RESTRICTIONS_LOG} found in s3://{bucket}/harvest_restrictions/ "
+            "- release at least one version before comparing to it"
+        )
+    d_history = pandas.read_csv(LAND_DESIGNATIONS_LOG)
+    h_history = pandas.read_csv(HARVEST_RESTRICTIONS_LOG)
+
+    # most recent release in the history
+    previous_release = d_history.sort_values("release_date")["release_tag"].iloc[-1]
+
+    d_previous = d_history[d_history["release_tag"] == previous_release][
+        D_COLUMNS + ["area_ha"]
+    ].rename(columns={"area_ha": previous_release})
+    h_previous = h_history[h_history["release_tag"] == previous_release][
+        H_COLUMNS + ["area_ha"]
+    ].rename(columns={"area_ha": previous_release})
+
+    d_summary = pandas.read_csv("current_land_designations.csv")[
+        ["land_designation_type_rank", "area_ha"]
+    ].rename(columns={"area_ha": "current"})
+    h_summary = pandas.read_csv("current_harvest_restrictions.csv")[
+        ["harvest_restriction_class_rank", "area_ha"]
+    ].rename(columns={"area_ha": "current"})
+
+    # join the previous release to the current summary
+    d = d_previous.merge(d_summary, how="outer", on="land_designation_type_rank").fillna(0)
+    h = h_previous.merge(h_summary, how="outer", on="harvest_restriction_class_rank").fillna(0)
+
+    # calculate diff and pct diff against the previous release
+    d["diff"] = d["current"] - d[previous_release]
+    h["diff"] = h["current"] - h[previous_release]
+    d["pct_diff"] = (d["diff"] / d[previous_release]) * 100
+    h["pct_diff"] = (h["diff"] / h[previous_release]) * 100
+
+    # clean up
+    d = d.round({previous_release: 0, "current": 0, "diff": 0, "pct_diff": 2}).set_index(
+        "land_designation_type_rank"
+    )
+    h = h.round({previous_release: 0, "current": 0, "diff": 0, "pct_diff": 2}).set_index(
+        "harvest_restriction_class_rank"
+    )
+
+    # dump results to csv
+    d.to_csv("land_designations_summary.csv")
+    h.to_csv("harvest_restrictions_summary.csv")
+    LOG.info("land_designations_summary.csv and harvest_restrictions_summary.csv written")
+
+
+@cli.command()
+@click.option(
+    "--db_url",
+    "-db",
+    help="Target database url, defaults to $DATABASE_URL environment variable if set",
+    default=os.environ.get("DATABASE_URL"),
+)
+@click.option(
+    "--out_file",
+    "-o",
+    default="harvest_restrictions.parquet",
+    help="Output geoparquet path",
+)
+@click.option(
+    "--designations_table",
+    default="designations",
+    help="Name of the source designations table (as loaded by load-db), dumped to geoparquet alongside overlay outputs",
+)
+@click.option(
+    "--bucket",
+    "-b",
+    default=os.environ.get("BUCKET"),
+    help="Object storage bucket to publish outputs to, defaults to $BUCKET environment variable if set",
+)
+@verbose_opt
+@quiet_opt
+def overlay(db_url, out_file, designations_table, bucket, verbose, quiet):
+    """Run per-tile overlay of cached sources in postgres, publishing results/summaries to object storage"""
+    configure_logging((verbose - quiet))
+
+    if not db_url:
+        raise ValueError(
+            "Target database url not provided, set --db_url or $DATABASE_URL"
+        )
+    if not bucket:
+        raise ValueError(
+            "Target object storage bucket not provided, set --bucket or $BUCKET"
+        )
+
+    commit = subprocess.check_output(["git", "rev-parse", "HEAD"]).decode("ascii").strip()
+
+    psql = f"psql {db_url} -v ON_ERROR_STOP=1"
+
+    # load 250k grid
+    run("bcdata bc2pg WHSE_BASEMAPPING.NTS_250K_GRID")
+
+    # run overlays in parallel per tile
+    run(
+        f'{psql} -tXA -c "SELECT DISTINCT map_tile '
+        "FROM whse_basemapping.nts_250k_grid "
+        'ORDER BY map_tile" '
+        f"| parallel --tag {psql} -f sql/overlay.sql -v tile={{1}}"
+    )
+
+    # dump result to geoparquet
+    export_overlay(db_url, out_file, "Parquet")
     LOG.info(f"Overlay results written to {out_file}")
+
+    # dump source designations table to geoparquet
+    sources_file = "harvest_restrictions_sources.parquet"
+    subprocess.run(
+        ["ogr2ogr", "-f", "Parquet", sources_file, f"PG:{db_url}", designations_table],
+        check=True,
+    )
+    LOG.info(f"{designations_table} written to {sources_file}")
 
     # summarize results
     run(f"{psql} -f sql/land_designations.sql --csv > current_land_designations.csv")
     run(f"{psql} -f sql/harvest_restrictions.sql --csv > current_harvest_restrictions.csv")
 
+    # compare current summaries to the most recently released version
+    log(bucket)
 
-@cli.command(name="log")
+    # publish outputs to object storage, tagged with the current commit
+    for local_file, key in [
+        (out_file, os.path.basename(out_file)),
+        (sources_file, sources_file),
+        ("current_land_designations.csv", "current_land_designations.csv"),
+        ("current_harvest_restrictions.csv", "current_harvest_restrictions.csv"),
+        ("land_designations_summary.csv", "land_designations_summary.csv"),
+        ("harvest_restrictions_summary.csv", "harvest_restrictions_summary.csv"),
+    ]:
+        s3_upload_and_tag(bucket, local_file, key, {"commit": commit})
+        LOG.info(f"{local_file} published to s3://{bucket}/{s3_key(key)}, tagged commit={commit}")
+
+
+@cli.command()
+@click.option(
+    "--out_file",
+    "-o",
+    default="harvest_restrictions.gpkg.zip",
+    help="Output geopackage path",
+)
 @click.option(
     "--bucket",
     "-b",
     default=os.environ.get("BUCKET"),
-    help="Object storage bucket holding previous release logs, defaults to $BUCKET environment variable if set",
+    help="Object storage bucket to publish outputs to, defaults to $BUCKET environment variable if set",
 )
 @verbose_opt
 @quiet_opt
-def log_cmd(bucket, verbose, quiet):
-    """Compare current overlay summaries to previous releases, writing updated change logs"""
+def release(out_file, bucket, verbose, quiet):
+    """Tag the current commit's published overlay outputs as a release, and publish the geopackage deliverable
+
+    Runs against the current commit's already-published, already-reviewed outputs only - it does not
+    require a database connection, so it can run standalone (e.g. in a workflow triggered by a tag push,
+    with no postgres service and no overlay having just run in the same job).
+    """
     configure_logging((verbose - quiet))
 
-    s3 = f"s3://{bucket}/harvest_restrictions"
+    if not bucket:
+        raise ValueError(
+            "Target object storage bucket not provided, set --bucket or $BUCKET"
+        )
 
-    # current release column header comes from git tag
-    tag = subprocess.check_output(["git", "describe", "--tags"]).decode("ascii").strip()
-
-    # read data
-    d_log = pandas.read_csv(os.path.join(s3, "log_land_designations.csv"))
-    d_summary = pandas.read_csv("current_land_designations.csv")
-    h_log = pandas.read_csv(os.path.join(s3, "log_harvest_restrictions.csv"))
-    h_summary = pandas.read_csv("current_harvest_restrictions.csv")
-
-    # log columns - retain only the categories and area_ha of previous releases
-    d_columns = [
-        "land_designation_type_rank",
-        "harvest_restriction_class_rank",
-        "harvest_restriction_class_name",
-        "land_designation_type_code",
-        "land_designation_type_name",
-    ]
-    h_columns = [
-        "harvest_restriction_class_rank",
-        "harvest_restriction_class_name",
-    ]
-
-    # extract release tags from columns, discarding any with DRAFT in the name
-    releases = list(
-        set(d_log.columns).difference(set(d_columns + ["diff", "pct_diff"]))
+    commit = subprocess.check_output(["git", "rev-parse", "HEAD"]).decode("ascii").strip()
+    short_commit = subprocess.check_output(["git", "rev-parse", "--short", "HEAD"]).decode("ascii").strip()
+    release_tag = (
+        subprocess.check_output(["git", "describe", "--tags", "--exact-match"])
+        .decode("ascii")
+        .strip()
     )
-    releases = [r for r in releases if "DRAFT" not in r.upper()]
-    releases = sorted(releases)
-    # strip existing diff columns
-    d_log = d_log[d_columns + releases]
-    h_log = h_log[h_columns + releases]
-
-    # summary columns - drop everything but keys and current area totals
-    d_summary = d_summary[["land_designation_type_rank", "area_ha"]]
-    h_summary = h_summary[["harvest_restriction_class_rank", "area_ha"]]
-
-    # join the log to the latest summary
-    d = d_log.merge(d_summary, how="outer", on="land_designation_type_rank").fillna(0)
-    h = h_log.merge(h_summary, how="outer", on="harvest_restriction_class_rank").fillna(
-        0
+    release_date = (
+        subprocess.check_output(["git", "log", "-1", "--format=%aI", commit])
+        .decode("ascii")
+        .strip()
     )
 
-    # use current tag as new column name
-    d = d.rename(columns={"area_ha": tag})
-    h = h.rename(columns={"area_ha": tag})
+    # tag this commit's already-published outputs with the release
+    parquet_key = "harvest_restrictions.parquet"
+    d_summary_key = "current_land_designations.csv"
+    h_summary_key = "current_harvest_restrictions.csv"
+    version_ids = {}
+    for key in [
+        parquet_key,
+        "harvest_restrictions_sources.parquet",
+        d_summary_key,
+        h_summary_key,
+        "land_designations_summary.csv",
+        "harvest_restrictions_summary.csv",
+    ]:
+        version_id, _ = s3_find_version(bucket, key, "commit", commit)
+        if not version_id:
+            raise ValueError(
+                f"No s3://{bucket}/{s3_key(key)} object tagged commit={commit} found "
+                "- run overlay against this commit before releasing it"
+            )
+        s3_add_tags(bucket, key, {"release": release_tag}, version_id)
+        LOG.info(f"{key} (commit {commit}) tagged release={release_tag}")
+        version_ids[key] = version_id
 
-    # calculate diff and pct diff
-    previous_tag = releases[-1]
-    d["diff"] = d[tag] - d[previous_tag]
-    h["diff"] = h[tag] - h[previous_tag]
-    d["pct_diff"] = (d["diff"] / d[previous_tag]) * 100
-    h["pct_diff"] = (h["diff"] / h[previous_tag]) * 100
+    # build the geopackage deliverable from that same reviewed parquet version - the
+    # geopackage itself is only ever built at release time
+    s3_download_version(bucket, parquet_key, version_ids[parquet_key], parquet_key)
+    subprocess.run(
+        ["ogr2ogr", "-f", "GPKG", out_file, parquet_key, "-nln", "harvest_restrictions"],
+        check=True,
+    )
+    s3_upload_and_tag(
+        bucket, out_file, os.path.basename(out_file), {"commit": commit, "release": release_tag}
+    )
+    LOG.info(f"{out_file} published to s3://{bucket}/{s3_key(os.path.basename(out_file))}, tagged release={release_tag}")
 
-    # clean up
-    d = d.round({tag: 0, "diff": 0, "pct_diff": 2}).set_index(
-        "land_designation_type_rank"
-    )
-    h = h.round({tag: 0, "diff": 0, "pct_diff": 2}).set_index(
-        "harvest_restriction_class_rank"
-    )
-    d_columns.remove("land_designation_type_rank")
-    h_columns.remove("harvest_restriction_class_rank")
+    # append this release's summaries to the long-format change history
+    s3_download_version(bucket, d_summary_key, version_ids[d_summary_key], d_summary_key)
+    s3_download_version(bucket, h_summary_key, version_ids[h_summary_key], h_summary_key)
 
-    # dump results to csv
-    d[d_columns + releases + [tag, "diff", "pct_diff"]].to_csv(
-        "log_land_designations.csv"
+    d_row = pandas.read_csv(d_summary_key)[D_COLUMNS + ["area_ha"]]
+    h_row = pandas.read_csv(h_summary_key)[H_COLUMNS + ["area_ha"]]
+    for row in (d_row, h_row):
+        row["release_tag"] = release_tag
+        row["release_date"] = release_date
+        row["commit"] = short_commit
+
+    if s3_download_release(bucket, LAND_DESIGNATIONS_LOG, LAND_DESIGNATIONS_LOG):
+        d_history = pandas.concat([pandas.read_csv(LAND_DESIGNATIONS_LOG), d_row], ignore_index=True)
+    else:
+        d_history = d_row
+    if s3_download_release(bucket, HARVEST_RESTRICTIONS_LOG, HARVEST_RESTRICTIONS_LOG):
+        h_history = pandas.concat([pandas.read_csv(HARVEST_RESTRICTIONS_LOG), h_row], ignore_index=True)
+    else:
+        h_history = h_row
+
+    d_history.to_csv(LAND_DESIGNATIONS_LOG, index=False)
+    h_history.to_csv(HARVEST_RESTRICTIONS_LOG, index=False)
+    s3_upload_and_tag(
+        bucket, LAND_DESIGNATIONS_LOG, LAND_DESIGNATIONS_LOG, {"commit": commit, "release": release_tag}
     )
-    h[h_columns + releases + [tag, "diff", "pct_diff"]].to_csv(
-        "log_harvest_restrictions.csv"
+    s3_upload_and_tag(
+        bucket, HARVEST_RESTRICTIONS_LOG, HARVEST_RESTRICTIONS_LOG, {"commit": commit, "release": release_tag}
     )
-    LOG.info("log_land_designations.csv and log_harvest_restrictions.csv written")
+    LOG.info(f"Appended release {release_tag} to {LAND_DESIGNATIONS_LOG} and {HARVEST_RESTRICTIONS_LOG}")
 
 
 if __name__ == "__main__":

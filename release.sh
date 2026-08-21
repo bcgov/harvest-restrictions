@@ -1,8 +1,9 @@
 #!/bin/bash
 set -euxo pipefail
 
-# compare current output to previous release
-python harvest_restrictions.py log
+# tag this commit's already-published overlay outputs as a release, and
+# publish the geopackage deliverable (only built at release time)
+python harvest_restrictions.py release -v
 
 # create csv listing data sources from the json
 echo "index,harvest_restriction,alias,description,source,source_type,layer,query,name_field" > sources.csv
@@ -20,15 +21,11 @@ jq -r '
   | @csv
 ' sources.json | nl -n ln -s "," -w1 >> sources.csv
 
-# post output files to object storage
-aws s3 cp harvest_restrictions.gpkg.zip \
-  s3://$BUCKET/harvest_restrictions/harvest_restrictions.gpkg.zip
-
-aws s3 cp log_land_designations.csv \
-  s3://$BUCKET/harvest_restrictions/log_land_designations.csv
-
-aws s3 cp log_harvest_restrictions.csv \
-  s3://$BUCKET/harvest_restrictions/log_harvest_restrictions.csv
-
-aws s3 cp sources.csv \
-  s3://$BUCKET/harvest_restrictions/sources.csv
+# publish sources.csv, tagged with this commit and release
+COMMIT=$(git rev-parse HEAD)
+RELEASE_TAG=$(git describe --tags --exact-match)
+aws s3 cp sources.csv s3://$BUCKET/harvest_restrictions/sources.csv
+aws s3api put-object-tagging \
+  --bucket $BUCKET \
+  --key harvest_restrictions/sources.csv \
+  --tagging "TagSet=[{Key=commit,Value=$COMMIT},{Key=release,Value=$RELEASE_TAG}]"

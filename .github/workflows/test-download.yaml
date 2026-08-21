@@ -39,4 +39,4 @@ jobs:
           python -m pytest -v -rxXs
       - name: Validate sources.json
         run: |
-          python harvest_restrictions.py download sources.json --dry_run -v
+          python harvest_restrictions.py cache sources.json --dry_run -v

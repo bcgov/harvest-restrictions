@@ -82,6 +82,8 @@ Output `harvest_restrictions.gdb` has the following columns:
 
 Committing changes requires `pre-commit` - install via your package manager of choice.
 
+The `harvest_restrictions` object storage bucket must have [versioning](https://docs.aws.amazon.com/AmazonS3/latest/userguide/Versioning.html) enabled - `overlay` and `release` identify a given run's outputs by tagging the relevant object *version* with the commit hash / release tag, rather than by object key.
+
 ## Usage
 
 1. Identify any file based sources for which download cannot be scripted, manually upload file to object storage.
@@ -94,37 +96,48 @@ Committing changes requires `pre-commit` - install via your package manager of c
 
 4. Validate `sources.json`:
     
-        docker compose run -it --rm runner python harvest_restrictions.py download --dry_run -v
+        docker compose run -it --rm runner python harvest_restrictions.py cache --dry_run -v
 
-5. Cache all restriction data listed in `sources.json` to geoparquet (specifying output path):
+5. Download all restriction sources listed in `sources.json`, saving to geoparquet (specifying output path):
 
-        docker compose run -it --rm runner python harvest_restrictions.py download -v -o s3://$BUCKET/harvest_restrictions/restrictions
+        docker compose run -it --rm runner python harvest_restrictions.py cache -v -o s3://$BUCKET/harvest_restrictions/restrictions
 
-6. Load restrictions layers from geoparquet to postgresql (specifying input path):
+6. Load restrictions layers from cached geoparquet to postgresql (specifying input path):
 
-        docker compose run -it --rm runner python harvest_restrictions.py cache2pg -v --out_table designations -p s3://$BUCKET/harvest_restrictions/restrictions
+        docker compose run -it --rm runner python harvest_restrictions.py load-db -v --out_table designations -p s3://$BUCKET/harvest_restrictions/restrictions
 
-7. Run overlays, dump results to file, log result summaries to csv:
+7. Run overlays, dump resulting layer and summaries to geoparquet/csv, and publish these outputs to object storage tagged with the current commit hash. This also compares the new summaries to the most recently released version and writes updated change logs:
 
         docker compose run -it --rm runner python harvest_restrictions.py overlay -v
 
-8. Tag a draft release and upload to object storage:
+8. Review the change logs (and geoparquet spatial output if required):
 
-        git tag -a vYYYY-MM-DRAFT -m vYYYY-MM-DRAFT
+    - `land_designations_summary.csv`
+    - `harvest_restrictions_summary.csv`
+
+    If results are not correct, address the issue, commit the fix, and re-run from step 7.
+
+9. Once results are confirmed to be reasonable/correct, tag the commit as a release:
+
+        git tag -a vYYYY-MM -m vYYYY-MM
+
+10. Push the tag - this triggers the [Release workflow](https://github.com/bcgov/harvest-restrictions/actions/workflows/release.yaml), which tags the current commit's already-published outputs (from step 7) with the release and builds/publishes the geopackage deliverable:
+
+        git push origin vYYYY-MM
+
+    Alternatively, run the release step locally instead of pushing the tag:
+
         docker compose run -it --rm app ./release.sh
 
-9. Review the output spatial file and change logs:
+11. Optionally, re-run the entire download/process pipeline by manually calling the [harvest-restrictions workflow](https://github.com/bcgov/harvest-restrictions/actions/workflows/harvest-restrictions.yaml).
 
-    - `harvest_restrictions.gdb.zip`        
-    - `log_land_designations.csv`
-    - `log_harvest_restrictions.csv`
 
-10. Once results are confirmed to be reasonable/correct, tag the current commit as the release, re-run the comparison with the new tag and create the release:
+## Change history and review reports
 
-        docker compose run -it --rm app git tag -a vYYYY-MM-DRAFT -m vYYYY-MM-DRAFT
-        docker compose run -it --rm app ./release.sh
+Two kinds of csv track area totals by category over time, both held in object storage at `s3://$BUCKET/harvest_restrictions/`:
 
-11. Optionally, re-run the entire analysis by manually calling the [Github Actions workflow](https://github.com/bcgov/harvest-restrictions/actions/workflows/harvest-restrictions.yaml).
+- `land_designations_log.csv` / `harvest_restrictions_log.csv` - the durable log, long/tidy format (one row per category per release: `release_tag`, `release_date`, `commit`, category columns, `area_ha`). Only ever appended to, and only at release time (by `release`) - this is the source of truth for area over time, suited to plotting/analysis across all past releases.
+- `land_designations_summary.csv` / `harvest_restrictions_summary.csv` - a small, disposable rollup, rebuilt from scratch on every `overlay` run (by `log`). Summarizes the *most recent release* from the log against the *current* run, with `diff`/`pct_diff` columns - this is what you review in step 8 above before deciding whether to release.
 
 
 ## designatedlands
