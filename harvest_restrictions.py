@@ -746,14 +746,20 @@ def overlay(db_url, out_file, designations_table, bucket, verbose, quiet):
 def release(run_id, bucket, verbose, quiet):
     """Publish a dated release from the current commit's already-published, already-reviewed overlay output
 
-    Publishes 4 files under release-tag-stamped keys - harvest_restrictions_<tag>.gpkg.zip,
-    harvest_restrictions_sources_<tag>.gpkg.zip, land_designations_summary_<tag>.csv,
-    harvest_restrictions_summary_<tag>.csv - and appends this release's totals to the durable
-    change log. Each release gets its own object key rather than overwriting a shared one, so
-    every past release stays retrievable regardless of any noncurrent-version lifecycle policy.
-    Does not require a database connection, so it can run standalone (e.g. in a workflow
-    triggered by a tag push, with no postgres service and no overlay having just run in the
-    same job).
+    Publishes 4 files under releases/, each release-tag-stamped and never overwritten, so every
+    past release stays retrievable regardless of any noncurrent-version lifecycle policy:
+    releases/harvest_restrictions_<tag>.gpkg.zip, releases/harvest_restrictions_sources_<tag>.gpkg.zip,
+    releases/land_designations_summary_<tag>.csv, releases/harvest_restrictions_summary_<tag>.csv.
+
+    Also overwrites two fixed-name "latest" copies of the geopackages at the root
+    (harvest_restrictions_latest.gpkg.zip, harvest_restrictions_sources_latest.gpkg.zip), for
+    scripts/mapping applications that want the current release without tracking release tags -
+    these are fully redundant with the releases/ copies, so it's fine to prune their version
+    history under any lifecycle policy.
+
+    Also appends this release's totals to the durable change log. Does not require a database
+    connection, so it can run standalone (e.g. in a workflow triggered by a tag push, with no
+    postgres service and no overlay having just run in the same job).
     """
     configure_logging((verbose - quiet))
 
@@ -779,20 +785,25 @@ def release(run_id, bucket, verbose, quiet):
     # resolved it's pinned for everything below, so all 4 release files come from the same
     # overlay run even if the commit was run more than once
     if not run_id:
-        _, tags = s3_find_version(bucket, "harvest_restrictions.parquet", commit=commit)
-        if not tags:
+        _, found_tags = s3_find_version(bucket, "harvest_restrictions.parquet", commit=commit)
+        if not found_tags:
             raise ValueError(
                 f"No s3://{bucket}/{s3_key('harvest_restrictions.parquet')} object tagged "
                 f"commit={commit} found - run overlay against this commit before releasing it"
             )
-        run_id = tags.get("run_id")
+        run_id = found_tags.get("run_id")
     LOG.info(f"Releasing commit={commit}, run_id={run_id}")
     tag_filter = {"commit": commit}
     if run_id:
         tag_filter["run_id"] = run_id
 
-    # build and publish the two dated geopackages - never overwritten, so past releases
-    # stay retrievable regardless of any noncurrent-version lifecycle policy
+    tags = {"commit": commit, "run_id": run_id, "release": release_tag}
+
+    # build and publish the two dated geopackages under releases/ - never overwritten, so
+    # past releases stay retrievable regardless of any noncurrent-version lifecycle policy.
+    # also overwrite a fixed-name "latest" copy of each at the root, for scripts/mapping
+    # applications that just want the current release - safe to prune under any lifecycle
+    # policy, since it's fully redundant with the releases/ copy
     for parquet_key, layer_name in [
         ("harvest_restrictions.parquet", "harvest_restrictions"),
         ("harvest_restrictions_sources.parquet", "designations"),
@@ -800,12 +811,15 @@ def release(run_id, bucket, verbose, quiet):
         stem, _ = os.path.splitext(parquet_key)
         out_file = f"{stem}_{release_tag}.gpkg.zip"
         build_gpkg(bucket, commit, parquet_key, layer_name, out_file, run_id=run_id)
-        s3_upload_and_tag(
-            bucket, out_file, out_file, {"commit": commit, "run_id": run_id, "release": release_tag}
-        )
-        LOG.info(f"{out_file} published to s3://{bucket}/{s3_key(out_file)}")
+        s3_upload_and_tag(bucket, out_file, f"releases/{out_file}", tags)
+        LOG.info(f"{out_file} published to s3://{bucket}/{s3_key(f'releases/{out_file}')}")
 
-    # publish the dated summary csvs - the reviewed diff report, permanently retrievable
+        latest_file = f"{stem}_latest.gpkg.zip"
+        s3_upload_and_tag(bucket, out_file, latest_file, tags)
+        LOG.info(f"{latest_file} published to s3://{bucket}/{s3_key(latest_file)}")
+
+    # publish the dated summary csvs under releases/ - the reviewed diff report, permanently
+    # retrievable
     d_summary_key = "land_designations_summary.csv"
     h_summary_key = "harvest_restrictions_summary.csv"
     for key in [d_summary_key, h_summary_key]:
@@ -819,10 +833,8 @@ def release(run_id, bucket, verbose, quiet):
         stem, ext = os.path.splitext(key)
         dated_key = f"{stem}_{release_tag}{ext}"
         s3_download_version(bucket, key, version_id, key)
-        s3_upload_and_tag(
-            bucket, key, dated_key, {"commit": commit, "run_id": run_id, "release": release_tag}
-        )
-        LOG.info(f"{dated_key} published to s3://{bucket}/{s3_key(dated_key)}")
+        s3_upload_and_tag(bucket, key, f"releases/{dated_key}", tags)
+        LOG.info(f"{dated_key} published to s3://{bucket}/{s3_key(f'releases/{dated_key}')}")
 
     # append this release's totals to the durable change log - release is the only writer of
     # these two files, so the current version is always the complete up-to-date history
@@ -858,12 +870,8 @@ def release(run_id, bucket, verbose, quiet):
 
     d_history.to_csv(LAND_DESIGNATIONS_LOG, index=False)
     h_history.to_csv(HARVEST_RESTRICTIONS_LOG, index=False)
-    s3_upload_and_tag(
-        bucket, LAND_DESIGNATIONS_LOG, LAND_DESIGNATIONS_LOG, {"commit": commit, "run_id": run_id, "release": release_tag}
-    )
-    s3_upload_and_tag(
-        bucket, HARVEST_RESTRICTIONS_LOG, HARVEST_RESTRICTIONS_LOG, {"commit": commit, "run_id": run_id, "release": release_tag}
-    )
+    s3_upload_and_tag(bucket, LAND_DESIGNATIONS_LOG, LAND_DESIGNATIONS_LOG, tags)
+    s3_upload_and_tag(bucket, HARVEST_RESTRICTIONS_LOG, HARVEST_RESTRICTIONS_LOG, tags)
     LOG.info(f"Appended release {release_tag} to {LAND_DESIGNATIONS_LOG} and {HARVEST_RESTRICTIONS_LOG}")
 
 

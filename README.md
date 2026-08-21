@@ -140,7 +140,7 @@ Versioning is bucket-wide and can't be scoped to a prefix, but the `harvest_rest
 
 ## Object storage layout
 
-Everything lives under `s3://$BUCKET/harvest_restrictions/`, in three tiers:
+Everything lives under `s3://$BUCKET/harvest_restrictions/`, in four tiers:
 
 **Draft/working objects** - written by `overlay` on every run, at fixed keys (each new version tagged `commit`/`run_id`), overwritten on the next run. Transient by design - safe to prune under any noncurrent-version lifecycle policy:
 
@@ -152,10 +152,14 @@ Everything lives under `s3://$BUCKET/harvest_restrictions/`, in three tiers:
 
 - `land_designations_log.csv` / `harvest_restrictions_log.csv` - long/tidy format, one row per category per release (`release_tag`, `release_date`, `commit`, `run_id`, category columns, `area_ha`). This is the source of truth for area over time, suited to plotting/analysis across all past releases.
 
-**Permanent per-release deliverables** - written only by `release`, one set per release tag, at a key unique to that release - never overwritten, so every past release stays retrievable regardless of any lifecycle policy:
+**Permanent per-release archive** - written only by `release`, under `releases/`, one set per release tag at a key unique to that release - never overwritten, so every past release stays retrievable by tag regardless of any lifecycle policy:
 
-- `harvest_restrictions_<release_tag>.gpkg.zip`, `harvest_restrictions_sources_<release_tag>.gpkg.zip`
-- `land_designations_summary_<release_tag>.csv`, `harvest_restrictions_summary_<release_tag>.csv` - the exact reviewed diff report that was approved for this release
+- `releases/harvest_restrictions_<release_tag>.gpkg.zip`, `releases/harvest_restrictions_sources_<release_tag>.gpkg.zip`
+- `releases/land_designations_summary_<release_tag>.csv`, `releases/harvest_restrictions_summary_<release_tag>.csv` - the exact reviewed diff report that was approved for this release
+
+**Latest-release pointers** - written only by `release`, at fixed keys, overwritten on every release. For scripts/mapping applications that just want the current release without tracking release tags - point at these instead of the `releases/` archive. Fully redundant with the matching `releases/` copy, so safe to prune under any lifecycle policy:
+
+- `harvest_restrictions_latest.gpkg.zip`, `harvest_restrictions_sources_latest.gpkg.zip`
 
 ### commit vs run_id
 
