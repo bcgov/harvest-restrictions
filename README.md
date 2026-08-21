@@ -138,29 +138,49 @@ The `harvest_restrictions` object storage bucket must have [versioning](https://
 
 ## Object storage layout
 
-Everything lives under `s3://$BUCKET/harvest_restrictions/`, in four tiers:
+Everything lives under `s3://$BUCKET/harvest_restrictions/`:
 
-**Draft/working objects** - written by `overlay` on every run, under the `draft/` prefix (each new version tagged `commit`/`run_id`), overwritten on the next run. Transient by design - safe to prune under any noncurrent-version lifecycle policy, or delete outright once released with `release --clean_draft`. The separate prefix keeps these from colliding with the plain-named "latest confirmed release" pointers `release` publishes separately at the root (see `draft_key()`):
+```
+s3://$BUCKET/harvest_restrictions/
+├── cache/                                    # per-source geoparquet cache, written by cache
+│   ├── hr_01_park_national.parquet
+│   ├── hr_02_park_er.parquet
+│   └── ...
+├── draft/                                    # unreviewed overlay output, written by overlay
+│   ├── harvest_restrictions.parquet
+│   ├── harvest_restrictions_sources.parquet
+│   ├── land_designations_summary.csv
+│   ├── harvest_restrictions_summary.csv
+│   └── sources.csv
+├── LOG_land_designations.csv                 # durable change log, written by release
+├── LOG_harvest_restrictions.csv
+├── harvest_restrictions.gpkg                 # latest-release pointers, written by release
+├── harvest_restrictions_sources.gpkg
+├── land_designations_summary.csv
+├── harvest_restrictions_summary.csv
+├── sources.csv
+└── releases/                                 # permanent per-release archive, written by release
+    └── harvest_restrictions_<release_tag>.gpkg
+        ├── harvest_restrictions           (spatial layer)
+        ├── designations                   (spatial layer)
+        ├── land_designations_summary      (non-spatial table)
+        ├── harvest_restrictions_summary   (non-spatial table)
+        └── sources                        (non-spatial table)
+```
 
-- `draft/harvest_restrictions.parquet`, `draft/harvest_restrictions_sources.parquet`
-- `draft/land_designations_summary.csv`, `draft/harvest_restrictions_summary.csv` - a disposable rollup, rebuilt from scratch on every `overlay` run (by `log`), comparing the *most recent release* against the *current* run with `current`/`diff`/`pct_diff` columns. Retains every category present in either side - a category new to this run or dropped since the previous release still gets its labels, with `diff`/`pct_diff` left as `NaN` rather than misleadingly implying zero area. This is what you review in step 8 above, and what `release` reads (via the `current` column) to append this run's totals to the durable change log - there's no separate current-only file, since this already carries the same totals plus the diff.
-- `draft/sources.csv` - a flattened `sources.json` as it stood for this run, for review alongside the summary csvs
+**`cache/`** - written by `cache`, untagged, one geoparquet per source (`hr_<NN>_<alias>.parquet`), overwritten on the next `cache` run for that source. `clear-cache` removes these directly by filename pattern, safe to point at a shared prefix since it only ever touches its own `hr_*.parquet` files.
 
-**Durable change log** - written only by `release`, at fixed `LOG_`-prefixed keys, deliberately distinct-looking to flag them as append-only and load-bearing rather than another disposable draft/latest object. Each release rewrites the *entire* file with its row appended, so the current version is always the complete history - old versions are redundant and don't need retaining either:
+**`draft/`** - written by `overlay` on every run (each new version tagged `commit`/`run_id`), overwritten on the next run. Transient by design - safe to prune under any noncurrent-version lifecycle policy, or delete outright once released with `release --clean_draft`. Kept in its own prefix so it can never collide with the plain-named "latest confirmed release" pointers `release` publishes separately at the root (see `draft_key()`):
 
-- `LOG_land_designations.csv` / `LOG_harvest_restrictions.csv` - long/tidy format, one row per category per release (`release_tag`, `release_date`, `commit`, `run_id`, category columns, `area_ha`). This is the source of truth for area over time, suited to plotting/analysis across all past releases.
+- `harvest_restrictions.parquet`, `harvest_restrictions_sources.parquet` - the raw overlay result and its source designations
+- `land_designations_summary.csv`, `harvest_restrictions_summary.csv` - a disposable rollup, rebuilt from scratch on every `overlay` run (by `log`), comparing the *most recent release* against the *current* run with `current`/`diff`/`pct_diff` columns. Retains every category present in either side - a category new to this run or dropped since the previous release still gets its labels, with `diff`/`pct_diff` left as `NaN` rather than misleadingly implying zero area. This is what you review in step 8 above, and what `release` reads (via the `current` column) to append this run's totals to the durable change log - there's no separate current-only file, since this already carries the same totals plus the diff.
+- `sources.csv` - a flattened `sources.json` as it stood for this run, for review alongside the summary csvs
 
-**Permanent per-release archive** - written only by `release`, under `releases/`, one geopackage per release tag at a key unique to that release - never overwritten, so every past release stays retrievable by tag regardless of any lifecycle policy:
+**`LOG_land_designations.csv` / `LOG_harvest_restrictions.csv`** - written only by `release`, deliberately distinct-looking (`LOG_` prefix) to flag them as append-only and load-bearing rather than another disposable draft/latest object. Long/tidy format, one row per category per release (`release_tag`, `release_date`, `commit`, `run_id`, category columns, `area_ha`). Each release rewrites the *entire* file with its row appended, so the current version is always the complete history - old versions are redundant and don't need retaining either. This is the source of truth for area over time, suited to plotting/analysis across all past releases.
 
-- `releases/harvest_restrictions_<release_tag>.gpkg` - a single file, directly readable by ogr/QGIS with no unzip step, bundling every release deliverable as one table each:
-    - `harvest_restrictions`, `designations` - spatial layers (the overlay result and its source designations)
-    - `land_designations_summary`, `harvest_restrictions_summary` - non-spatial tables, the exact reviewed diff report that was approved for this release
-    - `sources` - non-spatial table, `overlay`'s reviewed `draft/sources.csv` for the released run
+**`harvest_restrictions.gpkg`, `harvest_restrictions_sources.gpkg`, `land_designations_summary.csv`, `harvest_restrictions_summary.csv`, `sources.csv`** (root) - the latest-release pointers, written only by `release`, at fixed plain-named keys (no suffix), overwritten on every release. The same five deliverables as separate files rather than one geopackage, for scripts/mapping applications that just want the current release without tracking release tags - point at these instead of the `releases/` archive. Fully redundant with the matching `releases/` copy, so safe to prune under any lifecycle policy.
 
-**Latest-release pointers** - written only by `release`, at fixed plain-named keys (no suffix), overwritten on every release. The same five deliverables as separate files rather than one geopackage, for scripts/mapping applications that just want the current release without tracking release tags - point at these instead of the `releases/` archive. Fully redundant with the matching `releases/` copy, so safe to prune under any lifecycle policy:
-
-- `harvest_restrictions.gpkg`, `harvest_restrictions_sources.gpkg`
-- `land_designations_summary.csv`, `harvest_restrictions_summary.csv`, `sources.csv`
+**`releases/harvest_restrictions_<release_tag>.gpkg`** - written only by `release`, one geopackage per release tag at a key unique to that release - never overwritten, so every past release stays retrievable by tag regardless of any lifecycle policy. A single file, directly readable by ogr/QGIS with no unzip step, bundling every release deliverable as one table each - the two spatial layers, the exact reviewed diff report that was approved for this release (`land_designations_summary`, `harvest_restrictions_summary`), and `sources` (`overlay`'s reviewed `draft/sources.csv` for the released run).
 
 ### commit vs run_id
 
