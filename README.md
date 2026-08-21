@@ -110,7 +110,7 @@ The `harvest_restrictions` object storage bucket must have [versioning](https://
 
         docker compose run -it --rm runner python harvest_restrictions.py overlay -v
 
-8. Review the change report (and `harvest_restrictions.parquet`, e.g. for external/client review - both are already published to object storage, tagged with the current commit):
+8. Review the change report (and `harvest_restrictions.parquet`, e.g. for external/client review - both are already published to object storage as `harvest_restrictions_draft.parquet`/`*_draft.csv`, tagged with the current commit):
 
     - `land_designations_summary.csv`
     - `harvest_restrictions_summary.csv`
@@ -136,10 +136,10 @@ The `harvest_restrictions` object storage bucket must have [versioning](https://
 
 Everything lives under `s3://$BUCKET/harvest_restrictions/`, in four tiers:
 
-**Draft/working objects** - written by `overlay` on every run, at fixed keys (each new version tagged `commit`/`run_id`), overwritten on the next run. Transient by design - safe to prune under any noncurrent-version lifecycle policy:
+**Draft/working objects** - written by `overlay` on every run, at fixed `_draft`-suffixed keys (each new version tagged `commit`/`run_id`), overwritten on the next run. Transient by design - safe to prune under any noncurrent-version lifecycle policy. The suffix keeps these from colliding with the plain-named "latest confirmed release" pointers `release` publishes separately (see `draft_key()`):
 
-- `harvest_restrictions.parquet`, `harvest_restrictions_sources.parquet`
-- `land_designations_summary.csv`, `harvest_restrictions_summary.csv` - a disposable rollup, rebuilt from scratch on every `overlay` run (by `log`), comparing the *most recent release* against the *current* run with `current`/`diff`/`pct_diff` columns. Retains every category present in either side - a category new to this run or dropped since the previous release still gets its labels, with `diff`/`pct_diff` left as `NaN` rather than misleadingly implying zero area. This is what you review in step 8 above, and what `release` reads (via the `current` column) to append this run's totals to the durable change log - there's no separate current-only file, since this already carries the same totals plus the diff.
+- `harvest_restrictions_draft.parquet`, `harvest_restrictions_sources_draft.parquet`
+- `land_designations_summary_draft.csv`, `harvest_restrictions_summary_draft.csv` - a disposable rollup, rebuilt from scratch on every `overlay` run (by `log`), comparing the *most recent release* against the *current* run with `current`/`diff`/`pct_diff` columns. Retains every category present in either side - a category new to this run or dropped since the previous release still gets its labels, with `diff`/`pct_diff` left as `NaN` rather than misleadingly implying zero area. This is what you review in step 8 above, and what `release` reads (via the `current` column) to append this run's totals to the durable change log - there's no separate current-only file, since this already carries the same totals plus the diff.
 
 **Durable change log** - written only by `release`, at fixed keys. Each release rewrites the *entire* file with its row appended, so the current version is always the complete history - old versions are redundant and don't need retaining either:
 
@@ -152,10 +152,10 @@ Everything lives under `s3://$BUCKET/harvest_restrictions/`, in four tiers:
     - `land_designations_summary`, `harvest_restrictions_summary` - non-spatial tables, the exact reviewed diff report that was approved for this release
     - `sources` - non-spatial table, a flattened `sources.json` as it stood for this release
 
-**Latest-release pointers** - written only by `release`, at fixed keys, overwritten on every release. The same five deliverables as separate files rather than one geopackage, for scripts/mapping applications that just want the current release without tracking release tags - point at these instead of the `releases/` archive. Fully redundant with the matching `releases/` copy, so safe to prune under any lifecycle policy:
+**Latest-release pointers** - written only by `release`, at fixed plain-named keys (no suffix), overwritten on every release. The same five deliverables as separate files rather than one geopackage, for scripts/mapping applications that just want the current release without tracking release tags - point at these instead of the `releases/` archive. Fully redundant with the matching `releases/` copy, so safe to prune under any lifecycle policy:
 
-- `harvest_restrictions.gpkg`, `harvest_restrictions_sources.gpkg` - no `_latest` suffix, since `overlay` never publishes anything at these plain names
-- `land_designations_summary_latest.csv`, `harvest_restrictions_summary_latest.csv`, `sources_latest.csv` - `_latest` here, since `overlay` continuously overwrites the plain-named draft versions of the first two with each new (unreviewed) run - these pointers must only ever reflect the last confirmed release
+- `harvest_restrictions.gpkg`, `harvest_restrictions_sources.gpkg`
+- `land_designations_summary.csv`, `harvest_restrictions_summary.csv`, `sources.csv`
 
 ### commit vs run_id
 
