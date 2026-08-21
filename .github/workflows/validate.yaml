@@ -12,6 +12,8 @@ on:
       - '.github/workflows/validate.yaml'
       - 'sources.json'
       - 'source.schema.json'
+permissions:
+  contents: read
 env:
   AWS_ENDPOINT_URL: "https://nrs.objectstore.gov.bc.ca"
   AWS_S3_ENDPOINT: "nrs.objectstore.gov.bc.ca"
