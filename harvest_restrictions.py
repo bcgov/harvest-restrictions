@@ -506,12 +506,11 @@ def s3_key(key):
 def draft_key(name):
     """derive the draft (overlay-published) s3 key for a local file/base name
 
-    overlay() publishes its unreviewed, continuously-overwritten output under _draft-suffixed
-    keys, so they never collide with the plain-named "latest confirmed release" pointers that
-    release() publishes separately.
+    overlay() publishes its unreviewed, continuously-overwritten output under the draft/
+    prefix, so it never collides with the plain-named "latest confirmed release" pointers
+    that release() publishes separately at the root.
     """
-    stem, ext = os.path.splitext(name)
-    return f"{stem}_draft{ext}"
+    return f"draft/{name}"
 
 
 def s3_get_tags(bucket, key, version_id=None):
@@ -879,12 +878,13 @@ def overlay(db_url, out_file, designations_table, bucket, verbose, quiet):
     # compare current summaries to the most recently released version
     log(bucket)
 
-    # publish outputs to object storage, tagged with the current commit and this run, under
-    # _draft-suffixed keys so they never collide with the plain-named "latest confirmed release"
-    # pointers release() publishes separately. The raw land_designations.csv/harvest_restrictions.csv
-    # sql output is a local scratch file only, consumed above by log() - not published, since
-    # land_designations_summary.csv/harvest_restrictions_summary.csv already carry the same
-    # current-run totals (in their "current" column) plus the diff against the previous release
+    # publish outputs to object storage, tagged with the current commit and this run, under the
+    # draft/ prefix so they never collide with the plain-named "latest confirmed release"
+    # pointers release() publishes separately at the root. The raw land_designations.csv/
+    # harvest_restrictions.csv sql output is a local scratch file only, consumed above by log() -
+    # not published, since land_designations_summary.csv/harvest_restrictions_summary.csv already
+    # carry the same current-run totals (in their "current" column) plus the diff against the
+    # previous release
     for local_file, key in [
         (out_file, draft_key(os.path.basename(out_file))),
         (sources_file, draft_key(sources_file)),
@@ -915,7 +915,7 @@ def overlay(db_url, out_file, designations_table, bucket, verbose, quiet):
     "--clean_draft",
     "-c",
     is_flag=True,
-    help="Delete overlay()'s _draft-suffixed objects for this run after a successful release",
+    help="Delete overlay()'s draft/-prefixed objects for this run after a successful release",
 )
 @verbose_opt
 @quiet_opt
@@ -938,7 +938,7 @@ def release(run_id, bucket, clean_draft, verbose, quiet):
     scripts/mapping applications that want the current release without tracking release tags:
     harvest_restrictions.gpkg, harvest_restrictions_sources.gpkg, land_designations_summary.csv,
     harvest_restrictions_summary.csv, sources.csv. overlay()'s own draft-tier output for the
-    parquets and summary csvs lives under a separate _draft-suffixed key (see draft_key()), so
+    parquets and summary csvs lives separately under the draft/ prefix (see draft_key()), so
     the two naming schemes never collide and this pointer always reflects only the last confirmed
     release. All five are fully redundant with the releases/ geopackage, so it's fine to prune
     their version history under any lifecycle policy.
@@ -947,7 +947,7 @@ def release(run_id, bucket, clean_draft, verbose, quiet):
     connection, so it can run standalone (e.g. in a workflow triggered by a tag push, with no
     postgres service and no overlay having just run in the same job).
 
-    With --clean_draft, also deletes overlay()'s _draft-suffixed objects for the run just
+    With --clean_draft, also deletes overlay()'s draft/-prefixed objects for the run just
     released, once everything above has published successfully. On a versioned bucket this is
     non-destructive - it adds a delete marker rather than erasing the tagged version, so the
     data stays retrievable by version id under the bucket's lifecycle policy, same as any other
@@ -1003,8 +1003,8 @@ def release(run_id, bucket, clean_draft, verbose, quiet):
     # fresh on the first call and appends on every call after. Each spatial layer is also built
     # as its own standalone geopackage, for the fixed-name "latest" pointers at the root - for
     # scripts/mapping applications that want the current release without tracking release tags.
-    # These are plain names, with no suffix - it's overlay()'s draft-tier keys that are marked
-    # (_draft), so the two naming schemes never collide
+    # These are plain names at the root - it's overlay()'s draft-tier keys that live under the
+    # separate draft/ prefix, so the two naming schemes never collide
     gpkg_file = f"harvest_restrictions_{release_tag}.gpkg"
 
     for parquet_key, layer_name, latest_file in [
@@ -1025,7 +1025,7 @@ def release(run_id, bucket, clean_draft, verbose, quiet):
 
     # the summary csvs are also added to the release geopackage as non-spatial tables, and
     # published separately as their own fixed-name "latest" pointers, at the same plain name
-    # they're read from locally - overlay() publishes its own copy under the _draft-suffixed key
+    # they're read from locally - overlay() publishes its own copy under the draft/ prefix
     # instead, so the two never collide
     for key, table_name in [
         (LAND_DESIGNATIONS_SUMMARY, "land_designations_summary"),
