@@ -665,8 +665,8 @@ LAND_DESIGNATIONS = "land_designations.csv"
 HARVEST_RESTRICTIONS = "harvest_restrictions.csv"
 LAND_DESIGNATIONS_SUMMARY = "land_designations_summary.csv"
 HARVEST_RESTRICTIONS_SUMMARY = "harvest_restrictions_summary.csv"
-LAND_DESIGNATIONS_LOG = "land_designations_log.csv"
-HARVEST_RESTRICTIONS_LOG = "harvest_restrictions_log.csv"
+LAND_DESIGNATIONS_LOG = "LOG_land_designations.csv"
+HARVEST_RESTRICTIONS_LOG = "LOG_harvest_restrictions.csv"
 
 SOURCES_CSV_COLUMNS = [
     "harvest_restriction",
@@ -743,7 +743,7 @@ def log(bucket):
     """Compare current overlay results to the most recently released version, writing a change report
 
     The full change log is a long/tidy append-only record (one row per category per release), kept
-    in land_designations_log.csv / harvest_restrictions_log.csv. This report is a small, disposable
+    in LOG_land_designations.csv / LOG_harvest_restrictions.csv. This report is a small, disposable
     rollup of that log against the current run, regenerated fresh on every overlay run.
     """
     if not s3_download_current(bucket, LAND_DESIGNATIONS_LOG, LAND_DESIGNATIONS_LOG):
