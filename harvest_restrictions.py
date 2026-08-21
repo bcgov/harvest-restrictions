@@ -543,6 +543,16 @@ def s3_upload_and_tag(bucket, local_file, key, tags):
     s3_put_tags(bucket, key, tags)
 
 
+def s3_delete(bucket, key):
+    """delete an s3 object
+
+    On a versioned bucket this adds a delete marker as the new current version rather than
+    erasing history - prior versions (including whatever release() just read) stay retrievable
+    by version id, same as any other noncurrent version, subject to the bucket's lifecycle policy.
+    """
+    subprocess.run(["aws", "s3", "rm", f"s3://{bucket}/{s3_key(key)}"], check=True)
+
+
 def s3_find_version(bucket, key, **tags):
     """find the most recent version of an s3 object matching all given tags
 
@@ -886,9 +896,15 @@ def overlay(db_url, out_file, designations_table, bucket, verbose, quiet):
     default=os.environ.get("BUCKET"),
     help="Object storage bucket to publish outputs to, defaults to $BUCKET environment variable if set",
 )
+@click.option(
+    "--clean_draft",
+    "-c",
+    is_flag=True,
+    help="Delete overlay()'s _draft-suffixed objects for this run after a successful release",
+)
 @verbose_opt
 @quiet_opt
-def release(run_id, bucket, verbose, quiet):
+def release(run_id, bucket, clean_draft, verbose, quiet):
     """Publish a dated release from the current commit's already-published, already-reviewed overlay output
 
     Publishes a single geopackage under releases/, release-tag-stamped and never overwritten, so
@@ -915,6 +931,12 @@ def release(run_id, bucket, verbose, quiet):
     Also appends this release's totals to the durable change log. Does not require a database
     connection, so it can run standalone (e.g. in a workflow triggered by a tag push, with no
     postgres service and no overlay having just run in the same job).
+
+    With --clean_draft, also deletes overlay()'s _draft-suffixed objects for the run just
+    released, once everything above has published successfully. On a versioned bucket this is
+    non-destructive - it adds a delete marker rather than erasing the tagged version, so the
+    data stays retrievable by version id under the bucket's lifecycle policy, same as any other
+    noncurrent version.
     """
     configure_logging((verbose - quiet))
 
@@ -1057,6 +1079,16 @@ def release(run_id, bucket, verbose, quiet):
     LOG.info(
         f"Appended release {release_tag} to {LAND_DESIGNATIONS_LOG} and {HARVEST_RESTRICTIONS_LOG}"
     )
+
+    if clean_draft:
+        for draft in [
+            draft_key("harvest_restrictions.parquet"),
+            draft_key("harvest_restrictions_sources.parquet"),
+            draft_key(LAND_DESIGNATIONS_SUMMARY),
+            draft_key(HARVEST_RESTRICTIONS_SUMMARY),
+        ]:
+            s3_delete(bucket, draft)
+            LOG.info(f"Deleted draft object s3://{bucket}/{s3_key(draft)}")
 
 
 if __name__ == "__main__":
