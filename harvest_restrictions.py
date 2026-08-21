@@ -20,7 +20,7 @@ from shapely.geometry.multipolygon import MultiPolygon
 from shapely.geometry.point import Point
 from shapely.geometry.polygon import Polygon
 from slugify import slugify
-from sqlalchemy import create_engine
+from sqlalchemy import create_engine, inspect, text
 
 LOG_FORMAT = "%(asctime)s:%(levelname)s:%(name)s: %(message)s"
 LOG = logging.getLogger(__name__)
@@ -395,12 +395,19 @@ def clear_cache(path, dry_run, verbose, quiet):
     help="Load just the specified source",
 )
 @click.option(
+    "--truncate",
+    is_flag=True,
+    help="Truncate --out_table before loading, so re-running against it doesn't duplicate "
+    "previously loaded rows. No effect without --out_table, since each per-source table is "
+    "already replaced fresh on every load.",
+)
+@click.option(
     "--dry_run", "-t", is_flag=True, help="Validate sources_file only, do not load data"
 )
 @verbose_opt
 @quiet_opt
 def load_db(
-    sources_file, in_path, db_url, out_table, source_alias, dry_run, verbose, quiet
+    sources_file, in_path, db_url, out_table, source_alias, truncate, dry_run, verbose, quiet
 ):
     """Rather than use a FDW to connect directly to files, load them to the db"""
     configure_logging((verbose - quiet))
@@ -424,6 +431,14 @@ def load_db(
         sources = validate_sources(sources)
 
     else:
+        if truncate:
+            if out_table and inspect(db).has_table(out_table):
+                with db.begin() as conn:
+                    conn.execute(text(f"TRUNCATE TABLE {out_table}"))
+                LOG.info(f"Truncated {out_table}")
+            elif not out_table:
+                LOG.warning("--truncate has no effect without --out_table")
+
         for source in sources:
             layer = (
                 "hr_" + str(source["index"]).zfill(2) + "_" + source["alias"].lower()

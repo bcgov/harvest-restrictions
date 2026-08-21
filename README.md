@@ -106,9 +106,9 @@ The `harvest_restrictions` object storage bucket must have [versioning](https://
 
         docker compose run -it --rm runner python harvest_restrictions.py clear-cache -v -p s3://$BUCKET/harvest_restrictions/cache
 
-6. Load restrictions layers from cached geoparquet to postgresql (specifying input path):
+6. Load restrictions layers from cached geoparquet to postgresql (specifying input path). `--out_table` appends, so pass `--truncate` when re-running against a table already loaded (e.g. re-running this step after a partial failure) to avoid duplicating rows:
 
-        docker compose run -it --rm runner python harvest_restrictions.py load-db -v --out_table designations -p s3://$BUCKET/harvest_restrictions/cache
+        docker compose run -it --rm runner python harvest_restrictions.py load-db -v --out_table designations --truncate -p s3://$BUCKET/harvest_restrictions/cache
 
 7. Run overlays, dump resulting layer and summaries to geoparquet/csv, and publish these outputs to object storage tagged with the current commit hash. This also compares the new summaries to the most recently released version and writes updated change logs:
 
