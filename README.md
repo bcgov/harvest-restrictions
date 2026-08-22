@@ -119,7 +119,7 @@ The `harvest_restrictions` object storage bucket must have [versioning](https://
     - `land_designations_summary.csv`
     - `harvest_restrictions_summary.csv`
 
-    If results are not correct, address the issue, commit the fix, and re-run from step 7.
+    If results are not correct, address the issue, commit the fix, and re-run from step 3 (presuming the issue is with sources/data).
 
 9. Once results are confirmed to be reasonable/correct, tag the commit as a release:
 
