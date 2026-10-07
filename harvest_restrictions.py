@@ -959,42 +959,14 @@ def overlay(db_url, out_file, designations_table, bucket, verbose, quiet):
 @verbose_opt
 @quiet_opt
 def release(run_id, bucket, clean_draft, verbose, quiet):
-    """Publish a dated release from the current commit's already-published, already-reviewed overlay output
+    """Create release files and update logs, using draft outputs corresponding to the given commit/run_id,
 
-    Publishes a single geopackage under releases/, release-tag-stamped and never overwritten, so
-    every past release stays retrievable regardless of any noncurrent-version lifecycle policy:
-    releases/harvest_restrictions_<tag>.gpkg. It bundles every release deliverable as one table
-    each - a single file, directly readable by ogr/QGIS with no unzip step:
+    Release files are:
+    - date stamped .gpkg
+    - non-date stamped _latest files (for consistent path to latest release)
+    - updated log files
 
-    - harvest_restrictions, designations - spatial layers (the overlay result and its source
-      designations)
-    - land_designations_summary, harvest_restrictions_summary - non-spatial tables, the reviewed
-      diff report that was approved for this release
-    - sources - non-spatial table, a flattened sources.json as it stood for this release
-
-    Every table is sourced from overlay()'s already-published draft/ output for the given
-    commit/run_id, rather than freshly recomputed here, so a release always reflects exactly
-    what was reviewed.
-
-    Also overwrites five fixed-name "latest" objects at the root, all plain names with no
-    suffix - the same five deliverables as separate files rather than one geopackage, for
-    scripts/mapping applications that want the current release without tracking release tags:
-    harvest_restrictions.gpkg, harvest_restrictions_sources.gpkg, land_designations_summary.csv,
-    harvest_restrictions_summary.csv, sources.csv. overlay()'s own draft-tier output lives
-    separately under the draft/ prefix (see draft_key()), so the two naming schemes never
-    collide and this pointer always reflects only the last confirmed release. All five are
-    fully redundant with the releases/ geopackage, so it's fine to prune their version history
-    under any lifecycle policy.
-
-    Also appends this release's totals to the durable change log. Does not require a database
-    connection, so it can run standalone (e.g. in a workflow triggered by a tag push, with no
-    postgres service and no overlay having just run in the same job).
-
-    With --clean_draft, also deletes overlay()'s draft/-prefixed objects for the run just
-    released, once everything above has published successfully. On a versioned bucket this is
-    non-destructive - it adds a delete marker rather than erasing the tagged version, so the
-    data stays retrievable by version id under the bucket's lifecycle policy, same as any other
-    noncurrent version.
+    --clean_draft option will delete overlay()'s draft/-prefixed objects corresponding to the the release.
     """
     configure_logging((verbose - quiet))
 
