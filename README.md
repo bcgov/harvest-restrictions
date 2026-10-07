@@ -82,7 +82,7 @@ Output `harvest_restrictions.gdb` has the following columns:
 
 Committing changes requires `pre-commit` - install via your package manager of choice.
 
-The `harvest_restrictions` object storage bucket must have [versioning](https://docs.aws.amazon.com/AmazonS3/latest/userguide/Versioning.html) enabled - `overlay` publishes to fixed keys tagged with the current commit hash and run id, and `release` looks up the tagged object *version* matching a given commit (and optionally run id) to promote into a permanent, uniquely-named deliverable. See "Object storage layout" below for the full picture.
+The `harvest_restrictions` object storage bucket must have [versioning](https://docs.aws.amazon.com/AmazonS3/latest/userguide/Versioning.html) enabled - `overlay` publishes to fixed keys tagged with the current commit hash and run id, and `release` looks up the tagged object *version* matching a given commit (and optionally run id) to promote into a permanent, uniquely-named deliverable. See "Object storage layout" below.
 
 ## Usage
 
@@ -138,28 +138,27 @@ The `harvest_restrictions` object storage bucket must have [versioning](https://
 
 ## Object storage layout
 
-Everything lives under `s3://$BUCKET/harvest_restrictions/`:
 
 ```
 s3://$BUCKET/harvest_restrictions/
-├── cache/                                    # per-source geoparquet cache, written by cache
+├── cache/                                    # per-source geoparquet cache, written by `cache`
 │   ├── hr_01_park_national.parquet
 │   ├── hr_02_park_er.parquet
 │   └── ...
-├── draft/                                    # unreviewed overlay output, written by overlay
+├── draft/                                    # unreviewed overlay output, written by `overlay`
 │   ├── harvest_restrictions.gpkg.zip
 │   ├── harvest_restrictions_sources.gpkg.zip
 │   ├── land_designations_summary.csv
 │   ├── harvest_restrictions_summary.csv
 │   └── sources.csv
-├── LOG_land_designations.csv                 # durable change log, written by release
+├── LOG_land_designations.csv                 # durable change log, written by `release`
 ├── LOG_harvest_restrictions.csv
-├── harvest_restrictions.gpkg                 # latest-release pointers, written by release
+├── harvest_restrictions.gpkg                 # latest-release pointers, written by `release`
 ├── harvest_restrictions_sources.gpkg
 ├── land_designations_summary.csv
 ├── harvest_restrictions_summary.csv
 ├── sources.csv
-└── releases/                                 # permanent per-release archive, written by release
+└── releases/                                 # permanent per-release archive, written by `release`
     └── harvest_restrictions_<release_tag>.gpkg
         ├── harvest_restrictions           (spatial layer)
         ├── designations                   (spatial layer)
@@ -176,7 +175,7 @@ s3://$BUCKET/harvest_restrictions/
 - `land_designations_summary.csv`, `harvest_restrictions_summary.csv` - a disposable rollup, rebuilt from scratch on every `overlay` run (by `log`), comparing the *most recent release* against the *current* run with `current`/`diff`/`pct_diff` columns. Retains every category present in either side - a category new to this run or dropped since the previous release still gets its labels, with `diff`/`pct_diff` left as `NaN` rather than misleadingly implying zero area. This is what you review in step 8 above, and what `release` reads (via the `current` column) to append this run's totals to the durable change log - there's no separate current-only file, since this already carries the same totals plus the diff.
 - `sources.csv` - a flattened `sources.json` as it stood for this run, for review alongside the summary csvs
 
-**`LOG_land_designations.csv` / `LOG_harvest_restrictions.csv`** - written only by `release`, deliberately distinct-looking (`LOG_` prefix) to flag them as append-only and load-bearing rather than another disposable draft/latest object. Long/tidy format, one row per category per release (`release_tag`, `release_date`, `commit`, `run_id`, category columns, `area_ha`). Each release rewrites the *entire* file with its row appended, so the current version is always the complete history - old versions are redundant and don't need retaining either. This is the source of truth for area over time, suited to plotting/analysis across all past releases.
+**`LOG_land_designations.csv` / `LOG_harvest_restrictions.csv`** - written by `release`, a log of all tagged outputs. One row per category per release (`release_tag`, `release_date`, `commit`, `run_id`, category columns, `area_ha`).
 
 **`harvest_restrictions.gpkg`, `harvest_restrictions_sources.gpkg`, `land_designations_summary.csv`, `harvest_restrictions_summary.csv`, `sources.csv`** (root) - the latest-release pointers, written only by `release`, at fixed plain-named keys (no suffix), overwritten on every release. The same five deliverables as separate files rather than one geopackage, for scripts/mapping applications that just want the current release without tracking release tags - point at these instead of the `releases/` archive. Fully redundant with the matching `releases/` copy, so safe to prune under any lifecycle policy.
 
@@ -191,7 +190,7 @@ The logs were backfilled from pre-existing wide-format records. `v2024-08`, `v20
 
 ## designatedlands
 
-This tool is a stripped down version of the [designated lands script](https://github.com/bcgov/designatedlands) and could be used for that analysis by adding mine and oil and gas restriction levels to each source in `sources.json`. Note however that several components of `designatedlands` are not currently supported by this tool:
+This tool is adapted from the [designated lands script](https://github.com/bcgov/designatedlands). This tool could be used for that analysis by adding mine and oil and gas restriction levels to each source in `sources.json`. Note however that several components of `designatedlands` are not currently supported by this tool:
 
 - raster based analysis
 - config based pre-processing of input sources
