@@ -19,7 +19,8 @@ import datarelease as dr
 CONFIG = {
     "prefix": "widgets",
     "archive": "widgets_{release_tag}.zip",
-    "bundle": "widgets_{release_tag}.gpkg",
+    # the same name as a latest file - the bundle holds more layers than that file
+    "bundle": "widgets.gpkg",
     "outputs": [
         {"file": "widgets.gpkg.zip", "layer": "widgets", "latest": "widgets.gpkg"},
         {
@@ -94,6 +95,7 @@ def test_config_load(tmp_path):
             ),
             ValueError,
         ),
+        (lambda c: c.update(bundle="parts.csv"), ValueError),
     ],
     ids=[
         "no prefix",
@@ -104,6 +106,7 @@ def test_config_load(tmp_path):
         "archive not dated",
         "bundle without archive",
         "archived output without archive",
+        "bundle named as archived output",
     ],
 )
 def test_config_invalid(change, error):
@@ -513,12 +516,12 @@ def test_release_publishes(store):
     # the archive holds the bundle and the archived outputs, as is
     members = archive_members(store, archive_key)
     assert sorted(members) == sorted(
-        [f"widgets_{RELEASE_TAG}.gpkg", "parts.csv", "widget_summary.csv"]
+        ["widgets.gpkg", "parts.csv", "widget_summary.csv"]
     )
     assert members["parts.csv"] == b"part,widget_id\nbolt,1\n"
 
     # configured layers in the bundle - zipped files read via /vsizip/, csvs as tables
-    bundle = layers(members[f"widgets_{RELEASE_TAG}.gpkg"])
+    bundle = layers(members["widgets.gpkg"])
     assert [layer[0] for layer in bundle] == ["widgets", "parts"]
     assert bundle[0][1].startswith("/vsizip/") and bundle[0][2] == "True"
     assert bundle[1][1].endswith("parts.csv") and bundle[1][2] == "False"
@@ -692,14 +695,15 @@ def test_release_ignores_leftover_local_files(store, tmp_path):
     (tmp_path / "widgets.gpkg").write_text("project output")
     leftover = tmp_path / f"release_{RELEASE_TAG}"
     leftover.mkdir()
-    (leftover / f"widgets_{RELEASE_TAG}.gpkg").write_text("widgets\tstale\tTrue\n")
+    (leftover / "bundle").mkdir()
+    (leftover / "bundle" / "widgets.gpkg").write_text("widgets\tstale\tTrue\n")
 
     run_release(store)
     assert (tmp_path / "widgets.gpkg").read_text() == "project output"
     members = archive_members(
         store, f"releases/{RELEASE_TAG}/widgets_{RELEASE_TAG}.zip"
     )
-    assert b"stale" not in members[f"widgets_{RELEASE_TAG}.gpkg"]
+    assert b"stale" not in members["widgets.gpkg"]
 
 
 # --- publish_draft ---

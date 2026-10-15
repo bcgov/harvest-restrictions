@@ -1,7 +1,7 @@
 {
   "prefix": "harvest_restrictions",
   "archive": "harvest_restrictions_{release_tag}.zip",
-  "bundle": "harvest_restrictions_{release_tag}.gpkg",
+  "bundle": "harvest_restrictions.gpkg",
   "outputs": [
     {
       "file": "harvest_restrictions.gpkg.zip",

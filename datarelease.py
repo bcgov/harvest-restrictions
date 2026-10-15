@@ -51,8 +51,7 @@ CONFIG_SCHEMA = {
         },
         "bundle": {
             "type": "string",
-            "description": "name of a geopackage in the archive combining the outputs' layers, "
-            "optionally with a {release_tag} placeholder",
+            "description": "name of a geopackage in the archive combining the outputs' layers",
         },
         "outputs": {
             "type": "array",
@@ -117,8 +116,12 @@ def validate_config(config):
     # the archive's name says which release it is, once it's downloaded
     if archive and "{release_tag}" not in archive:
         raise ValueError(f"archive {archive} has no {{release_tag}} placeholder")
-    if config.get("bundle") and not archive:
+    bundle = config.get("bundle")
+    if bundle and not archive:
         raise ValueError("a bundle is configured, but no archive to hold it")
+    archived = [o["file"] for o in config["outputs"] if o.get("archive")]
+    if bundle in archived:
+        raise ValueError(f"bundle {bundle} has the same name as an archived output")
     for output in config["outputs"]:
         if output.get("archive") and not archive:
             raise ValueError(
@@ -582,22 +585,28 @@ def release(config, store, run_id=None):
     tags = {"commit": commit, "run_id": run_id, "release": release_tag}
 
     # fetch the run's files, building the archive (and the bundle in it) and any converted
-    # latest files from them
-    archive, bundle = [
-        config[k].format(release_tag=release_tag) if config.get(k) else None
-        for k in ("archive", "bundle")
-    ]
-    archive_files = [bundle] if bundle else []
+    # latest files from them. The bundle is built in a directory of its own - it may share a
+    # name with a latest file (e.g. a latest geopackage of one of its layers)
+    archive = (
+        config["archive"].format(release_tag=release_tag)
+        if config.get("archive")
+        else None
+    )
+    bundle = config.get("bundle")
+    bundle_file = os.path.join(work_dir, "bundle", bundle) if bundle else None
+    if bundle:
+        os.makedirs(os.path.dirname(bundle_file))
+    archive_files = [bundle_file] if bundle else []
     latest_files = []
     for name in draft_files(config):
         store.download(draft_key(run_id, name), local(name))
     for output in config["outputs"]:
         name = output["file"]
         if output.get("archive"):
-            archive_files.append(name)
+            archive_files.append(local(name))
         if output.get("layer"):
             add_gpkg_layer(
-                local(bundle),
+                bundle_file,
                 ogr_path(local(name)),
                 output["layer"],
                 spatial=not name.endswith(".csv"),
@@ -610,8 +619,11 @@ def release(config, store, run_id=None):
                 add_gpkg_layer(local(latest), ogr_path(local(name)), layer)
             latest_files.append(latest)
     if archive:
-        zip_files(local(archive), [local(f) for f in archive_files])
-        LOG.info(f"{archive} built, holding {', '.join(archive_files)}")
+        zip_files(local(archive), archive_files)
+        LOG.info(
+            f"{archive} built, holding "
+            f"{', '.join(os.path.basename(f) for f in archive_files)}"
+        )
 
     # this release's change log rows, from each summary's "current" column - a category with no
     # current value existed in the previous release but not this run, and is excluded rather
