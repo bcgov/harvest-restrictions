@@ -5,13 +5,12 @@ import logging
 import os
 import subprocess
 import sys
-from datetime import datetime, timezone
+from datetime import datetime
 
 import bcdata
 import click
 import geopandas
 import jsonschema
-import pandas
 from pyproj import CRS
 from shapely.geometry.linestring import LineString
 from shapely.geometry.multilinestring import MultiLineString
@@ -21,6 +20,8 @@ from shapely.geometry.point import Point
 from shapely.geometry.polygon import Polygon
 from slugify import slugify
 from sqlalchemy import create_engine, inspect, text
+
+import datarelease
 
 LOG_FORMAT = "%(asctime)s:%(levelname)s:%(name)s: %(message)s"
 LOG = logging.getLogger(__name__)
@@ -510,157 +511,6 @@ def export_overlay(db_url, out_file, out_format):
     )
 
 
-def s3_key(key):
-    return f"harvest_restrictions/{key}"
-
-
-def draft_key(name):
-    """derive the draft (overlay-published) s3 key for a local file/base name
-
-    overlay() publishes its unreviewed, continuously-overwritten output under the draft/
-    prefix, so it never collides with the plain-named "latest confirmed release" pointers
-    that release() publishes separately at the root.
-    """
-    return f"draft/{name}"
-
-
-def s3_get_tags(bucket, key, version_id=None):
-    """return the tags currently set on an s3 object, optionally a specific version, as a dict"""
-    cmd = [
-        "aws",
-        "s3api",
-        "get-object-tagging",
-        "--bucket",
-        bucket,
-        "--key",
-        s3_key(key),
-    ]
-    if version_id:
-        cmd += ["--version-id", version_id]
-    out = subprocess.run(cmd, check=True, capture_output=True, text=True).stdout
-    return {t["Key"]: t["Value"] for t in json.loads(out)["TagSet"]}
-
-
-def s3_put_tags(bucket, key, tags, version_id=None):
-    """replace the full tag set on an s3 object, optionally a specific version"""
-    tagging = {"TagSet": [{"Key": k, "Value": v} for k, v in tags.items()]}
-    cmd = [
-        "aws",
-        "s3api",
-        "put-object-tagging",
-        "--bucket",
-        bucket,
-        "--key",
-        s3_key(key),
-        "--tagging",
-        json.dumps(tagging),
-    ]
-    if version_id:
-        cmd += ["--version-id", version_id]
-    subprocess.run(cmd, check=True)
-
-
-def s3_upload_and_tag(bucket, local_file, key, tags):
-    """upload local_file to object storage, tagging the resulting object version"""
-    subprocess.run(
-        ["aws", "s3", "cp", local_file, f"s3://{bucket}/{s3_key(key)}"], check=True
-    )
-    s3_put_tags(bucket, key, tags)
-
-
-def s3_delete(bucket, key):
-    """delete an s3 object
-
-    On a versioned bucket this adds a delete marker as the new current version rather than
-    erasing history - prior versions (including whatever release() just read) stay retrievable
-    by version id, same as any other noncurrent version, subject to the bucket's lifecycle policy.
-    """
-    subprocess.run(["aws", "s3", "rm", f"s3://{bucket}/{s3_key(key)}"], check=True)
-
-
-def s3_find_version(bucket, key, **tags):
-    """find the most recent version of an s3 object matching all given tags
-
-    a tag value of None means the tag key must be present, with any value - e.g.
-    s3_find_version(bucket, key, commit=sha, run_id=None) requires a specific commit but
-    accepts any run_id, while s3_find_version(bucket, key, commit=sha, run_id=rid) pins both.
-
-    returns (version_id, tags) for the first (most recent) match, or (None, None)
-    """
-    out = subprocess.run(
-        [
-            "aws",
-            "s3api",
-            "list-object-versions",
-            "--bucket",
-            bucket,
-            "--prefix",
-            s3_key(key),
-        ],
-        check=True,
-        capture_output=True,
-        text=True,
-    ).stdout
-    versions = [
-        v for v in json.loads(out).get("Versions", []) if v["Key"] == s3_key(key)
-    ]
-    versions.sort(key=lambda v: v["LastModified"], reverse=True)
-    for v in versions:
-        version_tags = s3_get_tags(bucket, key, v["VersionId"])
-        if all(
-            k in version_tags and (expected is None or version_tags[k] == expected)
-            for k, expected in tags.items()
-        ):
-            return v["VersionId"], version_tags
-    return None, None
-
-
-def s3_download_version(bucket, key, version_id, local_file):
-    subprocess.run(
-        [
-            "aws",
-            "s3api",
-            "get-object",
-            "--bucket",
-            bucket,
-            "--key",
-            s3_key(key),
-            "--version-id",
-            version_id,
-            local_file,
-        ],
-        check=True,
-    )
-
-
-def s3_download_tagged(bucket, key, tag_filter, local_file=None):
-    """download the most recent version of an s3 object matching tag_filter to local_file
-
-    Raises if no matching version is found. local_file defaults to key's basename.
-    """
-    local_file = local_file or os.path.basename(key)
-    version_id, _ = s3_find_version(bucket, key, **tag_filter)
-    if not version_id:
-        tag_desc = ", ".join(f"{k}={v}" for k, v in tag_filter.items() if v)
-        raise ValueError(
-            f"No s3://{bucket}/{s3_key(key)} object tagged {tag_desc} found - "
-            "run overlay against this commit before releasing it"
-        )
-    s3_download_version(bucket, key, version_id, local_file)
-    return local_file
-
-
-def add_gpkg_layer(out_file, source_file, layer_name, spatial=True):
-    """add source_file as a new layer (or non-spatial table) in out_file, creating it if needed"""
-    cmd = ["ogr2ogr", "-f", "GPKG"]
-    if os.path.exists(out_file):
-        cmd.append("-update")
-    cmd += [out_file, source_file, "-nln", layer_name]
-    if not spatial:
-        cmd += ["-nlt", "NONE", "-oo", "AUTODETECT_TYPE=YES"]
-    subprocess.run(cmd, check=True)
-
-
 def zip_file(local_file):
     """compress local_file into local_file + '.zip', containing just that one file
 
@@ -675,43 +525,24 @@ def zip_file(local_file):
     return out_zip
 
 
-def vsizip_path(local_zip):
-    """GDAL /vsizip/ path to the single file zip_file() compressed into local_zip"""
-    return f"/vsizip/{local_zip}/{os.path.splitext(local_zip)[0]}"
+# what overlay publishes and release releases - see datarelease
+RELEASE_CONFIG = "release.json"
 
+# the files overlay publishes, by the release.json output names they're published as
+OVERLAY_ZIP = "harvest_restrictions.gpkg.zip"
+SOURCES_GPKG = "harvest_restrictions_sources.gpkg"
+SOURCES_ZIP = SOURCES_GPKG + ".zip"
+SOURCES_CSV = "sources.csv"
+RELEASE_FILES = [OVERLAY_ZIP, SOURCES_ZIP, SOURCES_CSV]
 
-def s3_download_current(bucket, key, local_file):
-    """download the current (latest) version of an s3 object to local_file
-
-    returns True if the object exists and was downloaded, False otherwise
-    """
-    result = subprocess.run(
-        ["aws", "s3", "cp", f"s3://{bucket}/{s3_key(key)}", local_file],
-        capture_output=True,
-        text=True,
-    )
-    return result.returncode == 0
-
-
-D_COLUMNS = [
-    "land_designation_type_rank",
-    "harvest_restriction_class_rank",
-    "harvest_restriction_class_name",
-    "land_designation_type_code",
-    "land_designation_type_name",
-]
-H_COLUMNS = [
-    "harvest_restriction_class_rank",
-    "harvest_restriction_class_name",
-]
-
+# overlay's per-category area totals (compared to the previous release, and logged), by the
+# release.json log they're for
 LAND_DESIGNATIONS = "land_designations.csv"
 HARVEST_RESTRICTIONS = "harvest_restrictions.csv"
-LAND_DESIGNATIONS_SUMMARY = "land_designations_summary.csv"
-HARVEST_RESTRICTIONS_SUMMARY = "harvest_restrictions_summary.csv"
-LAND_DESIGNATIONS_LOG = "LOG_land_designations.csv"
-HARVEST_RESTRICTIONS_LOG = "LOG_harvest_restrictions.csv"
-SOURCES_CSV = "sources.csv"
+RELEASE_TOTALS = {
+    "land_designations": LAND_DESIGNATIONS,
+    "harvest_restrictions": HARVEST_RESTRICTIONS,
+}
 
 SOURCES_CSV_COLUMNS = [
     "harvest_restriction",
@@ -746,88 +577,6 @@ def write_sources_csv(sources_file, out_file):
                     source["field_mapper"].get("name"),
                 ]
             )
-
-
-def build_change(current_file, history, previous_release, key, columns):
-    """merge this run's area totals with the previous release's, keyed on the given column
-
-    Retains every category present in either side (outer join) rather than just those in
-    the previous release. Descriptive columns are filled from whichever side has them, so a
-    category new to this run (or one dropped since the previous release) still gets its
-    labels. Area/diff/pct_diff are left as genuine NaN (not 0) for a category missing from
-    one side, since 0 would misleadingly imply the category existed with no area.
-    """
-    descriptive = [c for c in columns if c != key]
-
-    previous = history[history["release_tag"] == previous_release][
-        columns + ["area_ha"]
-    ].rename(columns={"area_ha": previous_release})
-    current = pandas.read_csv(current_file)[columns + ["area_ha"]].rename(
-        columns={"area_ha": "current"}
-    )
-
-    merged = previous.merge(current, how="outer", on=key, suffixes=("_previous", ""))
-    for col in descriptive:
-        previous_col = merged.pop(f"{col}_previous")
-        merged[col] = merged[col].combine_first(previous_col)
-
-    merged["diff"] = merged["current"] - merged[previous_release]
-    merged["pct_diff"] = (merged["diff"] / merged[previous_release]) * 100
-
-    # key, descriptive columns, current, previous, diff, pct_diff - explicit rather than
-    # relying on whatever order the merge happens to produce
-    column_order = [key, *descriptive, "current", previous_release, "diff", "pct_diff"]
-    return (
-        merged[column_order]
-        .round({previous_release: 0, "current": 0, "diff": 0, "pct_diff": 2})
-        .set_index(key)
-    )
-
-
-def log(bucket):
-    """Compare current overlay results to the most recently released version, writing a change report
-
-    The full change log is a long/tidy append-only record (one row per category per release), kept
-    in LOG_land_designations.csv / LOG_harvest_restrictions.csv. This report is a small, disposable
-    rollup of that log against the current run, regenerated fresh on every overlay run.
-    """
-    if not s3_download_current(bucket, LAND_DESIGNATIONS_LOG, LAND_DESIGNATIONS_LOG):
-        raise ValueError(
-            f"No {LAND_DESIGNATIONS_LOG} found in s3://{bucket}/harvest_restrictions/ "
-            "- release at least one version before comparing to it"
-        )
-    if not s3_download_current(
-        bucket, HARVEST_RESTRICTIONS_LOG, HARVEST_RESTRICTIONS_LOG
-    ):
-        raise ValueError(
-            f"No {HARVEST_RESTRICTIONS_LOG} found in s3://{bucket}/harvest_restrictions/ "
-            "- release at least one version before comparing to it"
-        )
-    d_history = pandas.read_csv(LAND_DESIGNATIONS_LOG)
-    h_history = pandas.read_csv(HARVEST_RESTRICTIONS_LOG)
-
-    # most recent release in the history
-    previous_release = d_history.sort_values("release_date")["release_tag"].iloc[-1]
-
-    d = build_change(
-        LAND_DESIGNATIONS,
-        d_history,
-        previous_release,
-        "land_designation_type_rank",
-        D_COLUMNS,
-    )
-    h = build_change(
-        HARVEST_RESTRICTIONS,
-        h_history,
-        previous_release,
-        "harvest_restriction_class_rank",
-        H_COLUMNS,
-    )
-
-    # dump results to csv
-    d.to_csv(LAND_DESIGNATIONS_SUMMARY)
-    h.to_csv(HARVEST_RESTRICTIONS_SUMMARY)
-    LOG.info(f"{LAND_DESIGNATIONS_SUMMARY} and {HARVEST_RESTRICTIONS_SUMMARY} written")
 
 
 @cli.command()
@@ -869,10 +618,10 @@ def overlay(db_url, out_file, designations_table, bucket, verbose, quiet):
             "Target object storage bucket not provided, set --bucket or $BUCKET"
         )
 
-    commit = (
-        subprocess.check_output(["git", "rev-parse", "HEAD"]).decode("ascii").strip()
-    )
-    run_id = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+    # read the release config, and check it matches what overlay publishes, before the
+    # long-running overlay - rather than failing once it's done
+    config = datarelease.load_config(RELEASE_CONFIG)
+    datarelease.check_inputs(config, RELEASE_FILES, RELEASE_TOTALS)
 
     psql = f"psql {db_url} -v ON_ERROR_STOP=1"
 
@@ -895,46 +644,35 @@ def overlay(db_url, out_file, designations_table, bucket, verbose, quiet):
     LOG.info(f"Overlay results written to {out_file}")
 
     # dump source designations table to geopackage
-    sources_file = "harvest_restrictions_sources.gpkg"
     subprocess.run(
-        ["ogr2ogr", "-f", "GPKG", sources_file, f"PG:{db_url}", designations_table],
+        ["ogr2ogr", "-f", "GPKG", SOURCES_GPKG, f"PG:{db_url}", designations_table],
         check=True,
     )
-    LOG.info(f"{designations_table} written to {sources_file}")
+    LOG.info(f"{designations_table} written to {SOURCES_GPKG}")
 
     # summarize results
     run(f"{psql} -f sql/land_designations.sql --csv > {LAND_DESIGNATIONS}")
     run(f"{psql} -f sql/harvest_restrictions.sql --csv > {HARVEST_RESTRICTIONS}")
 
-    # compare current summaries to the most recently released version
-    log(bucket)
-
     # flatten sources.json to a csv, for review alongside the rest of this run's draft output
     write_sources_csv("sources.json", SOURCES_CSV)
 
-    # compress the spatial outputs for publishing - draft/ geopackages are stored zipped
-    out_zip = zip_file(out_file)
-    sources_zip = zip_file(sources_file)
-
-    # publish outputs to object storage, tagged with the current commit and this run, under the
-    # draft/ prefix so they never collide with the plain-named "latest confirmed release"
-    # pointers release() publishes separately at the root. The raw land_designations.csv/
-    # harvest_restrictions.csv sql output is a local scratch file only, consumed above by log() -
-    # not published, since land_designations_summary.csv/harvest_restrictions_summary.csv already
-    # carry the same current-run totals (in their "current" column) plus the diff against the
-    # previous release
-    for local_file, key in [
-        (out_zip, draft_key(os.path.basename(out_zip))),
-        (sources_zip, draft_key(os.path.basename(sources_zip))),
-        (LAND_DESIGNATIONS_SUMMARY, draft_key(LAND_DESIGNATIONS_SUMMARY)),
-        (HARVEST_RESTRICTIONS_SUMMARY, draft_key(HARVEST_RESTRICTIONS_SUMMARY)),
-        (SOURCES_CSV, draft_key(SOURCES_CSV)),
-    ]:
-        s3_upload_and_tag(bucket, local_file, key, {"commit": commit, "run_id": run_id})
-        LOG.info(
-            f"{local_file} published to s3://{bucket}/{s3_key(key)}, "
-            f"tagged commit={commit}, run_id={run_id}"
-        )
+    # publish outputs to object storage as a draft, with summaries comparing this run's area
+    # totals to the most recently released version. The totals themselves aren't published -
+    # the summaries carry the same totals (in their "current" column) plus the diffs. Spatial
+    # outputs are published zipped - out_file's zip is published as OVERLAY_ZIP whatever
+    # out_file is named, which is fine as datarelease reads single-file zips without naming
+    # the file inside
+    run_id = datarelease.publish_draft(
+        config,
+        datarelease.S3Store(bucket, config["prefix"]),
+        files={
+            OVERLAY_ZIP: zip_file(out_file),
+            SOURCES_ZIP: zip_file(SOURCES_GPKG),
+            SOURCES_CSV: SOURCES_CSV,
+        },
+        current=RELEASE_TOTALS,
+    )
     LOG.info(f"run_id={run_id} - pass --run_id to release to pin this exact run")
 
 
@@ -950,23 +688,14 @@ def overlay(db_url, out_file, designations_table, bucket, verbose, quiet):
     default=os.environ.get("BUCKET"),
     help="Object storage bucket to publish outputs to, defaults to $BUCKET environment variable if set",
 )
-@click.option(
-    "--clean_draft",
-    "-c",
-    is_flag=True,
-    help="Delete overlay()'s draft/-prefixed objects for this run after a successful release",
-)
 @verbose_opt
 @quiet_opt
-def release(run_id, bucket, clean_draft, verbose, quiet):
-    """Create release files and update logs, using draft outputs corresponding to the given commit/run_id,
+def release(run_id, bucket, verbose, quiet):
+    """Release an overlay run of the checked-out commit, which must be tagged with the release tag
 
-    Release files are:
-    - date stamped .gpkg
-    - non-date stamped _latest files (for consistent path to latest release)
-    - updated log files
-
-    --clean_draft option will delete overlay()'s draft/-prefixed objects corresponding to the the release.
+    Publishes the release's archive under releases/, its change log rows under
+    logs/<release_tag>/, and the fixed-name latest files under latest/, as configured in release.json - see
+    datarelease.release()
     """
     configure_logging((verbose - quiet))
 
@@ -974,151 +703,48 @@ def release(run_id, bucket, clean_draft, verbose, quiet):
         raise ValueError(
             "Target object storage bucket not provided, set --bucket or $BUCKET"
         )
+    config = datarelease.load_config(RELEASE_CONFIG)
+    datarelease.release(config, datarelease.S3Store(bucket, config["prefix"]), run_id)
 
-    commit = (
-        subprocess.check_output(["git", "rev-parse", "HEAD"]).decode("ascii").strip()
-    )
-    short_commit = (
-        subprocess.check_output(["git", "rev-parse", "--short", "HEAD"])
-        .decode("ascii")
-        .strip()
-    )
-    release_tag = (
-        subprocess.check_output(["git", "describe", "--tags", "--exact-match"])
-        .decode("ascii")
-        .strip()
-    )
-    release_date = (
-        subprocess.check_output(["git", "log", "-1", "--format=%aI", commit])
-        .decode("ascii")
-        .strip()
-    )
 
-    # resolve which run of this commit to release - defaults to the most recent, but once
-    # resolved it's pinned for everything below, so every table in the release geopackage comes
-    # from the same overlay run even if the commit was run more than once
-    if not run_id:
-        _, found_tags = s3_find_version(
-            bucket, draft_key("harvest_restrictions.gpkg.zip"), commit=commit
+@cli.command()
+@click.option(
+    "--bucket",
+    "-b",
+    default=os.environ.get("BUCKET"),
+    help="Object storage bucket to prune drafts from, defaults to $BUCKET environment variable if set",
+)
+@click.option(
+    "--older_than",
+    type=int,
+    default=None,
+    help="Also delete unreleased runs older than this many days (the newest unreleased run is always kept)",
+)
+@click.option(
+    "--dry_run",
+    "-t",
+    is_flag=True,
+    help="List runs that would be deleted, do not delete",
+)
+@verbose_opt
+@quiet_opt
+def prune_drafts(bucket, older_than, dry_run, verbose, quiet):
+    """Delete overlay runs' drafts/<run_id>/ prefixes that are no longer needed
+
+    By default only released runs are deleted - everything they published was copied into
+    the release. With --older_than, unreleased runs older than that are deleted too, apart
+    from the newest unreleased run, which may still be under review.
+    """
+    configure_logging((verbose - quiet))
+
+    if not bucket:
+        raise ValueError(
+            "Target object storage bucket not provided, set --bucket or $BUCKET"
         )
-        if not found_tags:
-            raise ValueError(
-                f"No s3://{bucket}/{s3_key(draft_key('harvest_restrictions.gpkg.zip'))} object "
-                f"tagged commit={commit} found - run overlay against this commit before releasing it"
-            )
-        run_id = found_tags.get("run_id")
-    LOG.info(f"Releasing commit={commit}, run_id={run_id}")
-    tag_filter = {"commit": commit}
-    if run_id:
-        tag_filter["run_id"] = run_id
-
-    tags = {"commit": commit, "run_id": run_id, "release": release_tag}
-
-    # build the single dated release geopackage, one table at a time - add_gpkg_layer creates it
-    # fresh on the first call and appends on every call after. Each spatial layer is also built
-    # as its own standalone geopackage, for the fixed-name "latest" pointers at the root - for
-    # scripts/mapping applications that want the current release without tracking release tags.
-    # These are plain names at the root - it's overlay()'s draft-tier keys that live under the
-    # separate draft/ prefix, so the two naming schemes never collide
-    gpkg_file = f"harvest_restrictions_{release_tag}.gpkg"
-
-    for draft_gpkg_zip, layer_name, latest_file in [
-        (
-            "harvest_restrictions.gpkg.zip",
-            "harvest_restrictions",
-            "harvest_restrictions.gpkg",
-        ),
-        (
-            "harvest_restrictions_sources.gpkg.zip",
-            "designations",
-            "harvest_restrictions_sources.gpkg",
-        ),
-    ]:
-        local_zip = s3_download_tagged(bucket, draft_key(draft_gpkg_zip), tag_filter)
-        source = vsizip_path(local_zip)
-        add_gpkg_layer(gpkg_file, source, layer_name)
-        LOG.info(f"{layer_name} layer added to {gpkg_file}, from {draft_gpkg_zip}")
-
-        add_gpkg_layer(latest_file, source, layer_name)
-        s3_upload_and_tag(bucket, latest_file, latest_file, tags)
-        LOG.info(f"{latest_file} published to s3://{bucket}/{s3_key(latest_file)}")
-
-    # the summary csvs and sources listing are added to the release geopackage as non-spatial
-    # tables, and published separately as their own fixed-name "latest" pointers, at the same
-    # plain name they're read from locally. All three are downloaded from overlay()'s draft/
-    # copy for this commit/run_id rather than regenerated here, so the release always reflects
-    # exactly what was reviewed
-    for key, table_name in [
-        (LAND_DESIGNATIONS_SUMMARY, "land_designations_summary"),
-        (HARVEST_RESTRICTIONS_SUMMARY, "harvest_restrictions_summary"),
-        (SOURCES_CSV, "sources"),
-    ]:
-        s3_download_tagged(bucket, draft_key(key), tag_filter, local_file=key)
-        add_gpkg_layer(gpkg_file, key, table_name, spatial=False)
-        LOG.info(f"{table_name} table added to {gpkg_file}, from {key}")
-
-        s3_upload_and_tag(bucket, key, key, tags)
-        LOG.info(f"{key} published to s3://{bucket}/{s3_key(key)}")
-
-    # publish the dated geopackage under releases/ - never overwritten, so past releases stay
-    # retrievable regardless of any noncurrent-version lifecycle policy
-    s3_upload_and_tag(bucket, gpkg_file, f"releases/{gpkg_file}", tags)
-    LOG.info(
-        f"{gpkg_file} published to s3://{bucket}/{s3_key(f'releases/{gpkg_file}')}"
+    config = datarelease.load_config(RELEASE_CONFIG)
+    datarelease.prune_drafts(
+        config, datarelease.S3Store(bucket, config["prefix"]), older_than, dry_run
     )
-
-    # append this release's totals to the durable change log - release is the only writer of
-    # these two files, so the current version is always the complete up-to-date history. Sourced
-    # from the "current" column of the summary csvs just downloaded above, rather than a
-    # separately-published current-only file - a category with no "current" value there existed
-    # in the previous release but not this run, and is excluded rather than logged as zero area
-    d_row = (
-        pandas.read_csv(LAND_DESIGNATIONS_SUMMARY)[D_COLUMNS + ["current"]]
-        .rename(columns={"current": "area_ha"})
-        .dropna(subset=["area_ha"])
-    )
-    h_row = (
-        pandas.read_csv(HARVEST_RESTRICTIONS_SUMMARY)[H_COLUMNS + ["current"]]
-        .rename(columns={"current": "area_ha"})
-        .dropna(subset=["area_ha"])
-    )
-    for row in (d_row, h_row):
-        row["release_tag"] = release_tag
-        row["release_date"] = release_date
-        row["commit"] = short_commit
-        row["run_id"] = run_id
-
-    if s3_download_current(bucket, LAND_DESIGNATIONS_LOG, LAND_DESIGNATIONS_LOG):
-        d_history = pandas.concat(
-            [pandas.read_csv(LAND_DESIGNATIONS_LOG), d_row], ignore_index=True
-        )
-    else:
-        d_history = d_row
-    if s3_download_current(bucket, HARVEST_RESTRICTIONS_LOG, HARVEST_RESTRICTIONS_LOG):
-        h_history = pandas.concat(
-            [pandas.read_csv(HARVEST_RESTRICTIONS_LOG), h_row], ignore_index=True
-        )
-    else:
-        h_history = h_row
-
-    d_history.to_csv(LAND_DESIGNATIONS_LOG, index=False)
-    h_history.to_csv(HARVEST_RESTRICTIONS_LOG, index=False)
-    s3_upload_and_tag(bucket, LAND_DESIGNATIONS_LOG, LAND_DESIGNATIONS_LOG, tags)
-    s3_upload_and_tag(bucket, HARVEST_RESTRICTIONS_LOG, HARVEST_RESTRICTIONS_LOG, tags)
-    LOG.info(
-        f"Appended release {release_tag} to {LAND_DESIGNATIONS_LOG} and {HARVEST_RESTRICTIONS_LOG}"
-    )
-
-    if clean_draft:
-        for draft in [
-            draft_key("harvest_restrictions.gpkg.zip"),
-            draft_key("harvest_restrictions_sources.gpkg.zip"),
-            draft_key(LAND_DESIGNATIONS_SUMMARY),
-            draft_key(HARVEST_RESTRICTIONS_SUMMARY),
-            draft_key(SOURCES_CSV),
-        ]:
-            s3_delete(bucket, draft)
-            LOG.info(f"Deleted draft object s3://{bucket}/{s3_key(draft)}")
 
 
 if __name__ == "__main__":

@@ -5,6 +5,13 @@ on:
       - 'v*'
 permissions:
   contents: read
+# release read-modify-writes the change logs in object storage - run one release at a time
+# so concurrent tag pushes can't drop each other's log rows. A running release is never
+# cancelled; note GitHub keeps only one *pending* run per group, so if a third tag is pushed
+# while one runs and one waits, the waiting one is cancelled and must be re-run
+concurrency:
+  group: release
+  cancel-in-progress: false
 env:
   AWS_ENDPOINT_URL: "https://nrs.objectstore.gov.bc.ca"
   AWS_S3_ENDPOINT: "nrs.objectstore.gov.bc.ca"
@@ -31,3 +38,6 @@ jobs:
         run: |
           git config --global --add safe.directory /__w/harvest-restrictions/harvest-restrictions
           python harvest_restrictions.py release -v
+      - name: Prune released drafts
+        # only drafts of released runs (including this one) - unreleased runs are left alone
+        run: python harvest_restrictions.py prune-drafts -v
