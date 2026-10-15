@@ -495,9 +495,9 @@ def test_release_publishes(store):
 
     archive_key = f"releases/widgets_{RELEASE_TAG}.zip"
     latest_keys = [
-        "widgets.gpkg",
-        "parts.csv",
-        "widget_summary.csv",
+        "latest/widgets.gpkg",
+        "latest/parts.csv",
+        "latest/widget_summary.csv",
         "logs/widgets.csv",
         "logs/colours.csv",
     ]
@@ -527,9 +527,9 @@ def test_release_publishes(store):
     assert bundle[1][1].endswith("parts.csv") and bundle[1][2] == "False"
 
     # a latest file of another name is converted, one of the same name is copied as is
-    widgets = layers(store.objects["widgets.gpkg"]["body"])
+    widgets = layers(store.objects["latest/widgets.gpkg"]["body"])
     assert [layer[0] for layer in widgets] == ["widgets"]
-    assert store.objects["parts.csv"]["body"] == b"part,widget_id\nbolt,1\n"
+    assert store.objects["latest/parts.csv"]["body"] == b"part,widget_id\nbolt,1\n"
 
     # drafts are left for prune_drafts
     assert dr.draft_key(RUN_ID, dr.MANIFEST) in store.objects
@@ -556,7 +556,7 @@ def test_release_without_archive(store):
 
     run_release(store, config=config)
     # just the latest files and the change logs
-    assert store.uploads[0] == "widgets.gpkg"
+    assert store.uploads[0] == "latest/widgets.gpkg"
     assert not any(k.startswith("releases/") for k in store.uploads)
     assert [k for k in store.uploads if k.startswith("logs/")] == [
         "logs/widgets.csv",

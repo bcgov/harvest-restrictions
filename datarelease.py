@@ -8,7 +8,7 @@ run has been reviewed, its commit is tagged and release() promotes the run:
 - a zip archive of the release's files (optionally including a bundle geopackage combining
   its layers) under releases/, with the release tag in its name, never overwritten
 - the release's change log rows under logs/<release_tag>/, never rewritten
-- fixed-name "latest" files at the root, for consumers that don't track releases
+- fixed-name "latest" files under latest/, for consumers that don't track releases
 - combined change logs under logs/, rebuilt from every release's rows
 
 prune_drafts() deletes drafts that are no longer needed. Nothing is ever overwritten that a
@@ -72,8 +72,8 @@ CONFIG_SCHEMA = {
                     },
                     "latest": {
                         "type": "string",
-                        "description": "publish as this fixed-name latest file - as is if it's the "
-                        "same name as file, otherwise converted to a .gpkg of that name",
+                        "description": "publish under latest/ as this fixed-name file - as is if "
+                        "it's the same name as file, otherwise converted to a .gpkg of that name",
                     },
                 },
             },
@@ -196,6 +196,11 @@ def log_prefix(release_tag):
 def release_log_key(release_tag, log_name):
     """key of one release's change log rows"""
     return f"{log_prefix(release_tag)}/{log_name}.csv"
+
+
+def latest_key(name):
+    """key of a fixed-name latest file, overwritten by each release"""
+    return f"latest/{name}"
 
 
 def combined_log_key(log_name):
@@ -632,6 +637,7 @@ def release(config, store, run_id=None):
     # the logs are combined
     released_at = datetime.now(timezone.utc).isoformat(timespec="seconds")
     release_logs = []
+    combined_logs = []
     for log in config["logs"]:
         rows = (
             pandas.read_csv(local(log["summary"]))[log["columns"] + ["current"]]
@@ -655,13 +661,14 @@ def release(config, store, run_id=None):
             rows = pandas.concat([history, rows], ignore_index=True)
         combined = combined_log_key(log["name"])
         rows.to_csv(local(combined), index=False)
-        latest_files.append(combined)
+        combined_logs.append(combined)
 
     # everything is built - publish. First the archive, never overwritten once released, then
-    # the latest files (including the combined change logs), and finally this release's change
-    # log rows, marking the release as done
+    # the latest files and combined change logs, and finally this release's change log rows,
+    # marking the release as done
     to_publish = [(archive, f"releases/{archive}")] if archive else []
-    to_publish += [(f, f) for f in latest_files]
+    to_publish += [(f, latest_key(f)) for f in latest_files]
+    to_publish += [(f, f) for f in combined_logs]
     to_publish += [(f, f) for f in release_logs]
     for name, key in to_publish:
         store.upload(local(name), key, tags)
