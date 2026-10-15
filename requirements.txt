@@ -4,3 +4,4 @@ pyarrow
 python-slugify
 fsspec
 s3fs
+sqlalchemy < 2.1  # bcdata 0.17.1 needs the psycopg2 driver, sqlalchemy 2.1 defaults to psycopg 3
