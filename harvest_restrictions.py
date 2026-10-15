@@ -1014,32 +1014,28 @@ def release(run_id, bucket, clean_draft, verbose, quiet):
 
     tags = {"commit": commit, "run_id": run_id, "release": release_tag}
 
-    # build the single dated release geopackage, one table at a time - add_gpkg_layer creates it
-    # fresh on the first call and appends on every call after. Each spatial layer is also built
-    # as its own standalone geopackage, for the fixed-name "latest" pointers at the root - for
-    # scripts/mapping applications that want the current release without tracking release tags.
-    # These are plain names at the root - it's overlay()'s draft-tier keys that live under the
-    # separate draft/ prefix, so the two naming schemes never collide
+    # the dated release geopackage, built up one table at a time
     gpkg_file = f"harvest_restrictions_{release_tag}.gpkg"
 
-    for draft_gpkg_zip, layer_name, latest_file in [
-        (
-            "harvest_restrictions.gpkg.zip",
-            "harvest_restrictions",
-            "harvest_restrictions.gpkg",
-        ),
-        (
-            "harvest_restrictions_sources.gpkg.zip",
-            "designations",
-            "harvest_restrictions_sources.gpkg",
-        ),
-    ]:
-        local_zip = s3_download_tagged(bucket, draft_key(draft_gpkg_zip), tag_filter)
-        source = vsizip_path(local_zip)
-        add_gpkg_layer(gpkg_file, source, layer_name)
-        LOG.info(f"{layer_name} layer added to {gpkg_file}, from {draft_gpkg_zip}")
+    # spatial layers, keyed by the geopackage overlay() published them in (zipped, under draft/)
+    spatial_layers = {
+        "harvest_restrictions.gpkg": "harvest_restrictions",
+        "harvest_restrictions_sources.gpkg": "designations",
+    }
 
-        add_gpkg_layer(latest_file, source, layer_name)
+    for latest_file, layer_name in spatial_layers.items():
+        # fetch this run's draft geopackage
+        draft_zip = draft_key(latest_file + ".zip")
+        local_zip = s3_download_tagged(bucket, draft_zip, tag_filter)
+        draft_layer = vsizip_path(local_zip)
+
+        # add it as a layer in the dated release geopackage
+        add_gpkg_layer(gpkg_file, draft_layer, layer_name)
+        LOG.info(f"{layer_name} layer added to {gpkg_file}, from {draft_zip}")
+
+        # and publish it standalone at the bucket root, under a fixed name, as the "latest"
+        # pointer - for scripts/mapping applications that don't track release tags
+        add_gpkg_layer(latest_file, draft_layer, layer_name)
         s3_upload_and_tag(bucket, latest_file, latest_file, tags)
         LOG.info(f"{latest_file} published to s3://{bucket}/{s3_key(latest_file)}")
 
