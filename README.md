@@ -159,15 +159,15 @@ s3://$BUCKET/harvest_restrictions/
 │       ├── harvest_restrictions_summary.csv
 │       ├── sources.csv
 │       └── manifest.json                     # written last - marks the run complete
-├── LOG_land_designations.csv                 # combined change logs, rebuilt by `release`
-├── LOG_harvest_restrictions.csv
 ├── harvest_restrictions.gpkg                 # latest-release pointers, written by `release`
 ├── harvest_restrictions_sources.gpkg
 ├── land_designations_summary.csv
 ├── harvest_restrictions_summary.csv
 ├── sources.csv
-├── logs/                                     # each release's change log rows, written by `release`
-│   └── <release_tag>/
+├── logs/                                     # change logs, written by `release`
+│   ├── land_designations.csv                 # combined, rebuilt on every release
+│   ├── harvest_restrictions.csv
+│   └── <release_tag>/                        # each release's rows
 │       ├── land_designations.csv
 │       └── harvest_restrictions.csv
 └── releases/                                 # permanent per-release archives, written by `release`
@@ -190,7 +190,7 @@ s3://$BUCKET/harvest_restrictions/
 
 **`logs/<release_tag>/land_designations.csv`, `logs/<release_tag>/harvest_restrictions.csv`** - written only by `release`, that release's change log rows, never rewritten. One row per category (`release_tag`, `release_date`, `commit`, `run_id`, `released_at`, category columns, `area_ha`). These are the change log's source of truth: `overlay` reads them to find the previous release to compare against, and `release` refuses to release a tag already logged here. `released_at` (when the release was made) orders the releases - `release_date` is the released commit's author date, which needn't follow release order.
 
-**`LOG_land_designations.csv` / `LOG_harvest_restrictions.csv`** - the combined change logs, every release's rows from `logs/<release_tag>/` in `released_at` order. Rebuilt by `release` each time, so if damaged they're fixed by the next release.
+**`logs/land_designations.csv` / `logs/harvest_restrictions.csv`** - the combined change logs, every release's rows from `logs/<release_tag>/` in `released_at` order. Rebuilt by `release` each time, so if damaged they're fixed by the next release.
 
 **`harvest_restrictions.gpkg`, `harvest_restrictions_sources.gpkg`, `land_designations_summary.csv`, `harvest_restrictions_summary.csv`, `sources.csv`** (root) - the latest-release pointers, written only by `release`, at fixed plain-named keys (no suffix), overwritten on every release. The same five deliverables as separate files rather than one geopackage, for scripts/mapping applications that just want the current release without tracking release tags - point at these instead of the `releases/` archive. Fully redundant with the latest release's archive.
 

@@ -9,7 +9,7 @@ run has been reviewed, its commit is tagged and release() promotes the run:
   its layers) under releases/, with the release tag in its name, never overwritten
 - the release's change log rows under logs/<release_tag>/, never rewritten
 - fixed-name "latest" files at the root, for consumers that don't track releases
-- combined change logs at the root, rebuilt from every release's rows
+- combined change logs under logs/, rebuilt from every release's rows
 
 prune_drafts() deletes drafts that are no longer needed. Nothing is ever overwritten that a
 later step depends on, so the bucket needs no versioning.
@@ -199,8 +199,9 @@ def release_log_key(release_tag, log_name):
 
 
 def combined_log_key(log_name):
-    """key of a combined change log, rebuilt from every release's rows on each release"""
-    return f"LOG_{log_name}.csv"
+    """key of a combined change log, rebuilt from every release's rows on each release - next
+    to (not in) the per-release logs/<release_tag>/ folders, so it's never read as one"""
+    return f"logs/{log_name}.csv"
 
 
 class S3Store:

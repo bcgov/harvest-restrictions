@@ -498,8 +498,8 @@ def test_release_publishes(store):
         "widgets.gpkg",
         "parts.csv",
         "widget_summary.csv",
-        "LOG_widgets.csv",
-        "LOG_colours.csv",
+        "logs/widgets.csv",
+        "logs/colours.csv",
     ]
     release_log_keys = [
         f"logs/{RELEASE_TAG}/widgets.csv",
@@ -555,10 +555,12 @@ def test_release_without_archive(store):
         output.pop("archive", None)
 
     run_release(store, config=config)
-    # just the latest files and the release's change log rows
+    # just the latest files and the change logs
     assert store.uploads[0] == "widgets.gpkg"
     assert not any(k.startswith("releases/") for k in store.uploads)
     assert [k for k in store.uploads if k.startswith("logs/")] == [
+        "logs/widgets.csv",
+        "logs/colours.csv",
         f"logs/{RELEASE_TAG}/widgets.csv",
         f"logs/{RELEASE_TAG}/colours.csv",
     ]
@@ -589,6 +591,16 @@ def test_release_logs(store):
         assert list(combined["release_tag"]) == [PREVIOUS_RELEASE, RELEASE_TAG]
 
 
+def test_read_release_logs_after_release(store, tmp_path):
+    # the combined logs a release publishes (every release's rows) sit next to the per-release
+    # folders under logs/ - reading the logs back mustn't count their rows again
+    run_release(store)
+
+    histories = dr.read_release_logs(CONFIG, store, str(tmp_path / "read"))
+    for history in histories.values():
+        assert list(history["release_tag"]) == [PREVIOUS_RELEASE, RELEASE_TAG]
+
+
 def test_read_release_logs_ordered_by_released_at(store, tmp_path):
     # tag names (and so the order keys are listed in) needn't follow release order - here
     # v2025-08 was released after v2026-02. Mixed timestamp formats, as in backfilled logs
@@ -612,6 +624,7 @@ def test_read_release_logs_ignores_other_keys(store, tmp_path):
     # (real log rows, so they'd show up if read)
     rows = store.objects[dr.release_log_key(PREVIOUS_RELEASE, "widgets")]["body"]
     store.put("logs/log/v2026-05/widgets.csv", rows.replace(b"v2026-02", b"v2026-05"))
+    # the combined log
     store.put("logs/widgets.csv", rows.replace(b"v2026-02", b"v2026-06"))
     store.put("releases/v2026-07/widgets.csv", rows.replace(b"v2026-02", b"v2026-07"))
 
@@ -628,7 +641,7 @@ def test_release_defaults_to_latest_run(store, tmp_path):
     put_run(store, run_id="20261004T000000Z", commit="f00")
 
     run_release(store)
-    assert store.objects["LOG_widgets.csv"]["tags"]["run_id"] == later_run
+    assert store.objects["logs/widgets.csv"]["tags"]["run_id"] == later_run
     release_dir = tmp_path / f"release_{RELEASE_TAG}"
     assert (release_dir / "widgets.gpkg.zip").read_text() == f"widgets zip {later_run}"
 
@@ -637,7 +650,7 @@ def test_release_pinned_run(store):
     put_run(store, run_id="20261002T000000Z")
 
     run_release(store, run_id=RUN_ID)
-    assert store.objects["LOG_widgets.csv"]["tags"]["run_id"] == RUN_ID
+    assert store.objects["logs/widgets.csv"]["tags"]["run_id"] == RUN_ID
 
 
 def test_release_pinned_run_of_other_commit(store):

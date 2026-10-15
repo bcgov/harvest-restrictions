@@ -1,5 +1,9 @@
 """One-off: split the combined change logs into per-release files for logs/<tag>/
 
+The combined logs are the old LOG_*.csv files at the bucket root - once split, release rebuilds
+them as logs/land_designations.csv and logs/harvest_restrictions.csv, and the old root files
+can be deleted.
+
 usage: python migrate/split_release_logs.py LOG_land_designations.csv LOG_harvest_restrictions.csv OUT_DIR
 
 Writes OUT_DIR/logs/<release_tag>/{land_designations,harvest_restrictions}.csv, adding
