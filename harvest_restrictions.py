@@ -650,7 +650,7 @@ def s3_download_tagged(bucket, key, tag_filter, local_file=None):
     return local_file
 
 
-def add_gpkg_layer(out_file, source_file, layer_name, spatial=True):
+def write_gpkg_layer(out_file, source_file, layer_name, spatial=True):
     """add source_file as a new layer (or non-spatial table) in out_file, creating it if needed"""
     cmd = ["ogr2ogr", "-f", "GPKG"]
     if os.path.exists(out_file):
@@ -961,12 +961,10 @@ def overlay(db_url, out_file, designations_table, bucket, verbose, quiet):
 def release(run_id, bucket, clean_draft, verbose, quiet):
     """Create release files and update logs, using draft outputs corresponding to the given commit/run_id,
 
-    Release files are:
-    - date stamped .gpkg
-    - non-date stamped _latest files (for consistent path to latest release)
-    - updated log files
-
-    --clean_draft option will delete overlay()'s draft/-prefixed objects corresponding to the the release.
+    Released files are:
+    - latest .gpkg written to prefix root (unzipped and non-date stamped for easy access to most recent output)
+    - updated LOG_ files in prefix root
+    - date stamped .gpkg.zip archive in /releases
     """
     configure_logging((verbose - quiet))
 
@@ -1014,34 +1012,35 @@ def release(run_id, bucket, clean_draft, verbose, quiet):
 
     tags = {"commit": commit, "run_id": run_id, "release": release_tag}
 
-    # build the single dated release geopackage, one table at a time - add_gpkg_layer creates it
+    # build the single dated release geopackage, one table at a time - write_gpkg_layer creates it
     # fresh on the first call and appends on every call after. Each spatial layer is also built
     # as its own standalone geopackage, for the fixed-name "latest" pointers at the root - for
     # scripts/mapping applications that want the current release without tracking release tags.
     # These are plain names at the root - it's overlay()'s draft-tier keys that live under the
     # separate draft/ prefix, so the two naming schemes never collide
-    gpkg_file = f"harvest_restrictions_{release_tag}.gpkg"
+    gpkg_release = f"harvest_restrictions_{release_tag}.gpkg"
 
-    for draft_gpkg_zip, layer_name, latest_file in [
+    for gpkg, layer_name in [
         (
-            "harvest_restrictions.gpkg.zip",
-            "harvest_restrictions",
             "harvest_restrictions.gpkg",
+            "harvest_restrictions",
         ),
         (
-            "harvest_restrictions_sources.gpkg.zip",
-            "designations",
             "harvest_restrictions_sources.gpkg",
+            "designations",
         ),
     ]:
-        local_zip = s3_download_tagged(bucket, draft_key(draft_gpkg_zip), tag_filter)
+        local_zip = s3_download_tagged(bucket, draft_key(gpkg + ".zip"), tag_filter)
         source = vsizip_path(local_zip)
-        add_gpkg_layer(gpkg_file, source, layer_name)
-        LOG.info(f"{layer_name} layer added to {gpkg_file}, from {draft_gpkg_zip}")
 
-        add_gpkg_layer(latest_file, source, layer_name)
-        s3_upload_and_tag(bucket, latest_file, latest_file, tags)
-        LOG.info(f"{latest_file} published to s3://{bucket}/{s3_key(latest_file)}")
+        # write layer to latest file and release file
+        write_gpkg_layer(gpkg_release, source, layer_name)
+        write_gpkg_layer(gpkg, source, layer_name)
+        LOG.info(f"{layer_name} layer added to release geopackages")
+
+        # upload latest file
+        s3_upload_and_tag(bucket, gpkg, gpkg, tags)
+        LOG.info(f"{gpkg} published to s3://{bucket}/{s3_key(gpkg)}")
 
     # the summary csvs and sources listing are added to the release geopackage as non-spatial
     # tables, and published separately as their own fixed-name "latest" pointers, at the same
@@ -1054,17 +1053,17 @@ def release(run_id, bucket, clean_draft, verbose, quiet):
         (SOURCES_CSV, "sources"),
     ]:
         s3_download_tagged(bucket, draft_key(key), tag_filter, local_file=key)
-        add_gpkg_layer(gpkg_file, key, table_name, spatial=False)
-        LOG.info(f"{table_name} table added to {gpkg_file}, from {key}")
+        write_gpkg_layer(gpkg_release, key, table_name, spatial=False)
+        LOG.info(f"{table_name} table added to {gpkg_release}, from {key}")
 
         s3_upload_and_tag(bucket, key, key, tags)
         LOG.info(f"{key} published to s3://{bucket}/{s3_key(key)}")
 
     # publish the dated geopackage under releases/ - never overwritten, so past releases stay
     # retrievable regardless of any noncurrent-version lifecycle policy
-    s3_upload_and_tag(bucket, gpkg_file, f"releases/{gpkg_file}", tags)
+    s3_upload_and_tag(bucket, gpkg_release, f"releases/{gpkg_release}", tags)
     LOG.info(
-        f"{gpkg_file} published to s3://{bucket}/{s3_key(f'releases/{gpkg_file}')}"
+        f"{gpkg_release} published to s3://{bucket}/{s3_key(f'releases/{gpkg_release}')}"
     )
 
     # append this release's totals to the durable change log - release is the only writer of
