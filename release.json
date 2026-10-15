@@ -1,0 +1,57 @@
+{
+  "prefix": "harvest_restrictions",
+  "archive": "harvest_restrictions_{release_tag}.zip",
+  "bundle": "harvest_restrictions_{release_tag}.gpkg",
+  "outputs": [
+    {
+      "file": "harvest_restrictions.gpkg.zip",
+      "layer": "harvest_restrictions",
+      "latest": "harvest_restrictions.gpkg"
+    },
+    {
+      "file": "harvest_restrictions_sources.gpkg.zip",
+      "layer": "designations",
+      "latest": "harvest_restrictions_sources.gpkg"
+    },
+    {
+      "file": "land_designations_summary.csv",
+      "latest": "land_designations_summary.csv",
+      "archive": true
+    },
+    {
+      "file": "harvest_restrictions_summary.csv",
+      "latest": "harvest_restrictions_summary.csv",
+      "archive": true
+    },
+    {
+      "file": "sources.csv",
+      "latest": "sources.csv",
+      "archive": true
+    }
+  ],
+  "logs": [
+    {
+      "name": "land_designations",
+      "summary": "land_designations_summary.csv",
+      "key": "land_designation_type_rank",
+      "columns": [
+        "land_designation_type_rank",
+        "harvest_restriction_class_rank",
+        "harvest_restriction_class_name",
+        "land_designation_type_code",
+        "land_designation_type_name"
+      ],
+      "value": "area_ha"
+    },
+    {
+      "name": "harvest_restrictions",
+      "summary": "harvest_restrictions_summary.csv",
+      "key": "harvest_restriction_class_rank",
+      "columns": [
+        "harvest_restriction_class_rank",
+        "harvest_restriction_class_name"
+      ],
+      "value": "area_ha"
+    }
+  ]
+}
