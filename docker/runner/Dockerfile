@@ -30,3 +30,4 @@ RUN python3 -m venv /opt/venv && \
     /opt/venv/bin/python -m pip install --no-cache-dir -r requirements-dev.txt
 
 ENV PATH="/opt/venv/bin:$PATH"
+ENV AWS_PAGER=""
