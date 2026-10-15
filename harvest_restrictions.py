@@ -467,6 +467,10 @@ def load_db(
                 LOG.info(f"{source['alias']} written to {layer}")
 
 
+# the all_* lists are exported as JSON arrays, the nth entry of each describing the same
+# designation. JSON rather than a delimited string, as source values can contain any delimiter
+# (eg a WHA named "Tiger Salamander; Great Basin Spadefoot"), and a missing value (eg a
+# designation with no name or primary key) stays a null, keeping the lists aligned
 DUMP_SQL = """select
   harvest_restrictions_id,
   land_designation_name,
@@ -476,13 +480,13 @@ DUMP_SQL = """select
   land_designation_primary_key,
   harvest_restriction_class_rank,
   harvest_restriction_class_name,
-  array_to_string(trim_array(all_land_desig_names, 1), ';') as all_land_desig_names,
-  array_to_string(trim_array(all_land_desig_type_ranks, 1), ';') as all_land_desig_type_ranks,
-  array_to_string(trim_array(all_land_desig_type_codes, 1), ';') as all_land_desig_type_codes,
-  array_to_string(trim_array(all_land_desig_type_names, 1), ';') as all_land_desig_type_names,
-  array_to_string(trim_array(all_land_desig_primary_keys, 1), ';') as all_land_desig_primary_keys,
-  array_to_string(trim_array(all_harv_restrict_class_ranks, 1), ';') as all_harv_restrict_class_ranks,
-  array_to_string(trim_array(all_harv_restrict_class_names, 1), ';') as all_harv_restrict_class_names,
+  array_to_json(trim_array(all_land_desig_names, 1)) as all_land_desig_names,
+  array_to_json(trim_array(all_land_desig_type_ranks, 1)) as all_land_desig_type_ranks,
+  array_to_json(trim_array(all_land_desig_type_codes, 1)) as all_land_desig_type_codes,
+  array_to_json(trim_array(all_land_desig_type_names, 1)) as all_land_desig_type_names,
+  array_to_json(trim_array(all_land_desig_primary_keys, 1)) as all_land_desig_primary_keys,
+  array_to_json(trim_array(all_harv_restrict_class_ranks, 1)) as all_harv_restrict_class_ranks,
+  array_to_json(trim_array(all_harv_restrict_class_names, 1)) as all_harv_restrict_class_names,
   map_tile_250k,
   geom
 from harvest_restrictions

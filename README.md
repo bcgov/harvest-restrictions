@@ -72,6 +72,8 @@ Output `harvest_restrictions.gdb` has the following columns:
 | `all_harv_restrict_class_names`   | String  | All harvest restriction class names that apply to the given polygon |
 | `map_tile_250k`                   | String  | NTS 1:250,000 tile name                                          |   
 
+The `all_*` columns are JSON arrays listing every designation applying to the polygon, in rank order. The lists line up - the nth entry of each describes the same designation - and a missing value (eg a designation with no name or primary key) is `null`, eg `["name_a", null, "name_c"]`.
+
 
 ## Development and testing setup
 
