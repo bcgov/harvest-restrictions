@@ -1,7 +1,7 @@
 """Draft, review and release the outputs of a data analysis, via object storage
 
 A project runs its analysis, then calls publish_draft() with the files it produced. Each run
-is published under its own draft/<run_id>/ prefix, with summaries comparing the run's totals
+is published under its own drafts/<run_id>/ prefix, with summaries comparing the run's totals
 to the most recent release, and a manifest written last to mark the run complete. Once a
 run has been reviewed, its commit is tagged and release() promotes the run:
 
@@ -139,7 +139,7 @@ def validate_config(config):
 
 
 def draft_files(config):
-    """names of every file a run publishes under draft/<run_id>/, besides the manifest"""
+    """names of every file a run publishes under drafts/<run_id>/, besides the manifest"""
     names = [o["file"] for o in config["outputs"]]
     names += [log["summary"] for log in config["logs"] if log["summary"] not in names]
     return names
@@ -172,13 +172,13 @@ def check_inputs(config, files, current):
 
 
 def run_prefix(run_id):
-    """the draft/ prefix holding everything one run published
+    """the drafts/ prefix holding everything one run published
 
     Each run gets its own prefix and never writes to it again, so runs can't overwrite each
     other, and pruning a run is just deleting its prefix. run_id is a UTC timestamp, so run
     prefixes sort oldest to newest.
     """
-    return f"draft/{run_id}"
+    return f"drafts/{run_id}"
 
 
 def draft_key(run_id, name):
@@ -399,7 +399,7 @@ def git(*args):
 
 
 def publish_draft(config, store, files, current, work_dir=".", run_id=None):
-    """publish a run's outputs under its own draft/<run_id>/ prefix
+    """publish a run's outputs under its own drafts/<run_id>/ prefix
 
     files maps every configured output file (other than the summaries, which this writes) to
     the local path of that file. current maps each configured log's name to a local csv of
@@ -474,7 +474,9 @@ def find_run(store, commit, run_id, work_dir):
     run_id pins a specific run; otherwise the most recent complete run of commit is used.
     Only runs with a manifest (i.e. that finished publishing) are considered.
     """
-    manifest_keys = [k for k in store.list("draft/") if os.path.basename(k) == MANIFEST]
+    manifest_keys = [
+        k for k in store.list("drafts/") if os.path.basename(k) == MANIFEST
+    ]
     if run_id:
         candidates = [k for k in manifest_keys if k == draft_key(run_id, MANIFEST)]
     else:
@@ -496,7 +498,7 @@ def find_run(store, commit, run_id, work_dir):
 
     run_desc = f"run {run_id}" if run_id else "run"
     raise ValueError(
-        f"No complete {run_desc} of commit={commit} found under {store.url('draft/')} "
+        f"No complete {run_desc} of commit={commit} found under {store.url('drafts/')} "
         "- run the analysis against this commit before releasing it"
     )
 
@@ -513,7 +515,7 @@ def release(config, store, run_id=None):
     release as done, so a failure partway through publishing can be retried, and the retry
     overwrites whatever had been published so far.
 
-    The released run's draft/<run_id>/ prefix is left in place - prune_drafts() deletes it.
+    The released run's drafts/<run_id>/ prefix is left in place - prune_drafts() deletes it.
     """
     commit = git("rev-parse", "HEAD")
     short_commit = git("rev-parse", "--short", "HEAD")
@@ -660,7 +662,7 @@ def release(config, store, run_id=None):
 
 
 def prune_drafts(config, store, older_than=None, dry_run=False):
-    """delete runs' draft/<run_id>/ prefixes that are no longer needed
+    """delete runs' drafts/<run_id>/ prefixes that are no longer needed
 
     By default only released runs are deleted - everything they published was copied into
     the release. With older_than (days), unreleased runs older than that are deleted too,
@@ -678,10 +680,10 @@ def prune_drafts(config, store, older_than=None, dry_run=False):
         released = run_ids if released is None else released & run_ids
     released = released or set()
 
-    # runs are draft/<run_id>/<file>, with run_id a UTC timestamp - anything else under draft/
+    # runs are drafts/<run_id>/<file>, with run_id a UTC timestamp - anything else under drafts/
     # isn't a run's, and is left alone
     run_times = {}
-    for key in store.list("draft/"):
+    for key in store.list("drafts/"):
         parts = key.split("/")
         if len(parts) != 3 or parts[1] in run_times:
             continue

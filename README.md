@@ -82,7 +82,7 @@ Output `harvest_restrictions.gdb` has the following columns:
 
 Committing changes requires `pre-commit` - install via your package manager of choice.
 
-The `harvest_restrictions` object storage bucket does not require versioning - every `overlay` run publishes to its own `draft/<run_id>/` prefix, and every release writes its own uniquely-named files, so nothing `release` depends on is ever overwritten. Versioning remains useful as insurance against accidental deletes. See "Object storage layout" below.
+The `harvest_restrictions` object storage bucket does not require versioning - every `overlay` run publishes to its own `drafts/<run_id>/` prefix, and every release writes its own uniquely-named files, so nothing `release` depends on is ever overwritten. Versioning remains useful as insurance against accidental deletes. See "Object storage layout" below.
 
 ## Usage
 
@@ -110,11 +110,11 @@ The `harvest_restrictions` object storage bucket does not require versioning - e
 
         docker compose run -it --rm runner python harvest_restrictions.py load-db -v --out_table designations --truncate -p s3://$BUCKET/harvest_restrictions/cache
 
-7. Run overlays, dump resulting layer and summaries to geopackage/csv, and publish these outputs to object storage under `draft/<run_id>/`. This also compares the new summaries to the most recently released version:
+7. Run overlays, dump resulting layer and summaries to geopackage/csv, and publish these outputs to object storage under `drafts/<run_id>/`. This also compares the new summaries to the most recently released version:
 
         docker compose run -it --rm runner python harvest_restrictions.py overlay -v
 
-8. Review the change report (and `harvest_restrictions.gpkg.zip`, e.g. for external/client review - both are already published to object storage under the run's `draft/<run_id>/` prefix):
+8. Review the change report (and `harvest_restrictions.gpkg.zip`, e.g. for external/client review - both are already published to object storage under the run's `drafts/<run_id>/` prefix):
 
     - `land_designations_summary.csv`
     - `harvest_restrictions_summary.csv`
@@ -151,7 +151,7 @@ s3://$BUCKET/harvest_restrictions/
 │   ├── hr_01_park_national.parquet
 │   ├── hr_02_park_er.parquet
 │   └── ...
-├── draft/                                    # unreviewed overlay output, written by `overlay`
+├── drafts/                                    # unreviewed overlay output, written by `overlay`
 │   └── <run_id>/                             # one prefix per run, never rewritten
 │       ├── harvest_restrictions.gpkg.zip
 │       ├── harvest_restrictions_sources.gpkg.zip
@@ -181,7 +181,7 @@ s3://$BUCKET/harvest_restrictions/
 
 **`cache/`** - written by `cache`, untagged, one geoparquet per source (`hr_<NN>_<alias>.parquet`), overwritten on the next `cache` run for that source. `clear-cache` removes these directly by filename pattern, safe to point at a shared prefix since it only ever touches its own `hr_*.parquet` files.
 
-**`draft/<run_id>/`** - written by `overlay`, one prefix per run, never rewritten. `manifest.json` (the run's `commit`, `run_id`, the `previous_release` its summaries compare against, and its file list) is written last, so a run that failed partway through publishing has no manifest and is never released. Transient by design - `prune-drafts` (run by the release workflow) deletes released runs' prefixes, and with `--older_than` old unreleased ones. Pruning by age can also be left to a lifecycle expiration rule on `draft/` (released runs are fully copied into the release, so pruning them loses nothing; pruning an unreleased run just means re-running `overlay` before releasing it):
+**`drafts/<run_id>/`** - written by `overlay`, one prefix per run, never rewritten. `manifest.json` (the run's `commit`, `run_id`, the `previous_release` its summaries compare against, and its file list) is written last, so a run that failed partway through publishing has no manifest and is never released. Transient by design - `prune-drafts` (run by the release workflow) deletes released runs' prefixes, and with `--older_than` old unreleased ones. Pruning by age can also be left to a lifecycle expiration rule on `drafts/` (released runs are fully copied into the release, so pruning them loses nothing; pruning an unreleased run just means re-running `overlay` before releasing it):
 
 - `harvest_restrictions.gpkg.zip`, `harvest_restrictions_sources.gpkg.zip` - the raw overlay result and its source designations, each a zipped geopackage
 - `land_designations_summary.csv`, `harvest_restrictions_summary.csv` - a disposable rollup, rebuilt from scratch on every `overlay` run (by `log`), comparing the *most recent release* against the *current* run with `current`/`diff`/`pct_diff` columns. Retains every category present in either side - a category new to this run or dropped since the previous release still gets its labels, with `diff`/`pct_diff` left as `NaN` rather than misleadingly implying zero area. This is what you review in step 8 above, and what `release` reads (via the `current` column) to append this run's totals to the durable change log - there's no separate current-only file, since this already carries the same totals plus the diff.
@@ -197,7 +197,7 @@ s3://$BUCKET/harvest_restrictions/
 
 ### commit vs run_id
 
-Every `overlay` run records both `commit` (the git commit that produced it) and `run_id` (a UTC timestamp identifying that specific invocation of `overlay`, and the name of its `draft/` prefix) in its manifest. These are usually interchangeable - `release` defaults to the most recent run of a given commit - but they diverge if `overlay` is run more than once against the same commit (the underlying source data can change even with no code change). If a second run happens after you've reviewed the first, pass `--run_id` to `release` to pin the exact run that was actually reviewed, rather than picking up whatever ran most recently.
+Every `overlay` run records both `commit` (the git commit that produced it) and `run_id` (a UTC timestamp identifying that specific invocation of `overlay`, and the name of its `drafts/` prefix) in its manifest. These are usually interchangeable - `release` defaults to the most recent run of a given commit - but they diverge if `overlay` is run more than once against the same commit (the underlying source data can change even with no code change). If a second run happens after you've reviewed the first, pass `--run_id` to `release` to pin the exact run that was actually reviewed, rather than picking up whatever ran most recently.
 
 The logs were backfilled from pre-existing wide-format records, with `released_at` copied from `release_date`. `v2024-08`, `v2025-04`, `v2025-08`, and `v2026-02` carry real `commit`/`release_date` values from their matching git tags (the latter two were originally recorded under the old `-DRAFT` tag naming convention, since renamed). `v2023-07` and `v2024-04` have no corresponding git tag at all - for those two, `release_date` is approximated as the first of the tag's named month and `commit` is left blank.
 

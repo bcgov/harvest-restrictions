@@ -728,7 +728,7 @@ def release(run_id, bucket, verbose, quiet):
 @verbose_opt
 @quiet_opt
 def prune_drafts(bucket, older_than, dry_run, verbose, quiet):
-    """Delete overlay runs' draft/<run_id>/ prefixes that are no longer needed
+    """Delete overlay runs' drafts/<run_id>/ prefixes that are no longer needed
 
     By default only released runs are deleted - everything they published was copied into
     the release. With --older_than, unreleased runs older than that are deleted too, apart

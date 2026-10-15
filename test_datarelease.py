@@ -217,15 +217,15 @@ def test_s3store_list(monkeypatch):
     def fake_run(cmd, **kwargs):
         calls.append(cmd)
         out = json.dumps(
-            {"Contents": [{"Key": "widgets/draft/b"}, {"Key": "widgets/draft/a"}]}
+            {"Contents": [{"Key": "widgets/drafts/b"}, {"Key": "widgets/drafts/a"}]}
         )
         return subprocess.CompletedProcess(cmd, 0, stdout=out)
 
     monkeypatch.setattr(dr.subprocess, "run", fake_run)
     store = dr.S3Store("bucket", "widgets")
     # keys relative to the store's prefix, sorted
-    assert store.list("draft/") == ["draft/a", "draft/b"]
-    assert calls[0][calls[0].index("--prefix") + 1] == "widgets/draft/"
+    assert store.list("drafts/") == ["drafts/a", "drafts/b"]
+    assert calls[0][calls[0].index("--prefix") + 1] == "widgets/drafts/"
 
 
 def test_s3store_list_empty(monkeypatch):
@@ -235,7 +235,7 @@ def test_s3store_list_empty(monkeypatch):
         "run",
         lambda cmd, **kwargs: subprocess.CompletedProcess(cmd, 0, stdout=""),
     )
-    assert dr.S3Store("bucket", "widgets").list("draft/") == []
+    assert dr.S3Store("bucket", "widgets").list("drafts/") == []
 
 
 @pytest.mark.skipif(not shutil.which("ogr2ogr"), reason="requires GDAL")
@@ -819,7 +819,7 @@ def run_prune(store, older_than=None, dry_run=False):
 
 
 def runs(store):
-    return sorted({k.split("/")[1] for k in store.list("draft/") if k.count("/") == 2})
+    return sorted({k.split("/")[1] for k in store.list("drafts/") if k.count("/") == 2})
 
 
 def test_prune_released_runs(store):
@@ -876,13 +876,13 @@ def test_prune_dry_run(store):
 
 def test_prune_ignores_other_keys(store):
     # files outside any run prefix, and a prefix that isn't a run's
-    store.put("draft/widgets.gpkg.zip", "old layout")
-    store.put("draft/notarun/file.csv", "?")
+    store.put("drafts/widgets.gpkg.zip", "old layout")
+    store.put("drafts/notarun/file.csv", "?")
     # nor does a non-run prefix (which sorts after every run_id) count as the newest
     # unreleased run - the actual newest unreleased run is still kept
     put_run(store, run_id="20200101T000000Z")
 
     run_prune(store, older_than=0)
-    assert "draft/widgets.gpkg.zip" in store.objects
-    assert "draft/notarun/file.csv" in store.objects
+    assert "drafts/widgets.gpkg.zip" in store.objects
+    assert "drafts/notarun/file.csv" in store.objects
     assert runs(store) == [RUN_ID, "notarun"]
