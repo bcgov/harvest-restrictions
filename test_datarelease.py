@@ -493,7 +493,7 @@ def archive_members(store, key):
 def test_release_publishes(store):
     run_release(store)
 
-    archive_key = f"releases/{RELEASE_TAG}/widgets_{RELEASE_TAG}.zip"
+    archive_key = f"releases/widgets_{RELEASE_TAG}.zip"
     latest_keys = [
         "widgets.gpkg",
         "parts.csv",
@@ -502,8 +502,8 @@ def test_release_publishes(store):
         "LOG_colours.csv",
     ]
     release_log_keys = [
-        f"releases/{RELEASE_TAG}/widgets.csv",
-        f"releases/{RELEASE_TAG}/colours.csv",
+        f"logs/{RELEASE_TAG}/widgets.csv",
+        f"logs/{RELEASE_TAG}/colours.csv",
     ]
 
     # the archive first, this release's change log rows last
@@ -542,9 +542,7 @@ def test_release_without_bundle(store):
         output.pop("layer", None)
 
     run_release(store, config=config)
-    members = archive_members(
-        store, f"releases/{RELEASE_TAG}/widgets_{RELEASE_TAG}.zip"
-    )
+    members = archive_members(store, f"releases/widgets_{RELEASE_TAG}.zip")
     assert sorted(members) == ["parts.csv", "widget_summary.csv"]
 
 
@@ -559,9 +557,10 @@ def test_release_without_archive(store):
     run_release(store, config=config)
     # just the latest files and the release's change log rows
     assert store.uploads[0] == "widgets.gpkg"
-    assert [k for k in store.uploads if k.startswith("releases/")] == [
-        f"releases/{RELEASE_TAG}/widgets.csv",
-        f"releases/{RELEASE_TAG}/colours.csv",
+    assert not any(k.startswith("releases/") for k in store.uploads)
+    assert [k for k in store.uploads if k.startswith("logs/")] == [
+        f"logs/{RELEASE_TAG}/widgets.csv",
+        f"logs/{RELEASE_TAG}/colours.csv",
     ]
 
 
@@ -607,14 +606,14 @@ def test_read_release_logs_ordered_by_released_at(store, tmp_path):
 
 
 def test_read_release_logs_ignores_other_keys(store, tmp_path):
-    # an archive, and logs in another layout, aren't change log rows
-    store.put(f"releases/{RELEASE_TAG}/widgets_{RELEASE_TAG}.zip", "zip")
+    # other files under logs/, and log rows in other layouts (including releases/<tag>/,
+    # where they used to be), aren't read
+    store.put(f"logs/{RELEASE_TAG}/notes.txt", "notes")
     # (real log rows, so they'd show up if read)
     rows = store.objects[dr.release_log_key(PREVIOUS_RELEASE, "widgets")]["body"]
-    store.put(
-        "releases/log/v2026-05/widgets.csv", rows.replace(b"v2026-02", b"v2026-05")
-    )
-    store.put("releases/widgets.csv", rows.replace(b"v2026-02", b"v2026-06"))
+    store.put("logs/log/v2026-05/widgets.csv", rows.replace(b"v2026-02", b"v2026-05"))
+    store.put("logs/widgets.csv", rows.replace(b"v2026-02", b"v2026-06"))
+    store.put("releases/v2026-07/widgets.csv", rows.replace(b"v2026-02", b"v2026-07"))
 
     histories = dr.read_release_logs(CONFIG, store, str(tmp_path))
     assert list(histories["widgets"]["release_tag"]) == [PREVIOUS_RELEASE]
@@ -700,9 +699,7 @@ def test_release_ignores_leftover_local_files(store, tmp_path):
 
     run_release(store)
     assert (tmp_path / "widgets.gpkg").read_text() == "project output"
-    members = archive_members(
-        store, f"releases/{RELEASE_TAG}/widgets_{RELEASE_TAG}.zip"
-    )
+    members = archive_members(store, f"releases/widgets_{RELEASE_TAG}.zip")
     assert b"stale" not in members["widgets.gpkg"]
 
 
@@ -808,7 +805,7 @@ def test_check_inputs():
 
 def test_publish_draft_no_release_yet(store, run_files):
     files, current = run_files
-    for key in store.list("releases/"):
+    for key in store.list("logs/"):
         del store.objects[key]
     with pytest.raises(ValueError, match="release at least one version"):
         dr.publish_draft(CONFIG, store, files, current)

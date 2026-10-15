@@ -166,17 +166,18 @@ s3://$BUCKET/harvest_restrictions/
 ├── land_designations_summary.csv
 ├── harvest_restrictions_summary.csv
 ├── sources.csv
-└── releases/                                 # permanent per-release archive, written by `release`
-    └── <release_tag>/
-        ├── harvest_restrictions_<release_tag>.zip
-        │   ├── harvest_restrictions.gpkg
-        │   │   ├── harvest_restrictions   (spatial layer)
-        │   │   └── designations           (spatial layer)
-        │   ├── land_designations_summary.csv
-        │   ├── harvest_restrictions_summary.csv
-        │   └── sources.csv
-        ├── land_designations.csv             # this release's change log rows
-        └── harvest_restrictions.csv
+├── logs/                                     # each release's change log rows, written by `release`
+│   └── <release_tag>/
+│       ├── land_designations.csv
+│       └── harvest_restrictions.csv
+└── releases/                                 # permanent per-release archives, written by `release`
+    └── harvest_restrictions_<release_tag>.zip
+        ├── harvest_restrictions.gpkg
+        │   ├── harvest_restrictions       (spatial layer)
+        │   └── designations               (spatial layer)
+        ├── land_designations_summary.csv
+        ├── harvest_restrictions_summary.csv
+        └── sources.csv
 ```
 
 **`cache/`** - written by `cache`, untagged, one geoparquet per source (`hr_<NN>_<alias>.parquet`), overwritten on the next `cache` run for that source. `clear-cache` removes these directly by filename pattern, safe to point at a shared prefix since it only ever touches its own `hr_*.parquet` files.
@@ -187,13 +188,13 @@ s3://$BUCKET/harvest_restrictions/
 - `land_designations_summary.csv`, `harvest_restrictions_summary.csv` - a disposable rollup, rebuilt from scratch on every `overlay` run (by `log`), comparing the *most recent release* against the *current* run with `current`/`diff`/`pct_diff` columns. Retains every category present in either side - a category new to this run or dropped since the previous release still gets its labels, with `diff`/`pct_diff` left as `NaN` rather than misleadingly implying zero area. This is what you review in step 8 above, and what `release` reads (via the `current` column) to append this run's totals to the durable change log - there's no separate current-only file, since this already carries the same totals plus the diff.
 - `sources.csv` - a flattened `sources.json` as it stood for this run, for review alongside the summary csvs
 
-**`releases/<release_tag>/land_designations.csv`, `releases/<release_tag>/harvest_restrictions.csv`** - written only by `release`, that release's change log rows, never rewritten. One row per category (`release_tag`, `release_date`, `commit`, `run_id`, `released_at`, category columns, `area_ha`). These are the change log's source of truth: `overlay` reads them to find the previous release to compare against, and `release` refuses to release a tag already logged here. `released_at` (when the release was made) orders the releases - `release_date` is the released commit's author date, which needn't follow release order.
+**`logs/<release_tag>/land_designations.csv`, `logs/<release_tag>/harvest_restrictions.csv`** - written only by `release`, that release's change log rows, never rewritten. One row per category (`release_tag`, `release_date`, `commit`, `run_id`, `released_at`, category columns, `area_ha`). These are the change log's source of truth: `overlay` reads them to find the previous release to compare against, and `release` refuses to release a tag already logged here. `released_at` (when the release was made) orders the releases - `release_date` is the released commit's author date, which needn't follow release order.
 
-**`LOG_land_designations.csv` / `LOG_harvest_restrictions.csv`** - the combined change logs, every release's rows from `releases/<release_tag>/` in `released_at` order. Rebuilt by `release` each time, so if damaged they're fixed by the next release.
+**`LOG_land_designations.csv` / `LOG_harvest_restrictions.csv`** - the combined change logs, every release's rows from `logs/<release_tag>/` in `released_at` order. Rebuilt by `release` each time, so if damaged they're fixed by the next release.
 
 **`harvest_restrictions.gpkg`, `harvest_restrictions_sources.gpkg`, `land_designations_summary.csv`, `harvest_restrictions_summary.csv`, `sources.csv`** (root) - the latest-release pointers, written only by `release`, at fixed plain-named keys (no suffix), overwritten on every release. The same five deliverables as separate files rather than one geopackage, for scripts/mapping applications that just want the current release without tracking release tags - point at these instead of the `releases/` archive. Fully redundant with the latest release's archive.
 
-**`releases/<release_tag>/harvest_restrictions_<release_tag>.zip`** - written only by `release`, never overwritten, so every past release stays retrievable by tag. A single download holding the release - only the archive's name carries the release tag: one geopackage (`harvest_restrictions.gpkg`) with both spatial layers - unlike the root's latest `harvest_restrictions.gpkg`, which holds just the `harvest_restrictions` layer - the reviewed summaries comparing it to the previous release, and `overlay`'s reviewed `sources.csv`. The zip is seek-optimized (`sozip`), so the geopackage can be read in place without downloading or unzipping, e.g. `ogrinfo /vsizip//vsis3/$BUCKET/harvest_restrictions/releases/<release_tag>/harvest_restrictions_<release_tag>.zip/harvest_restrictions.gpkg`.
+**`releases/harvest_restrictions_<release_tag>.zip`** - written only by `release`, never overwritten, so every past release stays retrievable by tag. A single download holding the release - only the archive's name carries the release tag: one geopackage (`harvest_restrictions.gpkg`) with both spatial layers - unlike the root's latest `harvest_restrictions.gpkg`, which holds just the `harvest_restrictions` layer - the reviewed summaries comparing it to the previous release, and `overlay`'s reviewed `sources.csv`. The zip is seek-optimized (`sozip`), so the geopackage can be read in place without downloading or unzipping, e.g. `ogrinfo /vsizip//vsis3/$BUCKET/harvest_restrictions/releases/harvest_restrictions_<release_tag>.zip/harvest_restrictions.gpkg`.
 
 ### commit vs run_id
 
@@ -209,7 +210,7 @@ The draft/release/prune workflow above is implemented in `datarelease.py`, which
 `release.json` describes what each run publishes (see `CONFIG_SCHEMA` in `datarelease.py`):
 
 - `prefix` - everything is published under `s3://$BUCKET/<prefix>/`
-- `archive` - name of the zip archive of each release, published under `releases/<release_tag>/` (`{release_tag}` is replaced with the tag - required, so a downloaded archive says which release it is)
+- `archive` - name of the zip archive of each release, published under `releases/` (`{release_tag}` is replaced with the tag - required, so a downloaded archive says which release it is)
 - `bundle` - name of a geopackage in the archive combining the outputs' layers (it may share a name with a `latest` file)
 - `outputs` - each `file` a run publishes, optionally added to the bundle as `layer` (a non-spatial table for `.csv`), added to the `archive` as is, and/or published at the root as a fixed-name `latest` file - as is if the same name, otherwise converted to a geopackage of that name
 - `logs` - totals compared against the previous release and logged per release: the `summary` file to write, the category `key` and `columns`, the `value` column, and optionally `decimals` to round to (default 0)

@@ -693,8 +693,9 @@ def overlay(db_url, out_file, designations_table, bucket, verbose, quiet):
 def release(run_id, bucket, verbose, quiet):
     """Release an overlay run of the checked-out commit, which must be tagged with the release tag
 
-    Publishes the release's archive and change log rows under releases/<release_tag>/, and
-    the fixed-name latest files, as configured in release.json - see datarelease.release()
+    Publishes the release's archive under releases/, its change log rows under
+    logs/<release_tag>/, and the fixed-name latest files, as configured in release.json - see
+    datarelease.release()
     """
     configure_logging((verbose - quiet))
 

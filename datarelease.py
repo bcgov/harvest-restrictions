@@ -5,9 +5,9 @@ is published under its own drafts/<run_id>/ prefix, with summaries comparing the
 to the most recent release, and a manifest written last to mark the run complete. Once a
 run has been reviewed, its commit is tagged and release() promotes the run:
 
-- releases/<release_tag>/, never overwritten, holding a zip archive of the release's files
-  (optionally including a bundle geopackage combining its layers), and the release's change
-  log rows
+- a zip archive of the release's files (optionally including a bundle geopackage combining
+  its layers) under releases/, with the release tag in its name, never overwritten
+- the release's change log rows under logs/<release_tag>/, never rewritten
 - fixed-name "latest" files at the root, for consumers that don't track releases
 - combined change logs at the root, rebuilt from every release's rows
 
@@ -47,7 +47,7 @@ CONFIG_SCHEMA = {
         "archive": {
             "type": "string",
             "description": "name of the zip archive of each release's files, published under "
-            "releases/<release_tag>/, with a {release_tag} placeholder",
+            "releases/, with a {release_tag} placeholder",
         },
         "bundle": {
             "type": "string",
@@ -188,14 +188,14 @@ def draft_key(run_id, name):
     return f"{run_prefix(run_id)}/{name}"
 
 
-def release_prefix(release_tag):
-    """the releases/ prefix holding one release's files - written once, never rewritten"""
-    return f"releases/{release_tag}"
+def log_prefix(release_tag):
+    """the logs/ prefix holding one release's change log rows - written once, never rewritten"""
+    return f"logs/{release_tag}"
 
 
 def release_log_key(release_tag, log_name):
     """key of one release's change log rows"""
-    return f"{release_prefix(release_tag)}/{log_name}.csv"
+    return f"{log_prefix(release_tag)}/{log_name}.csv"
 
 
 def combined_log_key(log_name):
@@ -307,7 +307,7 @@ def ogr_path(local_file):
 
 
 def read_release_logs(config, store, work_dir):
-    """read every release's change log rows (releases/<release_tag>/<log name>.csv),
+    """read every release's change log rows (logs/<release_tag>/<log name>.csv),
     downloading them to work_dir
 
     returns {log name: df} with each df the rows of all releases combined and ordered by
@@ -315,7 +315,7 @@ def read_release_logs(config, store, work_dir):
     """
     names = {f"{log['name']}.csv": log["name"] for log in config["logs"]}
     frames = {name: [] for name in names.values()}
-    for key in store.list("releases/"):
+    for key in store.list("logs/"):
         parts = key.split("/")
         name = names.get(parts[-1]) if len(parts) == 3 else None
         if name:
@@ -429,7 +429,7 @@ def publish_draft(config, store, files, current, work_dir=".", run_id=None):
         history = histories[log["name"]]
         if history is None:
             raise ValueError(
-                f"No {log['name']} change log found under {store.url('releases/')} "
+                f"No {log['name']} change log found under {store.url('logs/')} "
                 "- release at least one version before comparing to it"
             )
         previous_release = latest_release(history)
@@ -547,7 +547,7 @@ def release(config, store, run_id=None):
     ]
     if log_names and len(logged_in) == len(log_names):
         raise ValueError(
-            f"Release {release_tag} is already in {store.url(release_prefix(release_tag))}/ "
+            f"Release {release_tag} is already in {store.url(log_prefix(release_tag))}/ "
             "- it has already been released"
         )
     for name in logged_in:
@@ -659,9 +659,7 @@ def release(config, store, run_id=None):
     # everything is built - publish. First the archive, never overwritten once released, then
     # the latest files (including the combined change logs), and finally this release's change
     # log rows, marking the release as done
-    to_publish = (
-        [(archive, f"{release_prefix(release_tag)}/{archive}")] if archive else []
-    )
+    to_publish = [(archive, f"releases/{archive}")] if archive else []
     to_publish += [(f, f) for f in latest_files]
     to_publish += [(f, f) for f in release_logs]
     for name, key in to_publish:
