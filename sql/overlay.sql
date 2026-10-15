@@ -93,16 +93,20 @@ sorted AS
   ORDER BY p.index, p.primary_key
 ),
 
+-- aggregate each polygon's designations into lists, every list ordered by the same complete
+-- key - by index alone, designations of the same source (same index) come out in arbitrary
+-- order, differing between runs and possibly between lists. Varying order also splits the
+-- final union below (it groups on the lists), changing the number of output records
 aggregated as (
   SELECT
     map_tile,
-    array_agg(index ORDER BY index) as indexes_all,
-    array_agg(alias ORDER BY index) as aliases_all,
-    array_agg(description ORDER BY index) as descriptions_all,
-    array_agg(primary_key ORDER BY index) as primary_keys_all,
-    array_agg(name ORDER BY index) as names_all,
-    array_agg(harvest_restriction ORDER BY index) as harvest_restrictions_all,
-    array_agg(harvest_restriction_class_name ORDER BY index) as harvest_restriction_class_names_all,
+    array_agg(index ORDER BY index, primary_key, name) as indexes_all,
+    array_agg(alias ORDER BY index, primary_key, name) as aliases_all,
+    array_agg(description ORDER BY index, primary_key, name) as descriptions_all,
+    array_agg(primary_key ORDER BY index, primary_key, name) as primary_keys_all,
+    array_agg(name ORDER BY index, primary_key, name) as names_all,
+    array_agg(harvest_restriction ORDER BY index, primary_key, name) as harvest_restrictions_all,
+    array_agg(harvest_restriction_class_name ORDER BY index, primary_key, name) as harvest_restriction_class_names_all,
     geom
   FROM sorted
   GROUP BY map_tile, geom
