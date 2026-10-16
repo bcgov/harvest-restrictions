@@ -122,7 +122,7 @@ The `harvest_restrictions` object storage bucket does not require versioning - e
         git tag v2026-10-rc.1
         docker compose run -it --rm runner python harvest_restrictions.py prerelease -v
 
-    `prerelease` refuses unless the commit is tagged as a release candidate whose archive isn't yet published, and the results in the database are of an `overlay` run on this commit with no uncommitted changes - a candidate is exactly the tagged commit's output, published once. Tagging the commit already run is fine, `overlay` needn't be re-run.
+    `prerelease` refuses unless the commit is tagged as a release candidate whose archive isn't yet published, and the results in the database are of an `overlay` run on this commit with no uncommitted changes - a candidate is exactly the tagged commit's output, published once. Uncommitted changes to documentation (`*.md`, `CHANGES.txt`, `LICENSE`) are allowed, changes to any other tracked file are not. Tagging the commit already run is fine, `overlay` needn't be re-run.
 
     To run the [harvest-restrictions workflow](https://github.com/bcgov/harvest-restrictions/actions/workflows/harvest-restrictions.yaml) instead, run it on the release candidate tag - it publishes the candidate when run on one.
 

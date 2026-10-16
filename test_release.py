@@ -411,7 +411,41 @@ def test_committed_head_ignores_untracked_files(store, monkeypatch):
 
     monkeypatch.setattr(hr.subprocess, "check_output", fake)
     hr.committed_head()
-    assert ["git", "status", "--porcelain", "--untracked-files=no"] in calls
+    assert ["git", "status", "--porcelain", "-z", "--untracked-files=no"] in calls
+
+
+def test_committed_head_allows_docs(store, monkeypatch):
+    checkout(monkeypatch, status=" M README.md\0M  CHANGES.txt\0 M docs/notes.md\0")
+    assert hr.committed_head() == COMMIT
+
+
+def test_committed_head_lists_only_non_docs(store, monkeypatch):
+    checkout(monkeypatch, status=" M README.md\0 M sql/overlay.sql\0")
+    with pytest.raises(ValueError, match="uncommitted changes") as e:
+        hr.committed_head()
+    assert "sql/overlay.sql" in str(e.value)
+    assert "README.md" not in str(e.value)
+
+
+@pytest.mark.parametrize(
+    "status",
+    [
+        # a doc renamed to (or copied as) a file that isn't one, and the reverse
+        "R  harvest_restrictions.py\0README.md\0",
+        "C  sources.json\0README.md\0",
+        "R  notes.md\0sql/overlay.sql\0",
+    ],
+    ids=["doc renamed to code", "doc copied to data", "code renamed to doc"],
+)
+def test_committed_head_renames(store, monkeypatch, status):
+    checkout(monkeypatch, status=status)
+    with pytest.raises(ValueError, match="uncommitted changes"):
+        hr.committed_head()
+
+
+def test_checkout_state_ignores_docs(store, monkeypatch):
+    checkout(monkeypatch, status=" M README.md\0 M sources.json\0")
+    assert hr.checkout_state() == (COMMIT, " M sources.json")
 
 
 # --- release_candidate ---

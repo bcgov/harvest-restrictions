@@ -15,7 +15,7 @@ v2026-08
 - releases are made in two steps:
   - release candidate: tag a commit <version>-rc.<n>, run `overlay` on it, then `prerelease`
     publishes the results for review (only if the overlay was run on the tagged commit, with
-    no uncommitted changes)
+    no uncommitted changes other than to documentation)
   - release: tag the approved candidate's commit <version> and push the tag - the release
     workflow (requiring approval) promotes the candidate as is, then deletes the version's
     release candidates

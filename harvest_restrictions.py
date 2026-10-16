@@ -1,4 +1,5 @@
 import csv
+import fnmatch
 import glob
 import json
 import logging
@@ -492,28 +493,55 @@ def git(*args):
     return subprocess.check_output(["git", *args]).decode("ascii").strip()
 
 
+# files whose changes can't affect the outputs - every other tracked file must be committed
+# for a run to be the commit's output
+DOCS = ["*.md", "CHANGES.txt", "LICENSE"]
+
+
+def uncommitted_changes():
+    """git status lines of the uncommitted changes to tracked files, other than DOCS
+
+    Untracked files are ignored: the analysis can only use one if a tracked file refers to
+    it, and that change would itself be uncommitted.
+    """
+    # -z: entries NUL-separated, paths unquoted - a rename or copy is followed by its source
+    entries = iter(
+        subprocess.check_output(
+            ["git", "status", "--porcelain", "-z", "--untracked-files=no"]
+        )
+        .decode()
+        .split("\0")
+    )
+    changes = []
+    for entry in entries:
+        if not entry:
+            continue
+        status, paths = entry[:2], [entry[3:]]
+        if "R" in status or "C" in status:
+            paths.append(next(entries))
+        if not all(any(fnmatch.fnmatch(p, doc) for doc in DOCS) for p in paths):
+            changes.append(f"{status} {' <- '.join(paths)}")
+    return changes
+
+
 def committed_head():
-    """the checked-out commit, refusing if any tracked file has uncommitted changes
+    """the checked-out commit, refusing if it has uncommitted changes (other than to DOCS)
 
     A candidate is published as the commit's output, so it must be exactly what the commit
-    produces. Untracked files are ignored: the analysis can only use one if a tracked file
-    refers to it, and that change would itself be uncommitted.
+    produces.
     """
-    changes = git("status", "--porcelain", "--untracked-files=no")
+    changes = uncommitted_changes()
     if changes:
         raise ValueError(
             "Tracked files have uncommitted changes - commit or stash them first, so the "
-            f"run is the commit's output:\\n{changes}"
+            "run is the commit's output:\n" + "\n".join(changes)
         )
     return git("rev-parse", "HEAD")
 
 
 def checkout_state():
-    """(HEAD, uncommitted changes to tracked files) of the checkout"""
-    return (
-        git("rev-parse", "HEAD"),
-        git("status", "--porcelain", "--untracked-files=no"),
-    )
+    """(HEAD, uncommitted changes other than to DOCS) of the checkout"""
+    return git("rev-parse", "HEAD"), "\n".join(uncommitted_changes())
 
 
 # the commit the overlay results in the database were produced by, written by overlay once
