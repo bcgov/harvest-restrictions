@@ -30,9 +30,8 @@ from sqlalchemy import create_engine, inspect, text
 LOG_FORMAT = "%(asctime)s:%(levelname)s:%(name)s: %(message)s"
 LOG = logging.getLogger(__name__)
 
-# the cache of sources transformed to the standard column layout, written by cache and read by
-# load-db - not to be confused with harvest_restrictions/sources/, which holds the sources not
-# available for download elsewhere, in their native format
+# cache of sources transformed to the standard column layout.
+# written by cache() and read by load-db()
 CACHE_PATH = (
     f"s3://{os.environ['BUCKET']}/harvest_restrictions/cache"
     if os.environ.get("BUCKET")
@@ -70,6 +69,13 @@ LOGS = {
 }
 AREA = "area_ha"
 
+# files whose changes can't affect the outputs - every other tracked file must be committed
+# for a run to be the commit's output
+DOCS = ["*.md", "CHANGES.txt", "LICENSE"]
+
+# a release candidate's tag: <version>-rc.<n>
+RC_TAG = re.compile(r"^(?P<version>.+)-rc\.(?P<n>[0-9]+)$")
+
 
 def summary(log):
     return f"{log}_summary.csv"
@@ -93,6 +99,7 @@ SOURCES_CSV_COLUMNS = [
     "name_field",
 ]
 
+# query for dumping from db overlay resultant to file.
 # note that the all_* lists are exported as JSON arrays to retain nulls and keep the arrays aligned
 DUMP_SQL = """select
   harvest_restrictions_id,
@@ -407,11 +414,7 @@ def download_source(source):
 #    - combined change logs under logs/, rebuilt from every release's rows
 # 4. prune-prereleases deletes the candidates of released versions
 #
-# A release is exactly the candidate that was reviewed - nothing is re-run or rebuilt. Nothing a
-# later step depends on is ever overwritten, so the bucket needs no versioning.
-
-# a release candidate's tag: <version>-rc.<n>
-RC_TAG = re.compile(r"^(?P<version>.+)-rc\.(?P<n>[0-9]+)$")
+# A release is exactly the candidate that was reviewed - nothing is re-run or rebuilt.
 
 
 def prerelease_key(rc_tag):
@@ -493,11 +496,6 @@ def git(*args):
     return subprocess.check_output(["git", *args]).decode("ascii").strip()
 
 
-# files whose changes can't affect the outputs - every other tracked file must be committed
-# for a run to be the commit's output
-DOCS = ["*.md", "CHANGES.txt", "LICENSE"]
-
-
 def uncommitted_changes():
     """git status lines of the uncommitted changes to tracked files, other than DOCS
 
@@ -544,26 +542,15 @@ def checkout_state():
     return git("rev-parse", "HEAD"), "\n".join(uncommitted_changes())
 
 
-# the commit the overlay results in the database were produced by, written by overlay once
-# it's finished - so prerelease only publishes results it can attribute to the tagged commit
-OVERLAY_RUN = "overlay_run"
-
-
 def record_overlay_run(db_url, git_commit=None, uncommitted_changes=None):
     """record the overlay run whose results are in the database - or, with no commit, clear
     the record (a run in progress, or one that failed, has no results to publish)"""
     with create_engine(db_url).begin() as conn:
-        conn.execute(
-            text(
-                f"CREATE TABLE IF NOT EXISTS {OVERLAY_RUN} "
-                "(git_commit text, uncommitted_changes text, finished_at timestamptz)"
-            )
-        )
-        conn.execute(text(f"TRUNCATE {OVERLAY_RUN}"))
+        conn.execute(text("TRUNCATE overlay_run"))
         if git_commit:
             conn.execute(
                 text(
-                    f"INSERT INTO {OVERLAY_RUN} "
+                    "INSERT INTO overlay_run "
                     "VALUES (:git_commit, :uncommitted_changes, now())"
                 ),
                 {"git_commit": git_commit, "uncommitted_changes": uncommitted_changes},
@@ -571,12 +558,11 @@ def record_overlay_run(db_url, git_commit=None, uncommitted_changes=None):
 
 
 def read_overlay_run(db_url):
-    """the recorded overlay run, as a dict - or None if there isn't one"""
+    """the recorded overlay run, as a dict - or None if there's no finished run (the record
+    is cleared when an overlay starts, and written when it finishes)"""
     engine = create_engine(db_url)
-    if not inspect(engine).has_table(OVERLAY_RUN):
-        return None
     with engine.connect() as conn:
-        row = conn.execute(text(f"SELECT * FROM {OVERLAY_RUN}")).mappings().first()
+        row = conn.execute(text("SELECT * FROM overlay_run")).mappings().first()
     return dict(row) if row else None
 
 
