@@ -203,6 +203,15 @@ s3://$BUCKET/harvest_restrictions/
 
 **`releases/harvest_restrictions_<release_tag>.zip`** - written only by `release`, never overwritten, so every past release stays retrievable by tag. A single download holding the release - only the archive's name carries the release tag: one geopackage (`harvest_restrictions.gpkg`) with both spatial layers - unlike `latest/harvest_restrictions.gpkg`, which holds just the `harvest_restrictions` layer - the reviewed summaries comparing it to the previous release, and `overlay`'s reviewed `sources.csv`. The zip is seek-optimized (`sozip`), so the geopackage can be read in place without downloading or unzipping, e.g. `ogrinfo /vsizip//vsis3/$BUCKET/harvest_restrictions/releases/harvest_restrictions_<release_tag>.zip/harvest_restrictions.gpkg`.
 
+### Local outputs
+
+Everything the scripts generate locally is written under `outputs/` (git-ignored), laid out as in the bucket:
+
+- `outputs/drafts/<run_id>/` - each `overlay` run's draft, exactly the files it publishes to `drafts/<run_id>/`. Intermediate files (the unzipped geopackages, the area totals the summaries are built from) are written to a temporary directory (`$TMPDIR`), removed when `overlay` exits - set `TMPDIR` if the default temp location is too small for the unzipped overlay geopackage
+- `outputs/releases/<release_tag>/` - where `release` downloads the draft and builds the release before publishing, each file at the path of its key in the bucket (`releases/`, `latest/`, `logs/`)
+
+`prune-drafts` deletes the local copies of the runs it prunes from the bucket. Release folders, and runs that never published, are left for deleting by hand.
+
 ### commit vs run_id
 
 Every `overlay` run records both `commit` (the git commit that produced it) and `run_id` (a UTC timestamp identifying that specific invocation of `overlay`, and the name of its `drafts/` prefix) in its manifest. These are usually interchangeable - `release` defaults to the most recent run of a given commit - but they diverge if `overlay` is run more than once against the same commit (the underlying source data can change even with no code change). If a second run happens after you've reviewed the first, pass `--run_id` to `release` to pin the exact run that was actually reviewed, rather than picking up whatever ran most recently.

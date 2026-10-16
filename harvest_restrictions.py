@@ -5,6 +5,7 @@ import logging
 import os
 import subprocess
 import sys
+import tempfile
 from datetime import datetime
 
 import bcdata
@@ -38,8 +39,13 @@ CACHE_PATH = (
     else None
 )
 
+# everything generated locally is written under here, laid out as in the bucket - each overlay
+# run's draft in drafts/<run_id>/, each release built in releases/<release_tag>/
+OUTPUTS = "outputs"
+
 # the files overlay publishes, by the release.json output names they're published as
-OVERLAY_ZIP = "harvest_restrictions.gpkg.zip"
+OVERLAY_GPKG = "harvest_restrictions.gpkg"
+OVERLAY_ZIP = OVERLAY_GPKG + ".zip"
 SOURCES_GPKG = "harvest_restrictions_sources.gpkg"
 SOURCES_ZIP = SOURCES_GPKG + ".zip"
 SOURCES_CSV = "sources.csv"
@@ -105,14 +111,13 @@ def run(cmd):
     subprocess.run(cmd, shell=True, check=True)
 
 
-def zip_file(local_file):
-    """compress local_file into local_file + '.zip', containing just that one file
+def zip_file(local_file, out_zip):
+    """compress local_file into out_zip, containing just that one file
 
     Uses sozip (bundled with GDAL) rather than plain zip, so the result is seek-optimized -
     GDAL's /vsizip/ reader can fetch just the bytes it needs instead of decompressing the
     whole archive.
     """
-    out_zip = local_file + ".zip"
     subprocess.run(
         ["sozip", "--overwrite", "--junk-paths", out_zip, local_file], check=True
     )
@@ -581,12 +586,6 @@ def load_db(
     default=os.environ.get("DATABASE_URL"),
 )
 @click.option(
-    "--out_file",
-    "-o",
-    default="harvest_restrictions.gpkg",
-    help="Output geopackage path",
-)
-@click.option(
     "--designations_table",
     default="designations",
     help="Name of the source designations table (as loaded by load-db), dumped to geopackage alongside overlay outputs",
@@ -599,8 +598,11 @@ def load_db(
 )
 @verbose_opt
 @quiet_opt
-def overlay(db_url, out_file, designations_table, bucket, verbose, quiet):
-    """Run per-tile overlay and write output and rollup/summaries to object storage"""
+def overlay(db_url, designations_table, bucket, verbose, quiet):
+    """Run per-tile overlay and write output and rollup/summaries to object storage
+
+    Everything published is also kept locally, in outputs/drafts/<run_id>/
+    """
     configure_logging((verbose - quiet))
 
     if not db_url:
@@ -616,6 +618,20 @@ def overlay(db_url, out_file, designations_table, bucket, verbose, quiet):
     # long-running overlay - rather than failing once it's done
     config = datarelease.load_config(RELEASE_CONFIG)
     datarelease.check_inputs(config, RELEASE_FILES, RELEASE_TOTALS)
+
+    # this run's draft, written locally as it is published - just the published files.
+    # Everything else (the unzipped geopackages, the area totals the summaries are built
+    # from) is written to a temporary directory, removed when overlay exits
+    run_id = datarelease.new_run_id()
+    run_dir = os.path.join(OUTPUTS, datarelease.run_prefix(run_id))
+    os.makedirs(run_dir)
+    tmp_dir = tempfile.TemporaryDirectory()
+
+    def tmp(name):
+        return os.path.join(tmp_dir.name, name)
+
+    def draft(name):
+        return os.path.join(run_dir, name)
 
     psql = f"psql {db_url} -v ON_ERROR_STOP=1"
 
@@ -639,7 +655,7 @@ def overlay(db_url, out_file, designations_table, bucket, verbose, quiet):
             "ogr2ogr",
             "-f",
             "GPKG",
-            out_file,
+            tmp(OVERLAY_GPKG),
             f"PG:{db_url}",
             "-nlt",
             "MULTIPOLYGON",
@@ -650,36 +666,48 @@ def overlay(db_url, out_file, designations_table, bucket, verbose, quiet):
         ],
         check=True,
     )
-    LOG.info(f"Overlay results written to {out_file}")
+    LOG.info(f"Overlay results written to {tmp(OVERLAY_GPKG)}")
 
     # dump source designations table to geopackage
     subprocess.run(
-        ["ogr2ogr", "-f", "GPKG", SOURCES_GPKG, f"PG:{db_url}", designations_table],
+        [
+            "ogr2ogr",
+            "-f",
+            "GPKG",
+            tmp(SOURCES_GPKG),
+            f"PG:{db_url}",
+            designations_table,
+        ],
         check=True,
     )
-    LOG.info(f"{designations_table} written to {SOURCES_GPKG}")
+    LOG.info(f"{designations_table} written to {tmp(SOURCES_GPKG)}")
 
     # summarize results
-    run(f"{psql} -f sql/land_designations.sql --csv > {LAND_DESIGNATIONS}")
-    run(f"{psql} -f sql/harvest_restrictions.sql --csv > {HARVEST_RESTRICTIONS}")
+    run(f"{psql} -f sql/land_designations.sql --csv > {tmp(LAND_DESIGNATIONS)}")
+    run(f"{psql} -f sql/harvest_restrictions.sql --csv > {tmp(HARVEST_RESTRICTIONS)}")
 
     # flatten sources.json to a csv, for review alongside the rest of this run's draft output
-    write_sources_csv("sources.json", SOURCES_CSV)
+    write_sources_csv("sources.json", draft(SOURCES_CSV))
 
     # publish outputs to object storage as a draft, with summaries comparing this run's area
     # totals to the most recently released version. The totals themselves aren't published -
     # the summaries carry the same totals (in their "current" column) plus the diffs.
-    run_id = datarelease.publish_draft(
+    datarelease.publish_draft(
         config,
         datarelease.S3Store(bucket, config["prefix"]),
         files={
-            OVERLAY_ZIP: zip_file(out_file),
-            SOURCES_ZIP: zip_file(SOURCES_GPKG),
-            SOURCES_CSV: SOURCES_CSV,
+            OVERLAY_ZIP: zip_file(tmp(OVERLAY_GPKG), draft(OVERLAY_ZIP)),
+            SOURCES_ZIP: zip_file(tmp(SOURCES_GPKG), draft(SOURCES_ZIP)),
+            SOURCES_CSV: draft(SOURCES_CSV),
         },
-        current=RELEASE_TOTALS,
+        current={name: tmp(f) for name, f in RELEASE_TOTALS.items()},
+        work_dir=run_dir,
+        run_id=run_id,
     )
-    LOG.info(f"run_id={run_id} - pass --run_id to release to pin this exact run")
+    tmp_dir.cleanup()
+    LOG.info(
+        f"run_id={run_id} - written to {run_dir}/. Pass --run_id to release to pin this exact run"
+    )
 
 
 @cli.command()
@@ -701,7 +729,7 @@ def release(run_id, bucket, verbose, quiet):
 
     Publishes the release's archive under releases/, its change log rows under
     logs/<release_tag>/, and the fixed-name latest files under latest/, as configured in release.json - see
-    datarelease.release()
+    datarelease.release(). The release is built locally first, in outputs/releases/<release_tag>/
     """
     configure_logging((verbose - quiet))
 
@@ -710,7 +738,9 @@ def release(run_id, bucket, verbose, quiet):
             "Target object storage bucket not provided, set --bucket or $BUCKET"
         )
     config = datarelease.load_config(RELEASE_CONFIG)
-    datarelease.release(config, datarelease.S3Store(bucket, config["prefix"]), run_id)
+    datarelease.release(
+        config, datarelease.S3Store(bucket, config["prefix"]), run_id, OUTPUTS
+    )
 
 
 @cli.command()
@@ -739,7 +769,8 @@ def prune_drafts(bucket, older_than, dry_run, verbose, quiet):
 
     By default only released runs are deleted - everything they published was copied into
     the release. With --older_than, unreleased runs older than that are deleted too, apart
-    from the newest unreleased run, which may still be under review.
+    from the newest unreleased run, which may still be under review. Local copies of the
+    deleted runs, in outputs/drafts/<run_id>/, are deleted too.
     """
     configure_logging((verbose - quiet))
 
@@ -749,7 +780,11 @@ def prune_drafts(bucket, older_than, dry_run, verbose, quiet):
         )
     config = datarelease.load_config(RELEASE_CONFIG)
     datarelease.prune_drafts(
-        config, datarelease.S3Store(bucket, config["prefix"]), older_than, dry_run
+        config,
+        datarelease.S3Store(bucket, config["prefix"]),
+        older_than,
+        dry_run,
+        OUTPUTS,
     )
 
 
