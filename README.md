@@ -101,17 +101,17 @@ The `harvest_restrictions` object storage bucket does not require versioning - e
     
         docker compose run -it --rm runner python harvest_restrictions.py cache --dry_run -v
 
-5. Download all restriction sources listed in `sources.json`, saving to geoparquet (specifying output path):
+5. Download all restriction sources listed in `sources.json`, saving to geoparquet in `s3://$BUCKET/harvest_restrictions/cache` (pass `--out_path` to write elsewhere):
 
-        docker compose run -it --rm runner python harvest_restrictions.py cache -v -o s3://$BUCKET/harvest_restrictions/cache
+        docker compose run -it --rm runner python harvest_restrictions.py cache -v
 
     Optionally, clear the cache first - `cache` overwrites the files for sources it downloads, but doesn't remove anything for sources since removed or renamed, so `clear-cache` is useful for tidying those up. `clear-cache` only ever removes the `hr_*.parquet` files `cache` itself writes, so it's safe to point at a shared prefix:
 
-        docker compose run -it --rm runner python harvest_restrictions.py clear-cache -v -p s3://$BUCKET/harvest_restrictions/cache
+        docker compose run -it --rm runner python harvest_restrictions.py clear-cache -v
 
-6. Load restrictions layers from cached geoparquet to postgresql (specifying input path). `--out_table` appends, so pass `--truncate` when re-running against a table already loaded (e.g. re-running this step after a partial failure) to avoid duplicating rows:
+6. Load restrictions layers from the cached geoparquet to postgresql (pass `--in_path` to read from elsewhere). `--out_table` appends, so pass `--truncate` when re-running against a table already loaded (e.g. re-running this step after a partial failure) to avoid duplicating rows:
 
-        docker compose run -it --rm runner python harvest_restrictions.py load-db -v --out_table designations --truncate -p s3://$BUCKET/harvest_restrictions/cache
+        docker compose run -it --rm runner python harvest_restrictions.py load-db -v --out_table designations --truncate
 
 7. Run overlays, dump resulting layer and summaries to geopackage/csv, and publish these outputs to object storage under `drafts/<run_id>/`. This also compares the new summaries to the most recently released version:
 
@@ -151,8 +151,11 @@ The `harvest_restrictions` object storage bucket does not require versioning - e
 ```
 s3://$BUCKET/harvest_restrictions/
 ├── cache/                                    # per-source geoparquet cache, written by `cache`
-│   ├── hr_01_park_national.parquet
+│   ├── hr_01_park_national.parquet           #   (sources transformed to the standard columns)
 │   ├── hr_02_park_er.parquet
+│   └── ...
+├── sources/                                  # sources not available for download elsewhere,
+│   ├── CRD.gdb.zip                           #   in their native format - referenced by sources.json
 │   └── ...
 ├── drafts/                                   # unreviewed overlay output, written by `overlay`
 │   └── <run_id>/                             # one prefix per run, never rewritten

@@ -29,6 +29,15 @@ LOG = logging.getLogger(__name__)
 # what overlay publishes and release releases - see datarelease
 RELEASE_CONFIG = "release.json"
 
+# the cache of sources transformed to the standard column layout, written by cache and read by
+# load-db - not to be confused with harvest_restrictions/sources/, which holds the sources not
+# available for download elsewhere, in their native format
+CACHE_PATH = (
+    f"s3://{os.environ['BUCKET']}/harvest_restrictions/cache"
+    if os.environ.get("BUCKET")
+    else None
+)
+
 # the files overlay publishes, by the release.json output names they're published as
 OVERLAY_ZIP = "harvest_restrictions.gpkg.zip"
 SOURCES_GPKG = "harvest_restrictions_sources.gpkg"
@@ -376,14 +385,17 @@ def cli():
     "--out_path",
     "-o",
     type=click.Path(),
-    default=".",
-    help="Output path to write data (local or s3://)",
+    default=CACHE_PATH,
+    help="Output path to write data (local or s3://), defaults to s3://$BUCKET/harvest_restrictions/cache if $BUCKET is set",
 )
 @verbose_opt
 @quiet_opt
 def cache(sources_file, source_alias, dry_run, out_path, verbose, quiet):
     """Download sources defined in provided sources.json file"""
     configure_logging((verbose - quiet))
+
+    if not out_path and not dry_run:
+        raise ValueError("Output path not provided, set --out_path or $BUCKET")
 
     # load sources file
     with open(sources_file, "r") as f:
@@ -417,8 +429,8 @@ def cache(sources_file, source_alias, dry_run, out_path, verbose, quiet):
     "--path",
     "-p",
     type=click.Path(),
-    default=".",
-    help="Path to clear cached source parquet files from (local or s3://)",
+    default=CACHE_PATH,
+    help="Path to clear cached source parquet files from (local or s3://), defaults to s3://$BUCKET/harvest_restrictions/cache if $BUCKET is set",
 )
 @click.option(
     "--dry_run",
@@ -431,6 +443,9 @@ def cache(sources_file, source_alias, dry_run, out_path, verbose, quiet):
 def clear_cache(path, dry_run, verbose, quiet):
     """Delete cached parquet files written by cache (hr_*.parquet)"""
     configure_logging((verbose - quiet))
+
+    if not path:
+        raise ValueError("Path not provided, set --path or $BUCKET")
 
     if path.startswith("s3://"):
         cmd = [
@@ -466,8 +481,8 @@ def clear_cache(path, dry_run, verbose, quiet):
     "--in_path",
     "-p",
     type=click.Path(),
-    default=".",
-    help="Path to read data (local or s3://)",
+    default=CACHE_PATH,
+    help="Path to read data (local or s3://), defaults to s3://$BUCKET/harvest_restrictions/cache if $BUCKET is set",
 )
 @click.option(
     "--db_url",
@@ -511,6 +526,9 @@ def load_db(
 ):
     """Load source layers from parquet cache to the postgresql db"""
     configure_logging((verbose - quiet))
+
+    if not in_path and not dry_run:
+        raise ValueError("Input path not provided, set --in_path or $BUCKET")
 
     # connect to db
     db = create_engine(db_url)

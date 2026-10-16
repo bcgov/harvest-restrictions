@@ -28,4 +28,4 @@ jobs:
       - uses: actions/checkout@v4
       - name: Download sources to S3
         run: |
-          python harvest_restrictions.py cache sources.json -v --out_path s3://$BUCKET/harvest_restrictions/sources
+          python harvest_restrictions.py cache sources.json -v
