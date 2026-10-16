@@ -26,11 +26,62 @@ import datarelease
 LOG_FORMAT = "%(asctime)s:%(levelname)s:%(name)s: %(message)s"
 LOG = logging.getLogger(__name__)
 
+# what overlay publishes and release releases - see datarelease
+RELEASE_CONFIG = "release.json"
 
-# inlined from cligj (unmaintained), as per
-# https://github.com/rasterio/rasterio/pull/3364
+# the files overlay publishes, by the release.json output names they're published as
+OVERLAY_ZIP = "harvest_restrictions.gpkg.zip"
+SOURCES_GPKG = "harvest_restrictions_sources.gpkg"
+SOURCES_ZIP = SOURCES_GPKG + ".zip"
+SOURCES_CSV = "sources.csv"
+RELEASE_FILES = [OVERLAY_ZIP, SOURCES_ZIP, SOURCES_CSV]
+
+# overlay's per-category area totals (compared to the previous release, and logged), by the
+# release.json log they're for
+LAND_DESIGNATIONS = "land_designations.csv"
+HARVEST_RESTRICTIONS = "harvest_restrictions.csv"
+RELEASE_TOTALS = {
+    "land_designations": LAND_DESIGNATIONS,
+    "harvest_restrictions": HARVEST_RESTRICTIONS,
+}
+
+SOURCES_CSV_COLUMNS = [
+    "harvest_restriction",
+    "alias",
+    "description",
+    "source",
+    "source_type",
+    "layer",
+    "query",
+    "name_field",
+]
+
+# note that the all_* lists are exported as JSON arrays to retain nulls and keep the arrays aligned
+DUMP_SQL = """select
+  harvest_restrictions_id,
+  land_designation_name,
+  land_designation_type_rank,
+  land_designation_type_code,
+  land_designation_type_name,
+  land_designation_primary_key,
+  harvest_restriction_class_rank,
+  harvest_restriction_class_name,
+  array_to_json(trim_array(all_land_desig_names, 1)) as all_land_desig_names,
+  array_to_json(trim_array(all_land_desig_type_ranks, 1)) as all_land_desig_type_ranks,
+  array_to_json(trim_array(all_land_desig_type_codes, 1)) as all_land_desig_type_codes,
+  array_to_json(trim_array(all_land_desig_type_names, 1)) as all_land_desig_type_names,
+  array_to_json(trim_array(all_land_desig_primary_keys, 1)) as all_land_desig_primary_keys,
+  array_to_json(trim_array(all_harv_restrict_class_ranks, 1)) as all_harv_restrict_class_ranks,
+  array_to_json(trim_array(all_harv_restrict_class_names, 1)) as all_harv_restrict_class_names,
+  map_tile_250k,
+  geom
+from harvest_restrictions
+where
+all_harv_restrict_class_ranks @> ARRAY[6] and
+all_harv_restrict_class_ranks != ARRAY[6]"""
+
+
 verbose_opt = click.option("--verbose", "-v", count=True, help="Increase verbosity.")
-
 quiet_opt = click.option("--quiet", "-q", count=True, help="Decrease verbosity.")
 
 
@@ -43,6 +94,20 @@ def run(cmd):
     """run a shell command, logging it first"""
     LOG.info(cmd)
     subprocess.run(cmd, shell=True, check=True)
+
+
+def zip_file(local_file):
+    """compress local_file into local_file + '.zip', containing just that one file
+
+    Uses sozip (bundled with GDAL) rather than plain zip, so the result is seek-optimized -
+    GDAL's /vsizip/ reader can fetch just the bytes it needs instead of decompressing the
+    whole archive.
+    """
+    out_zip = local_file + ".zip"
+    subprocess.run(
+        ["sozip", "--overwrite", "--junk-paths", out_zip, local_file], check=True
+    )
+    return out_zip
 
 
 def parse_sources(sources):
@@ -75,6 +140,29 @@ def parse_sources(sources):
 
     LOG.info("Source json is valid")
     return parsed
+
+
+def write_sources_csv(sources_file, out_file):
+    """flatten sources_file to a csv, for publishing alongside release outputs"""
+    with open(sources_file, "r") as f:
+        sources = json.load(f)
+    with open(out_file, "w", newline="") as f:
+        writer = csv.writer(f)
+        writer.writerow(["index"] + SOURCES_CSV_COLUMNS)
+        for index, source in enumerate(sources, start=1):
+            writer.writerow(
+                [
+                    index,
+                    source["data"].get("harvest_restriction"),
+                    source["alias"],
+                    source["description"],
+                    source["source"],
+                    source["source_type"],
+                    source.get("layer"),
+                    source["query"],
+                    source["field_mapper"].get("name"),
+                ]
+            )
 
 
 def validate_file(source):
@@ -467,119 +555,6 @@ def load_db(
                 LOG.info(f"{source['alias']} written to {layer}")
 
 
-# note that the all_* lists are exported as JSON arrays to retain nulls and keep the arrays aligned
-DUMP_SQL = """select
-  harvest_restrictions_id,
-  land_designation_name,
-  land_designation_type_rank,
-  land_designation_type_code,
-  land_designation_type_name,
-  land_designation_primary_key,
-  harvest_restriction_class_rank,
-  harvest_restriction_class_name,
-  array_to_json(trim_array(all_land_desig_names, 1)) as all_land_desig_names,
-  array_to_json(trim_array(all_land_desig_type_ranks, 1)) as all_land_desig_type_ranks,
-  array_to_json(trim_array(all_land_desig_type_codes, 1)) as all_land_desig_type_codes,
-  array_to_json(trim_array(all_land_desig_type_names, 1)) as all_land_desig_type_names,
-  array_to_json(trim_array(all_land_desig_primary_keys, 1)) as all_land_desig_primary_keys,
-  array_to_json(trim_array(all_harv_restrict_class_ranks, 1)) as all_harv_restrict_class_ranks,
-  array_to_json(trim_array(all_harv_restrict_class_names, 1)) as all_harv_restrict_class_names,
-  map_tile_250k,
-  geom
-from harvest_restrictions
-where
-all_harv_restrict_class_ranks @> ARRAY[6] and
-all_harv_restrict_class_ranks != ARRAY[6]"""
-
-
-def export_overlay(db_url, out_file, out_format):
-    """export the overlay result table from postgres to out_file, in the given ogr2ogr format"""
-    subprocess.run(
-        [
-            "ogr2ogr",
-            "-f",
-            out_format,
-            out_file,
-            f"PG:{db_url}",
-            "-nlt",
-            "MULTIPOLYGON",
-            "-nln",
-            "harvest_restrictions",
-            "-sql",
-            DUMP_SQL,
-        ],
-        check=True,
-    )
-
-
-def zip_file(local_file):
-    """compress local_file into local_file + '.zip', containing just that one file
-
-    Uses sozip (bundled with GDAL) rather than plain zip, so the result is seek-optimized -
-    GDAL's /vsizip/ reader can fetch just the bytes it needs instead of decompressing the
-    whole archive.
-    """
-    out_zip = local_file + ".zip"
-    subprocess.run(
-        ["sozip", "--overwrite", "--junk-paths", out_zip, local_file], check=True
-    )
-    return out_zip
-
-
-# what overlay publishes and release releases - see datarelease
-RELEASE_CONFIG = "release.json"
-
-# the files overlay publishes, by the release.json output names they're published as
-OVERLAY_ZIP = "harvest_restrictions.gpkg.zip"
-SOURCES_GPKG = "harvest_restrictions_sources.gpkg"
-SOURCES_ZIP = SOURCES_GPKG + ".zip"
-SOURCES_CSV = "sources.csv"
-RELEASE_FILES = [OVERLAY_ZIP, SOURCES_ZIP, SOURCES_CSV]
-
-# overlay's per-category area totals (compared to the previous release, and logged), by the
-# release.json log they're for
-LAND_DESIGNATIONS = "land_designations.csv"
-HARVEST_RESTRICTIONS = "harvest_restrictions.csv"
-RELEASE_TOTALS = {
-    "land_designations": LAND_DESIGNATIONS,
-    "harvest_restrictions": HARVEST_RESTRICTIONS,
-}
-
-SOURCES_CSV_COLUMNS = [
-    "harvest_restriction",
-    "alias",
-    "description",
-    "source",
-    "source_type",
-    "layer",
-    "query",
-    "name_field",
-]
-
-
-def write_sources_csv(sources_file, out_file):
-    """flatten sources_file to a csv, for publishing alongside release outputs"""
-    with open(sources_file, "r") as f:
-        sources = json.load(f)
-    with open(out_file, "w", newline="") as f:
-        writer = csv.writer(f)
-        writer.writerow(["index"] + SOURCES_CSV_COLUMNS)
-        for index, source in enumerate(sources, start=1):
-            writer.writerow(
-                [
-                    index,
-                    source["data"].get("harvest_restriction"),
-                    source["alias"],
-                    source["description"],
-                    source["source"],
-                    source["source_type"],
-                    source.get("layer"),
-                    source["query"],
-                    source["field_mapper"].get("name"),
-                ]
-            )
-
-
 @cli.command()
 @click.option(
     "--db_url",
@@ -641,7 +616,22 @@ def overlay(db_url, out_file, designations_table, bucket, verbose, quiet):
     )
 
     # dump result to geopackage
-    export_overlay(db_url, out_file, "GPKG")
+    subprocess.run(
+        [
+            "ogr2ogr",
+            "-f",
+            "GPKG",
+            out_file,
+            f"PG:{db_url}",
+            "-nlt",
+            "MULTIPOLYGON",
+            "-nln",
+            "harvest_restrictions",
+            "-sql",
+            DUMP_SQL,
+        ],
+        check=True,
+    )
     LOG.info(f"Overlay results written to {out_file}")
 
     # dump source designations table to geopackage
@@ -660,10 +650,7 @@ def overlay(db_url, out_file, designations_table, bucket, verbose, quiet):
 
     # publish outputs to object storage as a draft, with summaries comparing this run's area
     # totals to the most recently released version. The totals themselves aren't published -
-    # the summaries carry the same totals (in their "current" column) plus the diffs. Spatial
-    # outputs are published zipped - out_file's zip is published as OVERLAY_ZIP whatever
-    # out_file is named, which is fine as datarelease reads single-file zips without naming
-    # the file inside
+    # the summaries carry the same totals (in their "current" column) plus the diffs.
     run_id = datarelease.publish_draft(
         config,
         datarelease.S3Store(bucket, config["prefix"]),
