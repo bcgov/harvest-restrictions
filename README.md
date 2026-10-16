@@ -51,7 +51,7 @@ See `source.schema.json` for a full description.
 
 ## Output spatial file
 
-Output `harvest_restrictions.gdb` has the following columns:
+Output `harvest_restrictions.gpkg` (layer `harvest_restrictions`) has the following columns:
 
 | column                            | type    | description                                                      |
 |-----------------------------------|---------|------------------------------------------------------------------|
@@ -75,6 +75,8 @@ Output `harvest_restrictions.gdb` has the following columns:
 Note that the `all_*` columns are JSON arrays listing every designation applying to the polygon, in rank order.
 The nth entry of each describes the same designation, and a missing value is `null` (eg a designation with no name or primary key).
 
+Each release also includes `harvest_restrictions_sources.gpkg` (layer `designations`) - every source designation as loaded for the overlay.
+
 
 ## Development and testing setup
 
@@ -85,7 +87,7 @@ The nth entry of each describes the same designation, and a missing value is `nu
 
 Committing changes requires `pre-commit` - install via your package manager of choice.
 
-The `harvest_restrictions` object storage bucket does not require versioning - every release candidate and release writes its own uniquely-named archive, so nothing `release` depends on is ever overwritten. Versioning remains useful as insurance against accidental deletes. See "Object storage layout" below.
+The database is set up by `sql/setup.sql` when its container is first created. Any changes to `setup.sql` require rebuilding the db image and recreating the database.
 
 ## Usage
 
@@ -120,7 +122,10 @@ The `harvest_restrictions` object storage bucket does not require versioning - e
 8. To publish the results for review, commit any changes and tag the commit as a release candidate of the version - `<version>-rc.<n>`, numbering candidates of a version from 1 - then publish the release candidate's archive, `prereleases/harvest_restrictions_<version>-rc.<n>.zip`, with summaries comparing its area totals to the most recent release:
 
         git tag v2026-10-rc.1
+        git push origin v2026-10-rc.1
         docker compose run -it --rm runner python harvest_restrictions.py prerelease -v
+
+    Push the candidate tag - the release workflow finds the candidate to release from the tags on the released commit.
 
     `prerelease` refuses unless the commit is tagged as a release candidate whose archive isn't yet published, and the results in the database are of an `overlay` run on this commit with no uncommitted changes - a candidate is exactly the tagged commit's output, published once. Uncommitted changes to documentation (`*.md`, `CHANGES.txt`, `LICENSE`) are allowed, changes to any other tracked file are not. Tagging the commit already run is fine, `overlay` needn't be re-run.
 
@@ -138,7 +143,7 @@ The `harvest_restrictions` object storage bucket does not require versioning - e
 
 10. Once a release candidate is approved, tag its commit as the release, and push the tag:
 
-        git tag -a v2026-10 -m v2026-10 v2026-10-rc.2^{commit}
+        git tag -a v2026-10 -m v2026-10 'v2026-10-rc.2^{commit}'
         git push origin v2026-10
 
     This triggers the [Release workflow](https://github.com/bcgov/harvest-restrictions/actions/workflows/release.yaml) which, once approved, promotes the commit's newest release candidate of the version: its archive is copied to `releases/`, its files published under `latest/`, and its area totals added to the change logs. Nothing is re-run or rebuilt. The workflow then deletes the version's release candidates (`prune-prereleases`).
@@ -203,7 +208,7 @@ s3://$BUCKET/harvest_restrictions/
 
 Everything the scripts generate locally is written under `outputs/` (git-ignored), laid out as in the bucket:
 
-- `outputs/prereleases/` - each release candidate's archive, as `prerelease` publishes it. Intermediate files (the unzipped geopackage, the area totals the summaries are built from) are written to a temporary directory (`$TMPDIR`), removed when `prerelease` exits - set `TMPDIR` if the default temp location is too small for the overlay geopackage
+- `outputs/prereleases/` - each release candidate's archive, as `prerelease` publishes it. Intermediate files (the geopackages, the area totals the summaries are built from) are written to a temporary directory (`$TMPDIR`), removed when `prerelease` exits - set `TMPDIR` if the default temp location is too small for the overlay geopackage
 - `outputs/releases/<release_tag>/` - where `release` downloads the release candidate and builds the release before publishing, each file at the path of its key in the bucket (`prereleases/`, `releases/`, `latest/`, `logs/`)
 
 `prune-prereleases` deletes the local copies of the release candidates it prunes from the bucket. Release folders are left for deleting by hand.
