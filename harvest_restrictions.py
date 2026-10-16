@@ -45,8 +45,8 @@ OUTPUTS = "outputs"
 # everything published is under this prefix in the bucket
 PREFIX = "harvest_restrictions"
 
-# the overlay's geopackage, holding the harvest_restrictions and designations layers - and
-# the latest/ geopackage of the designations layer alone
+# the overlay result (harvest_restrictions layer), and its source designations (designations
+# layer)
 OVERLAY_GPKG = "harvest_restrictions.gpkg"
 SOURCES_GPKG = "harvest_restrictions_sources.gpkg"
 SOURCES_CSV = "sources.csv"
@@ -74,9 +74,12 @@ def summary(log):
     return f"{log}_summary.csv"
 
 
-# each release candidate's and release's archive: OVERLAY_GPKG plus these csvs
+# each release candidate's and release's archive, holding these files - which are also each
+# release's latest/ files
 ARCHIVE = "harvest_restrictions_{tag}.zip"
-ARCHIVED_CSVS = [SOURCES_CSV] + [summary(log) for log in LOGS]
+ARCHIVED_FILES = [OVERLAY_GPKG, SOURCES_GPKG, SOURCES_CSV] + [
+    summary(log) for log in LOGS
+]
 
 SOURCES_CSV_COLUMNS = [
     "harvest_restriction",
@@ -689,10 +692,9 @@ def release_candidate(store):
 def publish_prerelease(store, rc_tag, commit, run_dir, out_dir=OUTPUTS):
     """publish a release candidate's archive to prereleases/
 
-    run_dir holds the run's outputs: OVERLAY_GPKG (with the harvest_restrictions and
-    designations layers), SOURCES_CSV, and the area totals (<log>.csv). The summaries comparing
-    those totals to the most recent release are written there by this, and archived with the
-    rest. The archive is built in out_dir/prereleases/, kept locally.
+    run_dir holds the run's outputs: OVERLAY_GPKG, SOURCES_GPKG, SOURCES_CSV, and the area
+    totals (<log>.csv). The summaries comparing those totals to the most recent release are
+    written there by this, and archived with the rest. The archive is built in out_dir/prereleases/, kept locally.
 
     commit is the commit the run started on - refuses to publish if the checkout has changed
     since, as the run then isn't commit's output.
@@ -725,7 +727,7 @@ def publish_prerelease(store, rc_tag, commit, run_dir, out_dir=OUTPUTS):
     os.makedirs(os.path.dirname(archive), exist_ok=True)
     zip_files(
         archive,
-        [os.path.join(run_dir, name) for name in [OVERLAY_GPKG] + ARCHIVED_CSVS],
+        [os.path.join(run_dir, name) for name in ARCHIVED_FILES],
     )
     # the tags record what the candidate is, for release to check - previous_release is the
     # release its summaries compare against
@@ -822,26 +824,10 @@ def publish_release(store, out_dir=OUTPUTS):
     os.makedirs(os.path.dirname(local(archive_key)))
     shutil.copy(local(rc_key), local(archive_key))
 
-    # the latest files, from the archive - each layer of the geopackage as its own geopackage
-    bundle_dir = local("bundle")
+    # the latest files - the archive's, as is
     with zipfile.ZipFile(local(rc_key)) as z:
-        z.extractall(bundle_dir)
-    os.makedirs(local("latest"))
-    bundle = os.path.join(bundle_dir, OVERLAY_GPKG)
-    add_gpkg_layer(
-        local(f"latest/{OVERLAY_GPKG}"),
-        bundle,
-        "harvest_restrictions",
-        "harvest_restrictions",
-    )
-    add_gpkg_layer(
-        local(f"latest/{SOURCES_GPKG}"), bundle, "designations", "designations"
-    )
-    for name in ARCHIVED_CSVS:
-        shutil.copy(os.path.join(bundle_dir, name), local(f"latest/{name}"))
-    latest_keys = [
-        f"latest/{name}" for name in [OVERLAY_GPKG, SOURCES_GPKG] + ARCHIVED_CSVS
-    ]
+        z.extractall(local("latest"))
+    latest_keys = [f"latest/{name}" for name in ARCHIVED_FILES]
 
     # this release's change log rows, from each summary's "current" column - a category with no
     # current value existed in the previous release but not this run, and is excluded rather
@@ -852,9 +838,7 @@ def publish_release(store, out_dir=OUTPUTS):
     combined_logs = []
     for log, columns in LOGS.items():
         rows = (
-            pandas.read_csv(os.path.join(bundle_dir, summary(log)))[
-                columns + ["current"]
-            ]
+            pandas.read_csv(local(f"latest/{summary(log)}"))[columns + ["current"]]
             .rename(columns={"current": AREA})
             .dropna(subset=[AREA])
         )
@@ -1233,7 +1217,7 @@ def prerelease(db_url, designations_table, bucket, verbose, quiet):
         def tmp(name):
             return os.path.join(tmp_dir, name)
 
-        # the result, and the source designations, in one geopackage
+        # the result, and the source designations
         add_gpkg_layer(
             tmp(OVERLAY_GPKG),
             f"PG:{db_url}",
@@ -1244,10 +1228,11 @@ def prerelease(db_url, designations_table, bucket, verbose, quiet):
             DUMP_SQL,
         )
         add_gpkg_layer(
-            tmp(OVERLAY_GPKG), f"PG:{db_url}", "designations", designations_table
+            tmp(SOURCES_GPKG), f"PG:{db_url}", "designations", designations_table
         )
         LOG.info(
-            f"Overlay results and {designations_table} written to {tmp(OVERLAY_GPKG)}"
+            f"Overlay results written to {tmp(OVERLAY_GPKG)}, {designations_table} to "
+            f"{tmp(SOURCES_GPKG)}"
         )
 
         # area totals, compared to the previous release in the summaries

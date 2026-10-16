@@ -350,6 +350,7 @@ def put_prerelease(store, rc_tag=RC_TAG, previous_release=PREVIOUS_RELEASE):
     out = io.BytesIO()
     with zipfile.ZipFile(out, "w") as z:
         z.writestr("harvest_restrictions.gpkg", f"gpkg {rc_tag}")
+        z.writestr("harvest_restrictions_sources.gpkg", "designations gpkg")
         z.writestr("sources.csv", SOURCES_CSV_BODY)
         for log in hr.LOGS:
             z.writestr(hr.summary(log), summary_body(log, previous_release))
@@ -475,6 +476,7 @@ def run_dir(tmp_path):
     run_dir = tmp_path / "run"
     run_dir.mkdir()
     (run_dir / hr.OVERLAY_GPKG).write_text("gpkg")
+    (run_dir / hr.SOURCES_GPKG).write_text("designations gpkg")
     (run_dir / hr.SOURCES_CSV).write_text(SOURCES_CSV_BODY)
     for log, row in LOG_ROWS.items():
         pandas.DataFrame([{**row, "area_ha": 120.0}]).to_csv(
@@ -495,10 +497,12 @@ def test_publish_prerelease(store, run_dir, tmp_path):
         "previous_release": PREVIOUS_RELEASE,
     }
 
-    # the geopackage, sources and summaries comparing the run's totals to the previous release
+    # the geopackages, sources and summaries comparing the run's totals to the previous
+    # release
     members = zip_members(store.objects[key]["body"])
     assert sorted(members) == [
         "harvest_restrictions.gpkg",
+        "harvest_restrictions_sources.gpkg",
         "harvest_restrictions_summary.csv",
         "land_designations_summary.csv",
         "sources.csv",
@@ -584,15 +588,11 @@ def test_release_publishes(store):
     # the archive is the candidate's, as is
     assert store.objects[ARCHIVE_KEY]["body"] == store.objects[RC_KEY]["body"]
 
-    # each layer of the geopackage as its own latest geopackage, the csvs as is
-    objects = store.objects
-    assert objects["latest/harvest_restrictions.gpkg"]["body"] == (
-        b"harvest_restrictions\tharvest_restrictions.gpkg\tharvest_restrictions\n"
-    )
-    assert objects["latest/harvest_restrictions_sources.gpkg"]["body"] == (
-        b"designations\tharvest_restrictions.gpkg\tdesignations\n"
-    )
-    assert objects["latest/sources.csv"]["body"] == SOURCES_CSV_BODY.encode()
+    # the latest files are the archive's, as is
+    members = zip_members(store.objects[RC_KEY]["body"])
+    assert latest_keys == [f"latest/{name}" for name in members]
+    for name, body in members.items():
+        assert store.objects[f"latest/{name}"]["body"] == body
 
     # the candidate is left for prune-prereleases
     assert RC_KEY in store.objects

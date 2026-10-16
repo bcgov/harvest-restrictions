@@ -129,6 +129,7 @@ The `harvest_restrictions` object storage bucket does not require versioning - e
 9. Review the release candidate's archive - it's exactly what the release will be:
 
     - `harvest_restrictions.gpkg`
+    - `harvest_restrictions_sources.gpkg`
     - `land_designations_summary.csv`
     - `harvest_restrictions_summary.csv`
     - `sources.csv`
@@ -175,9 +176,8 @@ s3://$BUCKET/harvest_restrictions/
 │       └── harvest_restrictions.csv
 └── releases/                                 # permanent per-release archives, written by `release`
     └── harvest_restrictions_<release_tag>.zip
-        ├── harvest_restrictions.gpkg
-        │   ├── harvest_restrictions       (spatial layer)
-        │   └── designations               (spatial layer)
+        ├── harvest_restrictions.gpkg         (harvest_restrictions layer)
+        ├── harvest_restrictions_sources.gpkg (designations layer)
         ├── land_designations_summary.csv
         ├── harvest_restrictions_summary.csv
         └── sources.csv
@@ -187,7 +187,7 @@ s3://$BUCKET/harvest_restrictions/
 
 **`prereleases/harvest_restrictions_<version>-rc.<n>.zip`** - written by `prerelease`, one archive per release candidate, never overwritten, laid out as a release archive (see `releases/` below). Tagged with the candidate's `commit`, `prerelease` tag, and the `previous_release` its summaries compare against. Transient by design - `prune-prereleases` (run by the release workflow) deletes the candidates of released versions. The archive holds:
 
-- `harvest_restrictions.gpkg` - the overlay result (`harvest_restrictions` layer) and its source designations (`designations` layer)
+- `harvest_restrictions.gpkg`, `harvest_restrictions_sources.gpkg` - the overlay result (`harvest_restrictions` layer) and its source designations (`designations` layer)
 - `land_designations_summary.csv`, `harvest_restrictions_summary.csv` - comparing the *most recent release* against the candidate with `current`/`diff`/`pct_diff` columns. Retains every category present in either side - a category new to this run or dropped since the previous release still gets its labels, with `diff`/`pct_diff` left as `NaN` rather than misleadingly implying zero area. This is what you review in step 9 above, and what `release` reads (via the `current` column) to append the release's totals to the change log
 - `sources.csv` - a flattened `sources.json` as it stood for this run
 
@@ -195,9 +195,9 @@ s3://$BUCKET/harvest_restrictions/
 
 **`logs/land_designations.csv` / `logs/harvest_restrictions.csv`** - the combined change logs, every release's rows from `logs/<release_tag>/` in `released_at` order. Rebuilt by `release` each time, so if damaged they're fixed by the next release.
 
-**`latest/`** - `harvest_restrictions.gpkg`, `harvest_restrictions_sources.gpkg`, `land_designations_summary.csv`, `harvest_restrictions_summary.csv` and `sources.csv`: the latest release's files, written only by `release`, at fixed plain-named keys (no suffix), overwritten on every release. The same five deliverables as separate files rather than one geopackage, for scripts/mapping applications that just want the current release without tracking release tags - point at these instead of the `releases/` archive. Fully redundant with the latest release's archive.
+**`latest/`** - `harvest_restrictions.gpkg`, `harvest_restrictions_sources.gpkg`, `land_designations_summary.csv`, `harvest_restrictions_summary.csv` and `sources.csv`: the latest release's files, written only by `release`, at fixed plain-named keys (no suffix), overwritten on every release. The latest release archive's files, unzipped, for scripts/mapping applications that just want the current release without tracking release tags - point at these instead of the `releases/` archive. Fully redundant with the latest release's archive.
 
-**`releases/harvest_restrictions_<release_tag>.zip`** - written only by `release`, never overwritten, so every past release stays retrievable by tag. A copy of the promoted release candidate's archive. A single download holding the release - only the archive's name carries the release tag: one geopackage (`harvest_restrictions.gpkg`) with both spatial layers - unlike `latest/harvest_restrictions.gpkg`, which holds just the `harvest_restrictions` layer - the summaries comparing it to the previous release, and the run's `sources.csv`. The zip is seek-optimized (`sozip`), so the geopackage can be read in place without downloading or unzipping, e.g. `ogrinfo /vsizip//vsis3/$BUCKET/harvest_restrictions/releases/harvest_restrictions_<release_tag>.zip/harvest_restrictions.gpkg`.
+**`releases/harvest_restrictions_<release_tag>.zip`** - written only by `release`, never overwritten, so every past release stays retrievable by tag. A copy of the promoted release candidate's archive. A single download holding the release - only the archive's name carries the release tag: the same files as `latest/`, ie the two geopackages, the summaries comparing it to the previous release, and the run's `sources.csv`. The zip is seek-optimized (`sozip`), so the geopackages can be read in place without downloading or unzipping, e.g. `ogrinfo /vsizip//vsis3/$BUCKET/harvest_restrictions/releases/harvest_restrictions_<release_tag>.zip/harvest_restrictions.gpkg`.
 
 ### Local outputs
 
