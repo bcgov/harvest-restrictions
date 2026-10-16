@@ -58,7 +58,7 @@ CREATE TABLE harvest_restrictions (
 
 -- log commit associated with a given overlay run
 -- (to guard against changes made between running overlay and tagging a pre-release)
-CREATE TABLE IF overlay_run (
+CREATE TABLE overlay_run (
   git_commit text,
   uncommitted_changes text,
   finished_at timestamptz
