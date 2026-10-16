@@ -4,7 +4,6 @@ import os
 import shutil
 import subprocess
 import zipfile
-from datetime import datetime, timedelta, timezone
 
 import pandas
 import pytest
@@ -12,13 +11,11 @@ import pytest
 import harvest_restrictions as hr
 
 COMMIT = "abc1234def5678"
-SHORT_COMMIT = "abc1234"
 RELEASE_TAG = "v2026-10"
+RC_TAG = "v2026-10-rc.1"
 RELEASE_DATE = "2026-10-01T10:00:00-07:00"
-RUN_ID = "20261001T000000Z"
 PREVIOUS_RELEASE = "v2026-02"
-# the run the fixture's previous release was made from
-RELEASED_RUN = "20260101T000000Z"
+RC_KEY = f"prereleases/harvest_restrictions_{RC_TAG}.zip"
 ARCHIVE_KEY = f"releases/harvest_restrictions_{RELEASE_TAG}.zip"
 SOURCES_CSV_BODY = "index,alias\n1,park_national\n"
 
@@ -105,8 +102,8 @@ def test_s3store_list(monkeypatch):
         out = json.dumps(
             {
                 "Contents": [
-                    {"Key": "harvest_restrictions/drafts/b"},
-                    {"Key": "harvest_restrictions/drafts/a"},
+                    {"Key": "harvest_restrictions/logs/b"},
+                    {"Key": "harvest_restrictions/logs/a"},
                 ]
             }
         )
@@ -115,8 +112,8 @@ def test_s3store_list(monkeypatch):
     monkeypatch.setattr(hr.subprocess, "run", fake_run)
     store = hr.S3Store("bucket")
     # keys relative to the prefix, sorted
-    assert store.list("drafts/") == ["drafts/a", "drafts/b"]
-    assert calls[0][calls[0].index("--prefix") + 1] == "harvest_restrictions/drafts/"
+    assert store.list("logs/") == ["logs/a", "logs/b"]
+    assert calls[0][calls[0].index("--prefix") + 1] == "harvest_restrictions/logs/"
 
 
 def test_s3store_list_empty(monkeypatch):
@@ -126,7 +123,17 @@ def test_s3store_list_empty(monkeypatch):
         "run",
         lambda cmd, **kwargs: subprocess.CompletedProcess(cmd, 0, stdout=""),
     )
-    assert hr.S3Store("bucket").list("drafts/") == []
+    assert hr.S3Store("bucket").list("logs/") == []
+
+
+def test_s3store_tags(monkeypatch):
+    out = json.dumps({"TagSet": [{"Key": "previous_release", "Value": "v2026-02"}]})
+    monkeypatch.setattr(
+        hr.subprocess,
+        "run",
+        lambda cmd, **kwargs: subprocess.CompletedProcess(cmd, 0, stdout=out),
+    )
+    assert hr.S3Store("bucket").tags(RC_KEY) == {"previous_release": "v2026-02"}
 
 
 # --- geopackages and zips ---
@@ -151,20 +158,29 @@ def make_gpkg(path, layer):
     )
 
 
+def gpkg_layers(path):
+    info = subprocess.run(
+        ["ogrinfo", "-q", str(path)], check=True, capture_output=True, text=True
+    ).stdout
+    # eg "1: harvest_restrictions (Point)"
+    return sorted(line.split(": ")[1].split(" ")[0] for line in info.splitlines())
+
+
 @pytest.mark.skipif(not shutil.which("ogr2ogr"), reason="requires GDAL")
 def test_add_gpkg_layer(tmp_path):
+    # creating the geopackage, then adding to it - each layer named as given
+    source = tmp_path / "source.gpkg"
+    make_gpkg(source, "some_table")
     bundle = tmp_path / "harvest_restrictions.gpkg"
-    make_gpkg(bundle, "harvest_restrictions")
-    # the source layer is renamed, whatever it's called
-    sources = tmp_path / "harvest_restrictions_sources.gpkg"
-    make_gpkg(sources, "some_table")
 
-    hr.add_gpkg_layer(str(bundle), str(sources), "designations")
-    info = subprocess.run(
-        ["ogrinfo", "-q", str(bundle)], check=True, capture_output=True, text=True
-    ).stdout
-    assert "harvest_restrictions" in info
-    assert "designations" in info
+    hr.add_gpkg_layer(str(bundle), str(source), "harvest_restrictions")
+    hr.add_gpkg_layer(str(bundle), str(source), "designations")
+    assert gpkg_layers(bundle) == ["designations", "harvest_restrictions"]
+
+    # just one layer of a geopackage
+    latest = tmp_path / "latest.gpkg"
+    hr.add_gpkg_layer(str(latest), str(bundle), "designations", "designations")
+    assert gpkg_layers(latest) == ["designations"]
 
 
 @pytest.mark.skipif(not shutil.which("sozip"), reason="requires GDAL")
@@ -192,20 +208,10 @@ def test_zip_files_readable_by_gdal(tmp_path):
     assert "Feature Count: 1" in info
 
 
-def test_unzip_file(tmp_path):
-    # the file inside needn't match the name it's extracted to
-    in_zip = tmp_path / "harvest_restrictions.gpkg.zip"
-    with zipfile.ZipFile(in_zip, "w") as z:
-        z.writestr("custom_name.gpkg", "gpkg")
-
-    out_file = tmp_path / "harvest_restrictions.gpkg"
-    hr.unzip_file(in_zip, out_file)
-    assert out_file.read_text() == "gpkg"
-
-
-# --- release ---
+# --- fakes ---
 #
-# releases are run against an in-memory store, with git, ogr2ogr and sozip stubbed out
+# candidates and releases are run against an in-memory store, with git, ogr2ogr and sozip
+# stubbed out
 
 
 class MemoryStore:
@@ -226,10 +232,13 @@ class MemoryStore:
     def read_csv(self, key):
         return pandas.read_csv(io.BytesIO(self.objects[key]["body"]))
 
-    def upload(self, local_file, key, tags=None):
+    def upload(self, local_file, key, tags):
         with open(local_file, "rb") as f:
             self.put(key, f.read(), tags)
         self.uploads.append(key)
+
+    def tags(self, key):
+        return self.objects[key]["tags"]
 
     def download(self, key, local_file):
         if key not in self.objects:
@@ -241,31 +250,31 @@ class MemoryStore:
     def list(self, prefix):
         return sorted(k for k in self.objects if k.startswith(prefix))
 
-    def delete_prefix(self, prefix):
-        for key in self.list(prefix + "/"):
-            del self.objects[key]
+    def delete(self, key):
+        del self.objects[key]
 
 
-def fake_git(cmd, *args, **kwargs):
-    if cmd[:2] == ["git", "status"]:
-        return b""
-    if cmd[:2] == ["git", "describe"]:
-        return RELEASE_TAG.encode()
-    if cmd[:2] == ["git", "log"]:
-        return RELEASE_DATE.encode()
-    if cmd[:3] == ["git", "rev-parse", "--short"]:
-        return SHORT_COMMIT.encode()
-    if cmd[:2] == ["git", "rev-parse"]:
-        return COMMIT.encode()
-    raise AssertionError(f"unexpected command {cmd}")
+def fake_git(tags=(RELEASE_TAG, RC_TAG), status="", head=COMMIT):
+    """git, with the checked-out commit at head, tagged with tags"""
+
+    def git(cmd, *args, **kwargs):
+        if cmd[:2] == ["git", "status"]:
+            return status.encode()
+        if cmd[:2] == ["git", "tag"]:
+            return "\n".join(tags).encode()
+        if cmd[:2] == ["git", "log"]:
+            return RELEASE_DATE.encode()
+        if cmd == ["git", "rev-parse", "HEAD"]:
+            return head.encode()
+        raise AssertionError(f"unexpected command {cmd}")
+
+    return git
 
 
-def fake_add_gpkg_layer(out_file, source_file, layer_name):
-    """record the added layer as a line in out_file, with the source's contents"""
-    with open(source_file) as f:
-        source = f.read().strip()
+def fake_add_gpkg_layer(out_file, source, layer_name, *args):
+    """record the added layer as a line in out_file"""
     with open(out_file, "a") as f:
-        f.write(f"{layer_name}\t{source}\n")
+        f.write(f"{layer_name}\t{os.path.basename(source)}\t{' '.join(args)}\n")
 
 
 def fake_zip_files(out_zip, files):
@@ -275,15 +284,8 @@ def fake_zip_files(out_zip, files):
             z.write(f, os.path.basename(f))
 
 
-def zipped(name, body):
-    out = io.BytesIO()
-    with zipfile.ZipFile(out, "w") as z:
-        z.writestr(name, body)
-    return out.getvalue()
-
-
-def archive_members(store, key):
-    with zipfile.ZipFile(io.BytesIO(store.objects[key]["body"])) as z:
+def zip_members(body):
+    with zipfile.ZipFile(io.BytesIO(body)) as z:
         return {name: z.read(name) for name in z.namelist()}
 
 
@@ -304,7 +306,7 @@ LOG_ROWS = {
 
 
 def summary_body(log, previous_release=PREVIOUS_RELEASE):
-    """a summary as publish_draft writes it - harvest_restrictions has a second class,
+    """a summary as publish_prerelease writes it - harvest_restrictions has a second class,
     dropped since the previous release, so it has no current value"""
     rows = [{**LOG_ROWS[log], "current": 110.0, previous_release: 100.0}]
     if log == "harvest_restrictions":
@@ -322,7 +324,7 @@ def summary_body(log, previous_release=PREVIOUS_RELEASE):
     return df.to_csv(index=False)
 
 
-def put_release_log(store, release_tag, released_at, logs=None, run_id=RELEASED_RUN):
+def put_release_log(store, release_tag, released_at, logs=None):
     """publish one release's change log rows, as publish_release does"""
     for log, row in LOG_ROWS.items():
         if logs and log not in logs:
@@ -335,7 +337,7 @@ def put_release_log(store, release_tag, released_at, logs=None, run_id=RELEASED_
                     "release_tag": release_tag,
                     "release_date": "2026-01-01",
                     "commit": "0000000",
-                    "run_id": run_id,
+                    "prerelease": f"{release_tag}-rc.1",
                     "released_at": released_at,
                 }
             ]
@@ -343,51 +345,190 @@ def put_release_log(store, release_tag, released_at, logs=None, run_id=RELEASED_
         store.put(hr.release_log_key(release_tag, log), rows.to_csv(index=False))
 
 
-def put_run(
-    store,
-    run_id=RUN_ID,
-    commit=COMMIT,
-    previous_release=PREVIOUS_RELEASE,
-    complete=True,
-):
-    """publish a full set of draft files, as publish_draft does"""
-    bodies = {
-        hr.OVERLAY_ZIP: zipped("harvest_restrictions.gpkg", f"overlay {run_id}"),
-        hr.SOURCES_ZIP: zipped("harvest_restrictions_sources.gpkg", "designations"),
-        hr.SOURCES_CSV: SOURCES_CSV_BODY,
+def put_prerelease(store, rc_tag=RC_TAG, previous_release=PREVIOUS_RELEASE):
+    """publish a release candidate's archive, as publish_prerelease does"""
+    out = io.BytesIO()
+    with zipfile.ZipFile(out, "w") as z:
+        z.writestr("harvest_restrictions.gpkg", f"gpkg {rc_tag}")
+        z.writestr("sources.csv", SOURCES_CSV_BODY)
+        for log in hr.LOGS:
+            z.writestr(hr.summary(log), summary_body(log, previous_release))
+    tags = {
+        "commit": COMMIT,
+        "prerelease": rc_tag,
+        "previous_release": previous_release,
     }
-    for log in hr.LOGS:
-        bodies[hr.summary(log)] = summary_body(log, previous_release)
-    for name, body in bodies.items():
-        store.put(hr.draft_key(run_id, name), body)
-    # an incomplete run failed before publishing its manifest
-    if complete:
-        manifest = {
-            "run_id": run_id,
-            "commit": commit,
-            "previous_release": previous_release,
-            "created": "2026-10-01T00:00:00+00:00",
-            "files": list(bodies),
-        }
-        store.put(hr.draft_key(run_id, hr.MANIFEST), json.dumps(manifest))
+    store.put(hr.prerelease_key(rc_tag), out.getvalue(), tags)
 
 
 @pytest.fixture
 def store(tmp_path, monkeypatch):
-    """a store holding one previous release, plus one run of COMMIT"""
+    """a store holding one previous release, plus a release candidate of COMMIT, which is
+    checked out and tagged with the candidate and the release"""
     memory = MemoryStore()
     put_release_log(memory, PREVIOUS_RELEASE, "2026-02-10T15:34:35-08:00")
-    put_run(memory)
+    put_prerelease(memory)
 
     monkeypatch.chdir(tmp_path)
-    monkeypatch.setattr(hr.subprocess, "check_output", fake_git)
+    monkeypatch.setattr(hr.subprocess, "check_output", fake_git())
     monkeypatch.setattr(hr, "add_gpkg_layer", fake_add_gpkg_layer)
     monkeypatch.setattr(hr, "zip_files", fake_zip_files)
     return memory
 
 
-def run_release(store, run_id=None):
-    hr.publish_release(store, run_id, out_dir=".")
+def checkout(monkeypatch, **kwargs):
+    monkeypatch.setattr(hr.subprocess, "check_output", fake_git(**kwargs))
+
+
+def run_release(store):
+    hr.publish_release(store, out_dir=".")
+
+
+# --- committed_head ---
+
+
+def test_committed_head(store):
+    assert hr.committed_head() == COMMIT
+
+
+def test_committed_head_uncommitted_changes(store, monkeypatch):
+    checkout(monkeypatch, status=" M sql/overlay.sql")
+    with pytest.raises(ValueError, match="uncommitted changes") as e:
+        hr.committed_head()
+    # the changed files are listed
+    assert "sql/overlay.sql" in str(e.value)
+
+
+def test_committed_head_ignores_untracked_files(store, monkeypatch):
+    # git is asked to leave untracked files out
+    calls = []
+    git = fake_git()
+
+    def fake(cmd, *args, **kwargs):
+        calls.append(cmd)
+        return git(cmd)
+
+    monkeypatch.setattr(hr.subprocess, "check_output", fake)
+    hr.committed_head()
+    assert ["git", "status", "--porcelain", "--untracked-files=no"] in calls
+
+
+# --- release_candidate ---
+
+
+def test_release_candidate(store, monkeypatch):
+    # the newest candidate of the commit - rc.10 is newer than rc.9
+    checkout(monkeypatch, tags=["v2026-11-rc.9", "v2026-11-rc.10"])
+    assert hr.release_candidate(store) == ("v2026-11-rc.10", COMMIT)
+
+
+def test_release_candidate_untagged(store, monkeypatch):
+    checkout(monkeypatch, tags=[RELEASE_TAG])
+    with pytest.raises(ValueError, match="no release candidate tag"):
+        hr.release_candidate(store)
+
+
+def test_release_candidate_already_published(store, monkeypatch):
+    checkout(monkeypatch, tags=[RC_TAG])
+    with pytest.raises(ValueError, match="already published"):
+        hr.release_candidate(store)
+
+
+def test_release_candidate_uncommitted_changes(store, monkeypatch):
+    checkout(monkeypatch, tags=["v2026-11-rc.1"], status=" M sources.json")
+    with pytest.raises(ValueError, match="uncommitted changes"):
+        hr.release_candidate(store)
+
+
+# --- publish_prerelease ---
+
+NEW_RC = "v2026-11-rc.1"
+
+
+@pytest.fixture
+def run_dir(tmp_path):
+    """a run's outputs and area totals, as overlay writes them"""
+    run_dir = tmp_path / "run"
+    run_dir.mkdir()
+    (run_dir / hr.OVERLAY_GPKG).write_text("gpkg")
+    (run_dir / hr.SOURCES_CSV).write_text(SOURCES_CSV_BODY)
+    for log, row in LOG_ROWS.items():
+        pandas.DataFrame([{**row, "area_ha": 120.0}]).to_csv(
+            run_dir / f"{log}.csv", index=False
+        )
+    return str(run_dir)
+
+
+def test_publish_prerelease(store, run_dir, tmp_path):
+    hr.publish_prerelease(store, NEW_RC, COMMIT, run_dir, out_dir=str(tmp_path))
+
+    key = hr.prerelease_key(NEW_RC)
+    assert store.uploads == [key]
+    assert key == "prereleases/harvest_restrictions_v2026-11-rc.1.zip"
+    assert store.tags(key) == {
+        "commit": COMMIT,
+        "prerelease": NEW_RC,
+        "previous_release": PREVIOUS_RELEASE,
+    }
+
+    # the geopackage, sources and summaries comparing the run's totals to the previous release
+    members = zip_members(store.objects[key]["body"])
+    assert sorted(members) == [
+        "harvest_restrictions.gpkg",
+        "harvest_restrictions_summary.csv",
+        "land_designations_summary.csv",
+        "sources.csv",
+    ]
+    summary = pandas.read_csv(io.BytesIO(members["harvest_restrictions_summary.csv"]))
+    assert list(summary.columns) == [
+        "harvest_restriction_class_rank",
+        "harvest_restriction_class_name",
+        "current",
+        PREVIOUS_RELEASE,
+        "diff",
+        "pct_diff",
+    ]
+    assert summary.iloc[0]["diff"] == 20
+
+    # kept locally
+    assert (tmp_path / key).read_bytes() == store.objects[key]["body"]
+
+
+def test_publish_prerelease_then_release(store, run_dir, tmp_path, monkeypatch):
+    # what publish_prerelease publishes is what publish_release reads
+    hr.publish_prerelease(store, NEW_RC, COMMIT, run_dir, out_dir=str(tmp_path))
+
+    checkout(monkeypatch, tags=["v2026-11", NEW_RC])
+    run_release(store)
+    rows = store.read_csv(hr.release_log_key("v2026-11", "harvest_restrictions"))
+    assert list(rows["area_ha"]) == [120]
+
+
+def test_publish_prerelease_no_release_yet(store, run_dir):
+    for key in store.list("logs/"):
+        del store.objects[key]
+    with pytest.raises(ValueError, match="release at least one version"):
+        hr.publish_prerelease(store, NEW_RC, COMMIT, run_dir)
+    assert store.uploads == []
+
+
+def test_publish_prerelease_uncommitted_changes(store, run_dir, monkeypatch):
+    # a file edited during the run
+    checkout(monkeypatch, status=" M sources.json")
+    with pytest.raises(ValueError, match="uncommitted changes"):
+        hr.publish_prerelease(store, NEW_RC, COMMIT, run_dir)
+    assert store.uploads == []
+
+
+def test_publish_prerelease_head_moved(store, run_dir, monkeypatch):
+    # a commit made (or another commit checked out) during the run
+    checkout(monkeypatch, head="f00")
+    with pytest.raises(ValueError, match="moved from"):
+        hr.publish_prerelease(store, NEW_RC, COMMIT, run_dir)
+    assert store.uploads == []
+
+
+# --- publish_release ---
 
 
 def test_release_publishes(store):
@@ -412,34 +553,25 @@ def test_release_publishes(store):
         == [ARCHIVE_KEY] + latest_keys + combined_log_keys + release_log_keys
     )
 
-    tags = {"commit": COMMIT, "run_id": RUN_ID, "release": RELEASE_TAG}
+    tags = {"commit": COMMIT, "release": RELEASE_TAG, "prerelease": RC_TAG}
     for key in store.uploads:
-        assert store.objects[key]["tags"] == tags
+        assert store.tags(key) == tags
 
-    # the archive holds one geopackage with both layers, plus the csvs as is
-    members = archive_members(store, ARCHIVE_KEY)
-    assert sorted(members) == [
-        "harvest_restrictions.gpkg",
-        "harvest_restrictions_summary.csv",
-        "land_designations_summary.csv",
-        "sources.csv",
-    ]
-    assert members["harvest_restrictions.gpkg"] == (
-        f"overlay {RUN_ID}designations\tdesignations\n".encode()
+    # the archive is the candidate's, as is
+    assert store.objects[ARCHIVE_KEY]["body"] == store.objects[RC_KEY]["body"]
+
+    # each layer of the geopackage as its own latest geopackage, the csvs as is
+    objects = store.objects
+    assert objects["latest/harvest_restrictions.gpkg"]["body"] == (
+        b"harvest_restrictions\tharvest_restrictions.gpkg\tharvest_restrictions\n"
     )
-    assert members["sources.csv"] == SOURCES_CSV_BODY.encode()
-
-    # the latest geopackages are the drafts' unzipped, each with just its own layer
-    latest = store.objects
-    assert (
-        latest["latest/harvest_restrictions.gpkg"]["body"]
-        == f"overlay {RUN_ID}".encode()
+    assert objects["latest/harvest_restrictions_sources.gpkg"]["body"] == (
+        b"designations\tharvest_restrictions.gpkg\tdesignations\n"
     )
-    assert latest["latest/harvest_restrictions_sources.gpkg"]["body"] == b"designations"
-    assert latest["latest/sources.csv"]["body"] == SOURCES_CSV_BODY.encode()
+    assert objects["latest/sources.csv"]["body"] == SOURCES_CSV_BODY.encode()
 
-    # drafts are left for prune-drafts
-    assert hr.draft_key(RUN_ID, hr.MANIFEST) in store.objects
+    # the candidate is left for prune-prereleases
+    assert RC_KEY in store.objects
 
 
 def test_release_logs(store):
@@ -454,8 +586,8 @@ def test_release_logs(store):
     assert row["area_ha"] == 110
     assert row["release_tag"] == RELEASE_TAG
     assert row["release_date"] == RELEASE_DATE
-    assert row["commit"] == SHORT_COMMIT
-    assert row["run_id"] == RUN_ID
+    assert row["commit"] == COMMIT[:7]
+    assert row["prerelease"] == RC_TAG
     assert pandas.notna(row["released_at"])
 
     designations = store.read_csv(hr.release_log_key(RELEASE_TAG, "land_designations"))
@@ -465,6 +597,90 @@ def test_release_logs(store):
     for log in hr.LOGS:
         combined = store.read_csv(hr.combined_log_key(log))
         assert list(combined["release_tag"]) == [PREVIOUS_RELEASE, RELEASE_TAG]
+
+
+def test_release_newest_candidate(store, monkeypatch):
+    # the newest candidate of the version on the commit - not one of another version
+    put_prerelease(store, "v2026-10-rc.2")
+    put_prerelease(store, "v2026-11-rc.3")
+    checkout(monkeypatch, tags=[RELEASE_TAG, RC_TAG, "v2026-10-rc.2", "v2026-11-rc.3"])
+
+    run_release(store)
+    assert store.tags(ARCHIVE_KEY)["prerelease"] == "v2026-10-rc.2"
+
+
+def test_release_no_candidate_on_commit(store, monkeypatch):
+    # candidates of the version on other commits don't count
+    checkout(monkeypatch, tags=[RELEASE_TAG, "v2026-09-rc.1"])
+    with pytest.raises(ValueError, match="No release candidate of v2026-10"):
+        run_release(store)
+    assert store.uploads == []
+
+
+@pytest.mark.parametrize("tags", [[RC_TAG], [RELEASE_TAG, "v2026-10b", RC_TAG]])
+def test_release_needs_one_release_tag(store, monkeypatch, tags):
+    checkout(monkeypatch, tags=tags)
+    with pytest.raises(ValueError, match="exactly one release tag"):
+        run_release(store)
+    assert store.uploads == []
+
+
+def test_release_candidate_not_published(store, monkeypatch):
+    checkout(monkeypatch, tags=[RELEASE_TAG, RC_TAG, "v2026-10-rc.2"])
+    with pytest.raises(ValueError, match="v2026-10-rc.2 isn't published"):
+        run_release(store)
+    assert store.uploads == []
+
+
+def test_release_already_released(store):
+    put_release_log(store, RELEASE_TAG, "2026-10-02T00:00:00+00:00")
+
+    with pytest.raises(ValueError, match="already been released"):
+        run_release(store)
+    assert store.uploads == []
+
+
+def test_release_partially_logged(store):
+    # a previous attempt failed between publishing its change log files
+    put_release_log(
+        store, RELEASE_TAG, "2026-10-02T00:00:00+00:00", logs=["land_designations"]
+    )
+
+    run_release(store)
+    for log in hr.LOGS:
+        combined = store.read_csv(hr.combined_log_key(log))
+        assert list(combined["release_tag"]) == [PREVIOUS_RELEASE, RELEASE_TAG]
+
+
+def test_release_stale_summaries(store):
+    # another release since the candidate ran - its diffs are against an older release
+    put_release_log(store, "v2026-05", "2026-05-01T00:00:00+00:00")
+
+    with pytest.raises(ValueError, match="older release"):
+        run_release(store)
+    assert store.uploads == []
+
+
+def test_release_clears_leftover_files(store, tmp_path):
+    # a latest file from a failed release attempt
+    leftover = tmp_path / "releases" / RELEASE_TAG / "latest"
+    leftover.mkdir(parents=True)
+    (leftover / "harvest_restrictions.gpkg").write_text("stale\n")
+
+    run_release(store)
+    assert b"stale" not in store.objects["latest/harvest_restrictions.gpkg"]["body"]
+
+
+def test_release_builds_locally_by_key(store, tmp_path):
+    run_release(store)
+
+    # each published file is built at its key, under releases/<release_tag>/
+    release_dir = tmp_path / "releases" / RELEASE_TAG
+    for key in store.uploads:
+        assert (release_dir / key).read_bytes() == store.objects[key]["body"]
+
+
+# --- read_release_logs ---
 
 
 def test_read_release_logs_after_release(store, tmp_path):
@@ -510,327 +726,75 @@ def test_read_release_logs_ignores_other_keys(store, tmp_path):
     assert list(histories["harvest_restrictions"]["release_tag"]) == [PREVIOUS_RELEASE]
 
 
-def test_release_defaults_to_latest_run(store, tmp_path):
-    later_run = "20261002T000000Z"
-    put_run(store, run_id=later_run)
-    # still later runs that don't qualify: one that never finished publishing, and one of
-    # another commit
-    put_run(store, run_id="20261003T000000Z", complete=False)
-    put_run(store, run_id="20261004T000000Z", commit="f00")
+# --- delete_prereleases ---
 
+
+def candidates(store):
+    return [os.path.basename(k) for k in store.list("prereleases/")]
+
+
+def test_prune_released_versions(store):
+    put_prerelease(store, "v2026-02-rc.1")
+    put_prerelease(store, "v2026-02-rc.2")
+
+    hr.delete_prereleases(store, out_dir=".")
+    # just the released version's - v2026-10 isn't released yet
+    assert candidates(store) == [f"harvest_restrictions_{RC_TAG}.zip"]
+
+
+def test_prune_after_release(store):
     run_release(store)
-    assert store.objects[ARCHIVE_KEY]["tags"]["run_id"] == later_run
-    latest = store.objects["latest/harvest_restrictions.gpkg"]["body"]
-    assert latest == f"overlay {later_run}".encode()
+
+    hr.delete_prereleases(store, out_dir=".")
+    assert candidates(store) == []
 
 
-def test_release_pinned_run(store):
-    put_run(store, run_id="20261002T000000Z")
-
-    run_release(store, run_id=RUN_ID)
-    assert store.objects[ARCHIVE_KEY]["tags"]["run_id"] == RUN_ID
-
-
-def test_release_pinned_run_of_other_commit(store):
-    put_run(store, run_id="20261002T000000Z", commit="f00")
-
-    with pytest.raises(ValueError, match="is of commit f00"):
-        run_release(store, run_id="20261002T000000Z")
-    assert store.uploads == []
-
-
-def test_release_no_run(store):
-    with pytest.raises(ValueError, match="against this commit"):
-        run_release(store, run_id="20200101T000000Z")
-    assert store.uploads == []
-
-
-def test_release_missing_draft(store):
-    del store.objects[hr.draft_key(RUN_ID, "land_designations_summary.csv")]
-
-    with pytest.raises(ValueError, match="missing land_designations_summary.csv"):
-        run_release(store)
-    assert store.uploads == []
-
-
-def test_release_already_released(store):
-    put_release_log(store, RELEASE_TAG, "2026-10-02T00:00:00+00:00")
-
-    with pytest.raises(ValueError, match="already been released"):
-        run_release(store)
-    assert store.uploads == []
-
-
-def test_release_partially_logged(store):
-    # a previous attempt failed between publishing its change log files
+def test_prune_keeps_partially_released_version(store):
+    # a release that failed between publishing its change log files - its retry still
+    # needs the candidate
     put_release_log(
         store, RELEASE_TAG, "2026-10-02T00:00:00+00:00", logs=["land_designations"]
     )
 
-    run_release(store)
-    for log in hr.LOGS:
-        combined = store.read_csv(hr.combined_log_key(log))
-        assert list(combined["release_tag"]) == [PREVIOUS_RELEASE, RELEASE_TAG]
-
-
-def test_release_stale_summaries(store):
-    # another release since the run - its diffs are against an older release
-    put_release_log(store, "v2026-05", "2026-05-01T00:00:00+00:00")
-
-    with pytest.raises(ValueError, match="older release"):
-        run_release(store)
-    assert store.uploads == []
-
-
-def test_release_clears_leftover_files(store, tmp_path):
-    # a bundle from a failed release attempt
-    leftover = tmp_path / "releases" / RELEASE_TAG / "bundle"
-    leftover.mkdir(parents=True)
-    (leftover / "harvest_restrictions.gpkg").write_text("stale\n")
-
-    run_release(store)
-    members = archive_members(store, ARCHIVE_KEY)
-    assert b"stale" not in members["harvest_restrictions.gpkg"]
-
-
-def test_release_builds_locally_by_key(store, tmp_path):
-    run_release(store)
-
-    # each published file is built at its key, under releases/<release_tag>/
-    release_dir = tmp_path / "releases" / RELEASE_TAG
-    for key in store.uploads:
-        assert (release_dir / key).read_bytes() == store.objects[key]["body"]
-
-
-# --- publish_draft ---
-
-
-@pytest.fixture
-def run_dirs(tmp_path):
-    """a run's local outputs and area totals, as overlay writes them"""
-    run_dir = tmp_path / "run"
-    run_dir.mkdir()
-    for name in (hr.OVERLAY_ZIP, hr.SOURCES_ZIP, hr.SOURCES_CSV):
-        (run_dir / name).write_text(name)
-    totals_dir = tmp_path / "totals"
-    totals_dir.mkdir()
-    for log, row in LOG_ROWS.items():
-        pandas.DataFrame([{**row, "area_ha": 120.0}]).to_csv(
-            totals_dir / f"{log}.csv", index=False
-        )
-    return str(run_dir), str(totals_dir)
-
-
-def test_publish_draft(store, run_dirs):
-    run_dir, totals_dir = run_dirs
-    run_id = "20261006T000000Z"
-    hr.publish_draft(store, run_id, run_dir, totals_dir, COMMIT)
-
-    # every draft file, then the manifest last, marking the run complete
-    manifest_key = hr.draft_key(run_id, hr.MANIFEST)
-    assert store.uploads == [hr.draft_key(run_id, f) for f in hr.DRAFT_FILES] + [
-        manifest_key
-    ]
-    manifest = json.loads(store.objects[manifest_key]["body"])
-    assert manifest["commit"] == COMMIT
-    assert manifest["previous_release"] == PREVIOUS_RELEASE
-    assert manifest["files"] == hr.DRAFT_FILES
-
-    # summaries comparing the run's totals to the previous release, written to the run's
-    # local folder too
-    summary = store.read_csv(hr.draft_key(run_id, "harvest_restrictions_summary.csv"))
-    assert list(summary.columns) == [
-        "harvest_restriction_class_rank",
-        "harvest_restriction_class_name",
-        "current",
-        PREVIOUS_RELEASE,
-        "diff",
-        "pct_diff",
-    ]
-    assert summary.iloc[0]["diff"] == 20
-    assert os.path.exists(os.path.join(run_dir, "harvest_restrictions_summary.csv"))
-    assert os.path.exists(os.path.join(run_dir, hr.MANIFEST))
-
-
-def test_publish_draft_then_release(store, run_dirs):
-    # what publish_draft writes is what publish_release reads
-    run_dir, totals_dir = run_dirs
-    for name, body in (
-        (hr.OVERLAY_ZIP, zipped("harvest_restrictions.gpkg", "overlay")),
-        (hr.SOURCES_ZIP, zipped("harvest_restrictions_sources.gpkg", "designations")),
-    ):
-        with open(os.path.join(run_dir, name), "wb") as f:
-            f.write(body)
-    run_id = "20261006T000000Z"
-    hr.publish_draft(store, run_id, run_dir, totals_dir, COMMIT)
-
-    run_release(store, run_id=run_id)
-    rows = store.read_csv(hr.release_log_key(RELEASE_TAG, "harvest_restrictions"))
-    assert list(rows["area_ha"]) == [120]
-
-
-def test_publish_draft_no_release_yet(store, run_dirs):
-    for key in store.list("logs/"):
-        del store.objects[key]
-    with pytest.raises(ValueError, match="release at least one version"):
-        hr.publish_draft(store, "20261006T000000Z", *run_dirs, COMMIT)
-    assert store.uploads == []
-
-
-def git_with(status="", head=COMMIT):
-    """fake_git, with the given working tree status and HEAD"""
-
-    def fake(cmd, *args, **kwargs):
-        if cmd[:2] == ["git", "status"]:
-            return status.encode()
-        if cmd == ["git", "rev-parse", "HEAD"]:
-            return head.encode()
-        return fake_git(cmd)
-
-    return fake
-
-
-def test_committed_head(store):
-    assert hr.committed_head() == COMMIT
-
-
-def test_committed_head_uncommitted_changes(store, monkeypatch):
-    monkeypatch.setattr(hr.subprocess, "check_output", git_with(" M sql/overlay.sql"))
-    with pytest.raises(ValueError, match="uncommitted changes") as e:
-        hr.committed_head()
-    # the changed files are listed
-    assert "sql/overlay.sql" in str(e.value)
-
-
-def test_committed_head_untracked_files(store, monkeypatch):
-    # only tracked files are checked - git is asked to leave untracked files out
-    calls = []
-
-    def fake(cmd, *args, **kwargs):
-        calls.append(cmd)
-        return fake_git(cmd)
-
-    monkeypatch.setattr(hr.subprocess, "check_output", fake)
-    hr.committed_head()
-    assert ["git", "status", "--porcelain", "--untracked-files=no"] in calls
-
-
-def test_publish_draft_uncommitted_changes(store, run_dirs, monkeypatch):
-    # a file edited during the run
-    monkeypatch.setattr(hr.subprocess, "check_output", git_with(" M sources.json"))
-    with pytest.raises(ValueError, match="uncommitted changes"):
-        hr.publish_draft(store, "20261006T000000Z", *run_dirs, COMMIT)
-    assert store.uploads == []
-
-
-def test_publish_draft_head_moved(store, run_dirs, monkeypatch):
-    # a commit made (or another commit checked out) during the run
-    monkeypatch.setattr(hr.subprocess, "check_output", git_with(head="f00"))
-    with pytest.raises(ValueError, match="moved from"):
-        hr.publish_draft(store, "20261006T000000Z", *run_dirs, COMMIT)
-    assert store.uploads == []
-
-
-# --- delete_drafts ---
-
-
-def run_prune(store, older_than=None, dry_run=False, out_dir="."):
-    hr.delete_drafts(store, older_than, dry_run, out_dir)
-
-
-def runs(store):
-    return sorted({k.split("/")[1] for k in store.list("drafts/") if k.count("/") == 2})
-
-
-def test_prune_released_runs(store):
-    put_run(store, run_id=RELEASED_RUN)
-    put_run(store, run_id="20200101T000000Z")
-
-    run_prune(store)
-    # only the released run - unreleased runs are kept, however old, without older_than
-    assert runs(store) == ["20200101T000000Z", RUN_ID]
-
-
-def test_prune_older_than(store):
-    # runs relative to now, rather than the fixture's run, whose age depends on the date
-    store.delete_prefix(hr.run_prefix(RUN_ID))
-    recent = [
-        (datetime.now(timezone.utc) - timedelta(days=d)).strftime(hr.RUN_ID_FORMAT)
-        for d in (2, 1)
-    ]
-    put_run(store, run_id="20200101T000000Z")
-    for run_id in recent:
-        put_run(store, run_id=run_id)
-
-    run_prune(store, older_than=90)
-    assert runs(store) == recent
-
-
-def test_prune_keeps_newest_unreleased(store):
-    # every unreleased run is old - the newest may still be under review, so it's kept
-    put_run(store, run_id="20200101T000000Z")
-    put_run(store, run_id="20200201T000000Z")
-    store.delete_prefix(hr.run_prefix(RUN_ID))
-
-    run_prune(store, older_than=90)
-    assert runs(store) == ["20200201T000000Z"]
-
-
-def test_prune_keeps_partially_released_run(store):
-    # a release that failed between publishing its change log files - its retry still
-    # needs the draft
-    put_release_log(
-        store,
-        "v2026-05",
-        "2026-05-01T00:00:00+00:00",
-        logs=["land_designations"],
-        run_id=RUN_ID,
-    )
-
-    run_prune(store)
-    assert runs(store) == [RUN_ID]
+    hr.delete_prereleases(store, out_dir=".")
+    assert candidates(store) == [f"harvest_restrictions_{RC_TAG}.zip"]
 
 
 def test_prune_dry_run(store):
-    put_run(store, run_id=RELEASED_RUN)
+    put_prerelease(store, "v2026-02-rc.1")
 
-    run_prune(store, older_than=0, dry_run=True)
-    assert runs(store) == [RELEASED_RUN, RUN_ID]
+    hr.delete_prereleases(store, dry_run=True, out_dir=".")
+    assert len(candidates(store)) == 2
 
 
 def test_prune_ignores_other_keys(store):
-    # files outside any run prefix, and a prefix that isn't a run's
-    store.put("drafts/harvest_restrictions.gpkg.zip", "old layout")
-    store.put("drafts/notarun/file.csv", "?")
-    # nor does a non-run prefix (which sorts after every run_id) count as the newest
-    # unreleased run - the actual newest unreleased run is still kept
-    put_run(store, run_id="20200101T000000Z")
+    store.put("prereleases/notes.txt", "?")
+    store.put("prereleases/harvest_restrictions_v2026-02.zip", "not a candidate")
 
-    run_prune(store, older_than=0)
-    assert "drafts/harvest_restrictions.gpkg.zip" in store.objects
-    assert "drafts/notarun/file.csv" in store.objects
-    assert runs(store) == [RUN_ID, "notarun"]
+    hr.delete_prereleases(store, out_dir=".")
+    assert "prereleases/notes.txt" in store.objects
+    assert "prereleases/harvest_restrictions_v2026-02.zip" in store.objects
 
 
 def test_prune_local_copies(store, tmp_path):
-    put_run(store, run_id=RELEASED_RUN)
-    for run_id in (RELEASED_RUN, RUN_ID):
-        run_dir = tmp_path / hr.run_prefix(run_id)
-        run_dir.mkdir(parents=True)
-        (run_dir / hr.MANIFEST).write_text("{}")
+    put_prerelease(store, "v2026-02-rc.1")
+    for rc_tag in ("v2026-02-rc.1", RC_TAG):
+        local = tmp_path / hr.prerelease_key(rc_tag)
+        local.parent.mkdir(exist_ok=True)
+        local.write_text("zip")
 
-    run_prune(store, dry_run=True, out_dir=str(tmp_path))
-    assert (tmp_path / hr.run_prefix(RELEASED_RUN)).exists()
+    hr.delete_prereleases(store, dry_run=True, out_dir=str(tmp_path))
+    assert (tmp_path / hr.prerelease_key("v2026-02-rc.1")).exists()
 
-    run_prune(store, out_dir=str(tmp_path))
-    # the released run's local copy goes with it - the unreleased run's is kept
-    assert not (tmp_path / hr.run_prefix(RELEASED_RUN)).exists()
-    assert (tmp_path / hr.run_prefix(RUN_ID)).exists()
+    hr.delete_prereleases(store, out_dir=str(tmp_path))
+    # the released version's local copy goes with it - the unreleased version's is kept
+    assert not (tmp_path / hr.prerelease_key("v2026-02-rc.1")).exists()
+    assert (tmp_path / hr.prerelease_key(RC_TAG)).exists()
 
 
 def test_prune_without_local_copy(store, tmp_path):
-    # a run published from elsewhere (eg CI) has no local copy to delete
-    put_run(store, run_id=RELEASED_RUN)
+    # a candidate published from elsewhere (eg CI) has no local copy to delete
+    put_prerelease(store, "v2026-02-rc.1")
 
-    run_prune(store, out_dir=str(tmp_path))
-    assert runs(store) == [RUN_ID]
+    hr.delete_prereleases(store, out_dir=str(tmp_path))
+    assert candidates(store) == [f"harvest_restrictions_{RC_TAG}.zip"]

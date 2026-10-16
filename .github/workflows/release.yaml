@@ -3,6 +3,8 @@ on:
   push:
     tags:
       - 'v*'
+      # release candidates are published by overlay, not released
+      - '!v*-rc.*'
 permissions:
   contents: read
 # release read-modify-writes the change logs in object storage - run one release at a time
@@ -39,6 +41,6 @@ jobs:
         run: |
           git config --global --add safe.directory /__w/harvest-restrictions/harvest-restrictions
           python harvest_restrictions.py release -v
-      - name: Prune released drafts
-        # only drafts of released runs (including this one) - unreleased runs are left alone
-        run: python harvest_restrictions.py prune-drafts -v
+      - name: Prune release candidates
+        # only candidates of released versions (including this one) - others are left alone
+        run: python harvest_restrictions.py prune-prereleases -v

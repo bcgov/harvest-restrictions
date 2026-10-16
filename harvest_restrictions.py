@@ -3,6 +3,7 @@ import glob
 import json
 import logging
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -37,18 +38,17 @@ CACHE_PATH = (
     else None
 )
 
-# everything generated locally is written under here, laid out as in the bucket - each overlay
-# run's draft in drafts/<run_id>/, each release built in releases/<release_tag>/
+# everything generated locally is written under here, laid out as in the bucket - each release
+# candidate's archive in prereleases/, each release built in releases/<release_tag>/
 OUTPUTS = "outputs"
 
 # everything published is under this prefix in the bucket
 PREFIX = "harvest_restrictions"
 
-# the spatial outputs, each published zipped
+# the overlay's geopackage, holding the harvest_restrictions and designations layers - and
+# the latest/ geopackage of the designations layer alone
 OVERLAY_GPKG = "harvest_restrictions.gpkg"
-OVERLAY_ZIP = OVERLAY_GPKG + ".zip"
 SOURCES_GPKG = "harvest_restrictions_sources.gpkg"
-SOURCES_ZIP = SOURCES_GPKG + ".zip"
 SOURCES_CSV = "sources.csv"
 
 # the area totals compared to the previous release and logged with each release, by log name -
@@ -74,13 +74,9 @@ def summary(log):
     return f"{log}_summary.csv"
 
 
-# what each run publishes under drafts/<run_id>/, besides the manifest (written last)
-DRAFT_FILES = [OVERLAY_ZIP, SOURCES_ZIP, SOURCES_CSV] + [summary(log) for log in LOGS]
-MANIFEST = "manifest.json"
-RUN_ID_FORMAT = "%Y%m%dT%H%M%SZ"
-
-# each release's archive, under releases/
-ARCHIVE = "harvest_restrictions_{release_tag}.zip"
+# each release candidate's and release's archive: OVERLAY_GPKG plus these csvs
+ARCHIVE = "harvest_restrictions_{tag}.zip"
+ARCHIVED_CSVS = [SOURCES_CSV] + [summary(log) for log in LOGS]
 
 SOURCES_CSV_COLUMNS = [
     "harvest_restriction",
@@ -391,29 +387,36 @@ def download_source(source):
     return df
 
 
-# --- drafts and releases ---
+# --- release candidates and releases ---
 #
-# overlay publishes each run under its own drafts/<run_id>/ prefix, with summaries comparing
-# the run's area totals to the latest release, and a manifest written last to mark the run
-# complete. Once a run has been reviewed, its commit is tagged and release publishes it:
+# Each version is published first as one or more release candidates, then released:
 #
-# - releases/harvest_restrictions_<release_tag>.zip, never overwritten
-# - the release's change log rows under logs/<release_tag>/, never rewritten
-# - fixed-name latest files under latest/, overwritten by each release
-# - combined change logs under logs/, rebuilt from every release's rows
+# 1. tag the commit to run as a release candidate, <version>-rc.<n> (eg v2026-10-rc.1)
+# 2. overlay, run on that tag, publishes prereleases/harvest_restrictions_<version>-rc.<n>.zip,
+#    with summaries comparing its area totals to the latest release - for review
+# 3. once a candidate is approved, tag its commit <version> (eg v2026-10). release, run on that
+#    tag (by the release workflow), promotes the commit's latest candidate of that version:
+#    - releases/harvest_restrictions_<version>.zip, a copy of the candidate's archive
+#    - fixed-name latest files under latest/, overwritten by each release
+#    - the release's change log rows under logs/<version>/, never rewritten
+#    - combined change logs under logs/, rebuilt from every release's rows
+# 4. prune-prereleases deletes the candidates of released versions
 #
-# prune-drafts deletes drafts that are no longer needed. Nothing a later step depends on is
-# ever overwritten, so the bucket needs no versioning.
+# A release is exactly the candidate that was reviewed - nothing is re-run or rebuilt. Nothing a
+# later step depends on is ever overwritten, so the bucket needs no versioning.
+
+# a release candidate's tag: <version>-rc.<n>
+RC_TAG = re.compile(r"^(?P<version>.+)-rc\.(?P<n>[0-9]+)$")
 
 
-def run_prefix(run_id):
-    """the drafts/ prefix holding everything one run published - each run gets its own, and
-    never writes to it again"""
-    return f"drafts/{run_id}"
+def prerelease_key(rc_tag):
+    """a release candidate's archive - written once, never overwritten"""
+    return f"prereleases/{ARCHIVE.format(tag=rc_tag)}"
 
 
-def draft_key(run_id, name):
-    return f"{run_prefix(run_id)}/{name}"
+def release_key(release_tag):
+    """a release's archive - written once, never overwritten"""
+    return f"releases/{ARCHIVE.format(tag=release_tag)}"
 
 
 def release_log_key(release_tag, log):
@@ -439,24 +442,31 @@ class S3Store:
     def url(self, key):
         return f"s3://{self.bucket}/{PREFIX}/{key}"
 
-    def upload(self, local_file, key, tags=None):
+    def s3api(self, *args):
+        return subprocess.run(
+            ["aws", "s3api", *args, "--bucket", self.bucket, "--output", "json"],
+            check=True,
+            capture_output=True,
+            text=True,
+        ).stdout
+
+    def upload(self, local_file, key, tags):
         subprocess.run(["aws", "s3", "cp", local_file, self.url(key)], check=True)
-        if tags:
-            tagging = {"TagSet": [{"Key": k, "Value": v} for k, v in tags.items()]}
-            subprocess.run(
-                [
-                    "aws",
-                    "s3api",
-                    "put-object-tagging",
-                    "--bucket",
-                    self.bucket,
-                    "--key",
-                    f"{PREFIX}/{key}",
-                    "--tagging",
-                    json.dumps(tagging),
-                ],
-                check=True,
-            )
+        tagging = {"TagSet": [{"Key": k, "Value": v} for k, v in tags.items()]}
+        self.s3api(
+            "put-object-tagging",
+            "--key",
+            f"{PREFIX}/{key}",
+            "--tagging",
+            json.dumps(tagging),
+        )
+
+    def tags(self, key):
+        """the tags of the object at key"""
+        tagging = json.loads(
+            self.s3api("get-object-tagging", "--key", f"{PREFIX}/{key}")
+        )
+        return {t["Key"]: t["Value"] for t in tagging["TagSet"]}
 
     def download(self, key, local_file):
         """download to local_file, creating its directory if needed"""
@@ -465,31 +475,13 @@ class S3Store:
 
     def list(self, prefix):
         """sorted keys under prefix"""
-        out = subprocess.run(
-            [
-                "aws",
-                "s3api",
-                "list-objects-v2",
-                "--bucket",
-                self.bucket,
-                "--prefix",
-                f"{PREFIX}/{prefix}",
-                "--output",
-                "json",
-            ],
-            check=True,
-            capture_output=True,
-            text=True,
-        ).stdout
+        out = self.s3api("list-objects-v2", "--prefix", f"{PREFIX}/{prefix}")
         # the cli prints nothing at all when no objects match
         contents = json.loads(out).get("Contents", []) if out.strip() else []
         return sorted(c["Key"][len(PREFIX) + 1 :] for c in contents)
 
-    def delete_prefix(self, prefix):
-        """delete every object under prefix/"""
-        subprocess.run(
-            ["aws", "s3", "rm", "--recursive", self.url(prefix) + "/"], check=True
-        )
+    def delete(self, key):
+        subprocess.run(["aws", "s3", "rm", self.url(key)], check=True)
 
 
 def git(*args):
@@ -499,31 +491,38 @@ def git(*args):
 def committed_head():
     """the checked-out commit, refusing if any tracked file has uncommitted changes
 
-    A run is recorded as the commit's, and released as the commit's output - so it must be
-    exactly what the commit produces. Untracked files are ignored: the analysis can only use
-    one if a tracked file refers to it, and that change would itself be uncommitted.
+    A candidate is published as the commit's output, so it must be exactly what the commit
+    produces. Untracked files are ignored: the analysis can only use one if a tracked file
+    refers to it, and that change would itself be uncommitted.
     """
     changes = git("status", "--porcelain", "--untracked-files=no")
     if changes:
         raise ValueError(
             "Tracked files have uncommitted changes - commit or stash them first, so the "
-            f"run is the commit's output:\n{changes}"
+            f"run is the commit's output:\\n{changes}"
         )
     return git("rev-parse", "HEAD")
 
 
-def unzip_file(in_zip, out_file):
-    """extract the single file in in_zip to out_file - whatever it's named in the zip"""
-    with zipfile.ZipFile(in_zip) as z:
-        (member,) = z.namelist()
-        with z.open(member) as src, open(out_file, "wb") as dst:
-            shutil.copyfileobj(src, dst)
+def head_tags():
+    """(release tags, release candidate tags) of the checked-out commit - candidates sorted
+    oldest (lowest rc number) to newest"""
+    tags = git("tag", "--points-at", "HEAD").split()
+    rc_tags = sorted(
+        (t for t in tags if RC_TAG.match(t)),
+        key=lambda t: int(RC_TAG.match(t)["n"]),
+    )
+    return [t for t in tags if not RC_TAG.match(t)], rc_tags
 
 
-def add_gpkg_layer(out_file, source_file, layer_name):
-    """add source_file's layer to geopackage out_file (which must exist) as layer_name"""
+def add_gpkg_layer(out_file, source, layer_name, *args):
+    """add a layer from source (a file, or a PG: connection with a table or -sql in args) to
+    geopackage out_file as layer_name, creating out_file if needed"""
+    cmd = ["ogr2ogr", "-f", "GPKG"]
+    if os.path.exists(out_file):
+        cmd.append("-update")
     subprocess.run(
-        ["ogr2ogr", "-f", "GPKG", "-update", out_file, source_file, "-nln", layer_name],
+        cmd + [out_file, source, *args, "-nln", layer_name],
         check=True,
     )
 
@@ -604,16 +603,35 @@ def build_change(current_file, history, previous_release, columns):
     )
 
 
-def publish_draft(store, run_id, run_dir, totals_dir, commit):
-    """publish run_dir's files under drafts/<run_id>/, as a run of commit
+def release_candidate(store):
+    """(rc tag, commit) to run as the checked-out commit's newest release candidate - refusing
+    if it has uncommitted changes, no candidate tag, or its newest is already published"""
+    commit = committed_head()
+    _, rc_tags = head_tags()
+    if not rc_tags:
+        raise ValueError(
+            "The checked-out commit has no release candidate tag - tag it "
+            "<version>-rc.<n> (eg v2026-10-rc.1) to run it"
+        )
+    rc_tag = rc_tags[-1]
+    if prerelease_key(rc_tag) in store.list("prereleases/"):
+        raise ValueError(
+            f"{rc_tag} is already published at {store.url(prerelease_key(rc_tag))} - tag "
+            "the next release candidate to run again"
+        )
+    return rc_tag, commit
 
-    run_dir holds the run's published files, other than the summaries - which are written
-    there by this, comparing the area totals in totals_dir (<log>.csv) to the most recent
-    release. The manifest is published last - its presence marks the run as complete, so
-    release never picks up a run that failed partway through publishing.
 
-    commit is committed_head() as it was when the run started - refuses to publish if the
-    checkout has changed since, as the run then isn't commit's output.
+def publish_prerelease(store, rc_tag, commit, run_dir, out_dir=OUTPUTS):
+    """publish a release candidate's archive to prereleases/
+
+    run_dir holds the run's outputs: OVERLAY_GPKG (with the harvest_restrictions and
+    designations layers), SOURCES_CSV, and the area totals (<log>.csv). The summaries comparing
+    those totals to the most recent release are written there by this, and archived with the
+    rest. The archive is built in out_dir/prereleases/, kept locally.
+
+    commit is the commit the run started on - refuses to publish if the checkout has changed
+    since, as the run then isn't commit's output.
     """
     head = committed_head()
     if head != commit:
@@ -633,84 +651,58 @@ def publish_draft(store, run_id, run_dir, totals_dir, commit):
                 "- release at least one version before comparing to it"
             )
         previous_release = latest_release(history)
-        summary_file = os.path.join(run_dir, summary(log))
         build_change(
-            os.path.join(totals_dir, f"{log}.csv"), history, previous_release, columns
-        ).to_csv(summary_file)
-        LOG.info(f"{summary_file} written, comparing to {previous_release}")
+            os.path.join(run_dir, f"{log}.csv"), history, previous_release, columns
+        ).to_csv(os.path.join(run_dir, summary(log)))
+        LOG.info(f"{summary(log)} written, comparing to {previous_release}")
 
-    for name in DRAFT_FILES:
-        store.upload(os.path.join(run_dir, name), draft_key(run_id, name))
-        LOG.info(f"{name} published to {store.url(draft_key(run_id, name))}")
-
-    manifest = {
-        "run_id": run_id,
-        "commit": commit,
-        # the release this run's summaries are compared against
-        "previous_release": previous_release,
-        "created": datetime.now(timezone.utc).isoformat(timespec="seconds"),
-        "files": DRAFT_FILES,
-    }
-    manifest_file = os.path.join(run_dir, MANIFEST)
-    with open(manifest_file, "w") as f:
-        json.dump(manifest, f, indent=2)
-    store.upload(manifest_file, draft_key(run_id, MANIFEST))
-    LOG.info(f"Run {run_id} published to {store.url(run_prefix(run_id))}/")
-
-
-def find_run(store, commit, run_id, work_dir):
-    """return the manifest of the run of commit to release
-
-    run_id pins a specific run; otherwise the most recent complete run of commit is used.
-    Only runs with a manifest (i.e. that finished publishing) are considered.
-    """
-    manifest_keys = [
-        k for k in store.list("drafts/") if os.path.basename(k) == MANIFEST
-    ]
-    if run_id:
-        candidates = [k for k in manifest_keys if k == draft_key(run_id, MANIFEST)]
-    else:
-        # run_ids are UTC timestamps, so this is newest first
-        candidates = sorted(manifest_keys, reverse=True)
-
-    for key in candidates:
-        local_file = os.path.join(work_dir, key)
-        store.download(key, local_file)
-        with open(local_file) as f:
-            manifest = json.load(f)
-        if manifest["commit"] == commit:
-            return manifest
-        if run_id:
-            raise ValueError(
-                f"Run {run_id} is of commit {manifest['commit']}, not {commit} - "
-                "check out that commit to release it"
-            )
-
-    run_desc = f"run {run_id}" if run_id else "run"
-    raise ValueError(
-        f"No complete {run_desc} of commit={commit} found under {store.url('drafts/')} "
-        "- run the analysis against this commit before releasing it"
+    key = prerelease_key(rc_tag)
+    archive = os.path.join(out_dir, key)
+    os.makedirs(os.path.dirname(archive), exist_ok=True)
+    zip_files(
+        archive,
+        [os.path.join(run_dir, name) for name in [OVERLAY_GPKG] + ARCHIVED_CSVS],
     )
+    # the tags record what the candidate is, for release to check - previous_release is the
+    # release its summaries compare against
+    tags = {
+        "commit": commit,
+        "prerelease": rc_tag,
+        "previous_release": previous_release,
+    }
+    store.upload(archive, key, tags)
+    LOG.info(f"{rc_tag} published to {store.url(key)}")
 
 
-def publish_release(store, run_id=None, out_dir=OUTPUTS):
-    """release a run of the checked-out commit, which must be tagged with the release tag
+def publish_release(store, out_dir=OUTPUTS):
+    """release the checked-out commit's newest candidate of the version it's tagged with
 
-    Defaults to the commit's most recent complete run; run_id pins a specific run. Refuses to
-    release (before publishing anything) a tag that's already released, a run whose summaries
-    compare against an older release than the latest, or a run missing any of its files.
+    Refuses (before publishing anything) if the version is already released, or if the
+    candidate's summaries compare against an older release than the latest.
 
     Everything is downloaded and built in out_dir/releases/<release_tag>/ before anything is
     published, each file at the path of its key in the bucket. The release's change log rows
     are published last: they mark the release as done, so a failure partway through
     publishing can be retried, and the retry overwrites whatever had been published so far.
 
-    The released run's drafts/<run_id>/ prefix is left in place - prune-drafts deletes it.
+    The candidates are left in place - prune-prereleases deletes them.
     """
     commit = git("rev-parse", "HEAD")
-    short_commit = git("rev-parse", "--short", "HEAD")
-    release_tag = git("describe", "--tags", "--exact-match")
     release_date = git("log", "-1", "--format=%aI", commit)
+    release_tags, rc_tags = head_tags()
+    if len(release_tags) != 1:
+        raise ValueError(
+            f"The checked-out commit must have exactly one release tag, it has "
+            f"{release_tags or 'none'}"
+        )
+    release_tag = release_tags[0]
+    rc_tags = [t for t in rc_tags if RC_TAG.match(t)["version"] == release_tag]
+    if not rc_tags:
+        raise ValueError(
+            f"No release candidate of {release_tag} on this commit - release the commit of "
+            f"an approved candidate ({release_tag}-rc.<n>)"
+        )
+    rc_tag = rc_tags[-1]
 
     # cleared at the start of every run, so leftovers from a failed attempt are never reused
     work_dir = os.path.join(out_dir, "releases", release_tag)
@@ -741,56 +733,50 @@ def publish_release(store, run_id=None, out_dir=OUTPUTS):
         history = histories[log]
         histories[log] = history[history["release_tag"] != release_tag]
 
-    # resolve which run of this commit to release - once resolved it's pinned for everything
-    # below, so every file in the release comes from the same run
-    manifest = find_run(store, commit, run_id, work_dir)
-    run_id = manifest["run_id"]
-    LOG.info(f"Releasing {release_tag}: commit={commit}, run_id={run_id}")
+    rc_key = prerelease_key(rc_tag)
+    if rc_key not in store.list("prereleases/"):
+        raise ValueError(
+            f"{rc_tag} isn't published at {store.url(rc_key)} - run overlay on it first"
+        )
+    LOG.info(f"Releasing {release_tag}: {rc_tag}, commit={commit}")
 
-    # the run's summaries compare against whichever release was latest when it ran. If
+    # the candidate's summaries compare against whichever release was latest when it ran. If
     # another release has happened since, their diffs are against an older release
     previous_release = latest_release(next(iter(histories.values())))
-    if manifest["previous_release"] != previous_release:
+    rc_previous = store.tags(rc_key).get("previous_release")
+    if rc_previous != previous_release:
         raise ValueError(
-            f"Summaries for run_id={run_id} compare against {manifest['previous_release']}, "
-            f"but the latest release is now {previous_release} - their diffs are against an "
-            f"older release. Re-run the analysis to compare against {previous_release}, "
-            "then release that run"
+            f"{rc_tag}'s summaries compare against {rc_previous}, but the latest release is "
+            f"now {previous_release} - their diffs are against an older release. Tag and run "
+            f"a new release candidate to compare against {previous_release}"
         )
 
-    published = store.list(run_prefix(run_id) + "/")
-    missing = [f for f in DRAFT_FILES if draft_key(run_id, f) not in published]
-    if missing:
-        raise ValueError(
-            f"Run {run_id} is missing {', '.join(missing)} under "
-            f"{store.url(run_prefix(run_id))}/ - re-run the analysis"
-        )
+    # the release archive is the candidate's, as is - only its name differs
+    store.download(rc_key, local(rc_key))
+    archive_key = release_key(release_tag)
+    os.makedirs(os.path.dirname(local(archive_key)))
+    shutil.copy(local(rc_key), local(archive_key))
 
-    def run_file(name):
-        return local(draft_key(run_id, name))
-
-    for name in DRAFT_FILES:
-        store.download(draft_key(run_id, name), run_file(name))
-
-    # the latest files - the geopackages unzipped, the csvs as is
-    csvs = [SOURCES_CSV] + [summary(log) for log in LOGS]
-    latest_keys = [f"latest/{name}" for name in [OVERLAY_GPKG, SOURCES_GPKG] + csvs]
+    # the latest files, from the archive - each layer of the geopackage as its own geopackage
+    bundle_dir = local("bundle")
+    with zipfile.ZipFile(local(rc_key)) as z:
+        z.extractall(bundle_dir)
     os.makedirs(local("latest"))
-    unzip_file(run_file(OVERLAY_ZIP), local(f"latest/{OVERLAY_GPKG}"))
-    unzip_file(run_file(SOURCES_ZIP), local(f"latest/{SOURCES_GPKG}"))
-    for name in csvs:
-        shutil.copy(run_file(name), local(f"latest/{name}"))
-
-    # the archive - one geopackage holding both layers, plus the csvs. The geopackage isn't
-    # published on its own, so it's built outside the published keys, in bundle/
-    bundle = local(f"bundle/{OVERLAY_GPKG}")
-    os.makedirs(os.path.dirname(bundle))
-    shutil.copy(local(f"latest/{OVERLAY_GPKG}"), bundle)
-    add_gpkg_layer(bundle, local(f"latest/{SOURCES_GPKG}"), "designations")
-    archive_key = f"releases/{ARCHIVE.format(release_tag=release_tag)}"
-    os.makedirs(local("releases"))
-    zip_files(local(archive_key), [bundle] + [run_file(name) for name in csvs])
-    LOG.info(f"{archive_key} built")
+    bundle = os.path.join(bundle_dir, OVERLAY_GPKG)
+    add_gpkg_layer(
+        local(f"latest/{OVERLAY_GPKG}"),
+        bundle,
+        "harvest_restrictions",
+        "harvest_restrictions",
+    )
+    add_gpkg_layer(
+        local(f"latest/{SOURCES_GPKG}"), bundle, "designations", "designations"
+    )
+    for name in ARCHIVED_CSVS:
+        shutil.copy(os.path.join(bundle_dir, name), local(f"latest/{name}"))
+    latest_keys = [
+        f"latest/{name}" for name in [OVERLAY_GPKG, SOURCES_GPKG] + ARCHIVED_CSVS
+    ]
 
     # this release's change log rows, from each summary's "current" column - a category with no
     # current value existed in the previous release but not this run, and is excluded rather
@@ -801,14 +787,16 @@ def publish_release(store, run_id=None, out_dir=OUTPUTS):
     combined_logs = []
     for log, columns in LOGS.items():
         rows = (
-            pandas.read_csv(run_file(summary(log)))[columns + ["current"]]
+            pandas.read_csv(os.path.join(bundle_dir, summary(log)))[
+                columns + ["current"]
+            ]
             .rename(columns={"current": AREA})
             .dropna(subset=[AREA])
         )
         rows["release_tag"] = release_tag
         rows["release_date"] = release_date
-        rows["commit"] = short_commit
-        rows["run_id"] = run_id
+        rows["commit"] = commit[:7]
+        rows["prerelease"] = rc_tag
         rows["released_at"] = released_at
 
         release_log = release_log_key(release_tag, log)
@@ -825,74 +813,48 @@ def publish_release(store, run_id=None, out_dir=OUTPUTS):
     # everything is built - publish. First the archive, never overwritten once released, then
     # the latest files and combined change logs, and finally this release's change log rows,
     # marking the release as done
-    tags = {"commit": commit, "run_id": run_id, "release": release_tag}
+    tags = {"commit": commit, "release": release_tag, "prerelease": rc_tag}
     for key in [archive_key] + latest_keys + combined_logs + release_logs:
         store.upload(local(key), key, tags)
         LOG.info(f"{local(key)} published to {store.url(key)}")
     LOG.info(f"Released {release_tag}")
 
 
-def delete_drafts(store, older_than=None, dry_run=False, out_dir=OUTPUTS):
-    """delete runs' drafts/<run_id>/ prefixes that are no longer needed, and their local copies
-
-    By default only released runs are deleted - everything they published was copied into
-    the release. With older_than (days), unreleased runs older than that are deleted too,
-    apart from the newest unreleased run, which may still be under review.
-    """
-    # a run is released once its rows are in every change log - a run in only some is a
-    # release that failed partway through publishing, whose retry still needs the draft
+def delete_prereleases(store, dry_run=False, out_dir=OUTPUTS):
+    """delete the release candidates of released versions, and their local copies"""
+    # a version is released once it's in every change log - one in only some is a release
+    # that failed partway through publishing, whose retry still needs its candidate
     with tempfile.TemporaryDirectory() as logs_dir:
         histories = read_release_logs(store, logs_dir)
     released = set.intersection(
         *(
-            set() if history is None else set(history["run_id"].dropna().astype(str))
+            set() if history is None else set(history["release_tag"])
             for history in histories.values()
         )
     )
 
-    # runs are drafts/<run_id>/<file>, with run_id a UTC timestamp - anything else under drafts/
-    # isn't a run's, and is left alone
-    run_times = {}
-    for key in store.list("drafts/"):
-        parts = key.split("/")
-        if len(parts) != 3 or parts[1] in run_times:
+    prefix, suffix = ARCHIVE.split("{tag}")
+    for key in store.list("prereleases/"):
+        # anything under prereleases/ that isn't a candidate's archive is left alone
+        name = os.path.basename(key)
+        if not (name.startswith(prefix) and name.endswith(suffix)):
             continue
-        try:
-            run_times[parts[1]] = datetime.strptime(parts[1], RUN_ID_FORMAT).replace(
-                tzinfo=timezone.utc
-            )
-        except ValueError:
+        rc = RC_TAG.match(name[len(prefix) : -len(suffix)])
+        if not rc or rc["version"] not in released:
             continue
-    run_ids = sorted(run_times)
-    unreleased = [r for r in run_ids if r not in released]
-    now = datetime.now(timezone.utc)
-
-    for run_id in run_ids:
-        if run_id in released:
-            reason = "released"
-        elif (
-            older_than is not None
-            and run_id != unreleased[-1]
-            and (now - run_times[run_id]).days > older_than
-        ):
-            reason = f"unreleased, older than {older_than} days"
-        else:
-            continue
-
-        prefix = run_prefix(run_id)
-        local_dir = os.path.join(out_dir, prefix)
-        if not os.path.isdir(local_dir):
-            local_dir = None
+        local_file = os.path.join(out_dir, key)
+        if not os.path.exists(local_file):
+            local_file = None
         if dry_run:
-            LOG.info(f"Would delete {store.url(prefix)}/ ({reason})")
-            if local_dir:
-                LOG.info(f"Would delete {local_dir}/")
+            LOG.info(f"Would delete {store.url(key)} ({rc['version']} is released)")
+            if local_file:
+                LOG.info(f"Would delete {local_file}")
         else:
-            store.delete_prefix(prefix)
-            LOG.info(f"Deleted {store.url(prefix)}/ ({reason})")
-            if local_dir:
-                shutil.rmtree(local_dir)
-                LOG.info(f"Deleted {local_dir}/")
+            store.delete(key)
+            LOG.info(f"Deleted {store.url(key)} ({rc['version']} is released)")
+            if local_file:
+                os.remove(local_file)
+                LOG.info(f"Deleted {local_file}")
 
 
 @click.group()
@@ -1124,9 +1086,10 @@ def load_db(
 @verbose_opt
 @quiet_opt
 def overlay(db_url, designations_table, bucket, verbose, quiet):
-    """Run per-tile overlay and write output and rollup/summaries to object storage
+    """Run per-tile overlay, publishing the outputs and summaries as a release candidate
 
-    Everything published is also kept locally, in outputs/drafts/<run_id>/
+    The checked-out commit must be tagged as a release candidate, <version>-rc.<n> - the
+    newest such tag is published to prereleases/, and kept locally in outputs/prereleases/
     """
     configure_logging((verbose - quiet))
 
@@ -1139,23 +1102,18 @@ def overlay(db_url, designations_table, bucket, verbose, quiet):
             "Target object storage bucket not provided, set --bucket or $BUCKET"
         )
 
-    # the run is published as this commit's - refuse to start with uncommitted changes, rather
-    # than once the long-running overlay is done
-    commit = committed_head()
+    # the release candidate this run publishes - checked before the long-running overlay,
+    # rather than once it's done
+    store = S3Store(bucket)
+    rc_tag, commit = release_candidate(store)
+    LOG.info(f"Running release candidate {rc_tag}, commit={commit}")
 
-    # this run's draft, written locally as it is published - just the published files.
-    # Everything else (the unzipped geopackages, the area totals the summaries are built
-    # from) is written to a temporary directory, removed when overlay exits
-    run_id = datetime.now(timezone.utc).strftime(RUN_ID_FORMAT)
-    run_dir = os.path.join(OUTPUTS, run_prefix(run_id))
-    os.makedirs(run_dir)
+    # the run's outputs are written to a temporary directory, removed when overlay exits -
+    # just the release candidate's archive is kept, in outputs/prereleases/
     tmp_dir = tempfile.TemporaryDirectory()
 
     def tmp(name):
         return os.path.join(tmp_dir.name, name)
-
-    def draft(name):
-        return os.path.join(run_dir, name)
 
     psql = f"psql {db_url} -v ON_ERROR_STOP=1"
 
@@ -1173,64 +1131,33 @@ def overlay(db_url, designations_table, bucket, verbose, quiet):
         f"| parallel --tag {psql} -f sql/overlay.sql -v tile={{1}}"
     )
 
-    # dump result to geopackage
-    subprocess.run(
-        [
-            "ogr2ogr",
-            "-f",
-            "GPKG",
-            tmp(OVERLAY_GPKG),
-            f"PG:{db_url}",
-            "-nlt",
-            "MULTIPOLYGON",
-            "-nln",
-            "harvest_restrictions",
-            "-sql",
-            DUMP_SQL,
-        ],
-        check=True,
+    # dump the result, and the source designations, to one geopackage
+    add_gpkg_layer(
+        tmp(OVERLAY_GPKG),
+        f"PG:{db_url}",
+        "harvest_restrictions",
+        "-nlt",
+        "MULTIPOLYGON",
+        "-sql",
+        DUMP_SQL,
     )
-    LOG.info(f"Overlay results written to {tmp(OVERLAY_GPKG)}")
-
-    # dump source designations table to geopackage
-    subprocess.run(
-        [
-            "ogr2ogr",
-            "-f",
-            "GPKG",
-            tmp(SOURCES_GPKG),
-            f"PG:{db_url}",
-            designations_table,
-        ],
-        check=True,
+    add_gpkg_layer(
+        tmp(OVERLAY_GPKG), f"PG:{db_url}", "designations", designations_table
     )
-    LOG.info(f"{designations_table} written to {tmp(SOURCES_GPKG)}")
+    LOG.info(f"Overlay results and {designations_table} written to {tmp(OVERLAY_GPKG)}")
 
-    # summarize results
+    # area totals, compared to the previous release in the summaries
     for log in LOGS:
         run(f"{psql} -f sql/{log}.sql --csv > {tmp(log + '.csv')}")
 
-    # flatten sources.json to a csv, for review alongside the rest of this run's draft output
-    write_sources_csv("sources.json", draft(SOURCES_CSV))
+    # flatten sources.json to a csv, for review alongside the rest of the outputs
+    write_sources_csv("sources.json", tmp(SOURCES_CSV))
 
-    # publish outputs to object storage as a draft, with summaries comparing this run's area
-    # totals to the most recently released version. The totals themselves aren't published -
-    # the summaries carry the same totals (in their "current" column) plus the diffs.
-    zip_files(draft(OVERLAY_ZIP), [tmp(OVERLAY_GPKG)])
-    zip_files(draft(SOURCES_ZIP), [tmp(SOURCES_GPKG)])
-    publish_draft(S3Store(bucket), run_id, run_dir, tmp_dir.name, commit)
+    publish_prerelease(store, rc_tag, commit, tmp_dir.name)
     tmp_dir.cleanup()
-    LOG.info(
-        f"run_id={run_id} - written to {run_dir}/. Pass --run_id to release to pin this exact run"
-    )
 
 
 @cli.command()
-@click.option(
-    "--run_id",
-    default=None,
-    help="Pin a specific overlay run to release, if this commit has been run more than once. Defaults to the most recent run of this commit",
-)
 @click.option(
     "--bucket",
     "-b",
@@ -1239,12 +1166,14 @@ def overlay(db_url, designations_table, bucket, verbose, quiet):
 )
 @verbose_opt
 @quiet_opt
-def release(run_id, bucket, verbose, quiet):
-    """Release an overlay run of the checked-out commit, which must be tagged with the release tag
+def release(bucket, verbose, quiet):
+    """Release the checked-out commit, which must be tagged with the release tag and a release
+    candidate of it
 
-    Publishes the release's archive under releases/, its change log rows under
-    logs/<release_tag>/, and the fixed-name latest files under latest/ - see publish_release().
-    The release is built locally first, in outputs/releases/<release_tag>/
+    Promotes the commit's newest release candidate of the version: publishes its archive under
+    releases/, the fixed-name latest files under latest/, and the release's change log rows
+    under logs/<release_tag>/ - see publish_release(). The release is built locally first, in
+    outputs/releases/<release_tag>/
     """
     configure_logging((verbose - quiet))
 
@@ -1252,7 +1181,7 @@ def release(run_id, bucket, verbose, quiet):
         raise ValueError(
             "Target object storage bucket not provided, set --bucket or $BUCKET"
         )
-    publish_release(S3Store(bucket), run_id)
+    publish_release(S3Store(bucket))
 
 
 @cli.command()
@@ -1260,37 +1189,26 @@ def release(run_id, bucket, verbose, quiet):
     "--bucket",
     "-b",
     default=os.environ.get("BUCKET"),
-    help="Object storage bucket to prune drafts from, defaults to $BUCKET environment variable if set",
-)
-@click.option(
-    "--older_than",
-    type=int,
-    default=None,
-    help="Also delete unreleased runs older than this many days (the newest unreleased run is always kept)",
+    help="Object storage bucket to prune release candidates from, defaults to $BUCKET environment variable if set",
 )
 @click.option(
     "--dry_run",
     "-t",
     is_flag=True,
-    help="List runs that would be deleted, do not delete",
+    help="List release candidates that would be deleted, do not delete",
 )
 @verbose_opt
 @quiet_opt
-def prune_drafts(bucket, older_than, dry_run, verbose, quiet):
-    """Delete overlay runs' drafts/<run_id>/ prefixes that are no longer needed
-
-    By default only released runs are deleted - everything they published was copied into
-    the release. With --older_than, unreleased runs older than that are deleted too, apart
-    from the newest unreleased run, which may still be under review. Local copies of the
-    deleted runs, in outputs/drafts/<run_id>/, are deleted too.
-    """
+def prune_prereleases(bucket, dry_run, verbose, quiet):
+    """Delete the release candidates of released versions, and their local copies in
+    outputs/prereleases/ - each release is a copy of its candidate's archive"""
     configure_logging((verbose - quiet))
 
     if not bucket:
         raise ValueError(
             "Target object storage bucket not provided, set --bucket or $BUCKET"
         )
-    delete_drafts(S3Store(bucket), older_than, dry_run)
+    delete_prereleases(S3Store(bucket), dry_run)
 
 
 if __name__ == "__main__":
