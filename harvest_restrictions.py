@@ -1,17 +1,22 @@
 import csv
+import fnmatch
 import glob
 import json
 import logging
 import os
+import re
+import shutil
 import subprocess
 import sys
 import tempfile
-from datetime import datetime
+import zipfile
+from datetime import datetime, timezone
 
 import bcdata
 import click
 import geopandas
 import jsonschema
+import pandas
 from pyproj import CRS
 from shapely.geometry.linestring import LineString
 from shapely.geometry.multilinestring import MultiLineString
@@ -22,13 +27,8 @@ from shapely.geometry.polygon import Polygon
 from slugify import slugify
 from sqlalchemy import create_engine, inspect, text
 
-import datarelease
-
 LOG_FORMAT = "%(asctime)s:%(levelname)s:%(name)s: %(message)s"
 LOG = logging.getLogger(__name__)
-
-# what overlay publishes and release releases - see datarelease
-RELEASE_CONFIG = "release.json"
 
 # the cache of sources transformed to the standard column layout, written by cache and read by
 # load-db - not to be confused with harvest_restrictions/sources/, which holds the sources not
@@ -39,26 +39,48 @@ CACHE_PATH = (
     else None
 )
 
-# everything generated locally is written under here, laid out as in the bucket - each overlay
-# run's draft in drafts/<run_id>/, each release built in releases/<release_tag>/
+# everything generated locally is written under here, laid out as in the bucket - each release
+# candidate's archive in prereleases/, each release built in releases/<release_tag>/
 OUTPUTS = "outputs"
 
-# the files overlay publishes, by the release.json output names they're published as
-OVERLAY_GPKG = "harvest_restrictions.gpkg"
-OVERLAY_ZIP = OVERLAY_GPKG + ".zip"
-SOURCES_GPKG = "harvest_restrictions_sources.gpkg"
-SOURCES_ZIP = SOURCES_GPKG + ".zip"
-SOURCES_CSV = "sources.csv"
-RELEASE_FILES = [OVERLAY_ZIP, SOURCES_ZIP, SOURCES_CSV]
+# everything published is under this prefix in the bucket
+PREFIX = "harvest_restrictions"
 
-# overlay's per-category area totals (compared to the previous release, and logged), by the
-# release.json log they're for
-LAND_DESIGNATIONS = "land_designations.csv"
-HARVEST_RESTRICTIONS = "harvest_restrictions.csv"
-RELEASE_TOTALS = {
-    "land_designations": LAND_DESIGNATIONS,
-    "harvest_restrictions": HARVEST_RESTRICTIONS,
+# the overlay result (harvest_restrictions layer), and its source designations (designations
+# layer)
+OVERLAY_GPKG = "harvest_restrictions.gpkg"
+SOURCES_GPKG = "harvest_restrictions_sources.gpkg"
+SOURCES_CSV = "sources.csv"
+
+# the area totals compared to the previous release and logged with each release, by log name -
+# each log's columns, the first being its key. overlay builds each log's totals with
+# sql/<log>.sql, and compares them to the previous release's in <log>_summary.csv
+LOGS = {
+    "land_designations": [
+        "land_designation_type_rank",
+        "harvest_restriction_class_rank",
+        "harvest_restriction_class_name",
+        "land_designation_type_code",
+        "land_designation_type_name",
+    ],
+    "harvest_restrictions": [
+        "harvest_restriction_class_rank",
+        "harvest_restriction_class_name",
+    ],
 }
+AREA = "area_ha"
+
+
+def summary(log):
+    return f"{log}_summary.csv"
+
+
+# each release candidate's and release's archive, holding these files - which are also each
+# release's latest/ files
+ARCHIVE = "harvest_restrictions_{tag}.zip"
+ARCHIVED_FILES = [OVERLAY_GPKG, SOURCES_GPKG, SOURCES_CSV] + [
+    summary(log) for log in LOGS
+]
 
 SOURCES_CSV_COLUMNS = [
     "harvest_restriction",
@@ -111,17 +133,16 @@ def run(cmd):
     subprocess.run(cmd, shell=True, check=True)
 
 
-def zip_file(local_file, out_zip):
-    """compress local_file into out_zip, containing just that one file
+def zip_files(out_zip, files):
+    """zip files into out_zip, each under its basename
 
     Uses sozip (bundled with GDAL) rather than plain zip, so the result is seek-optimized -
-    GDAL's /vsizip/ reader can fetch just the bytes it needs instead of decompressing the
-    whole archive.
+    GDAL's /vsizip/ reader can read a layer from it, even remotely, fetching just the bytes it
+    needs instead of decompressing the whole archive.
     """
     subprocess.run(
-        ["sozip", "--overwrite", "--junk-paths", out_zip, local_file], check=True
+        ["sozip", "--overwrite", "--junk-paths", out_zip, *files], check=True
     )
-    return out_zip
 
 
 def parse_sources(sources):
@@ -370,6 +391,549 @@ def download_source(source):
     return df
 
 
+# --- release candidates and releases ---
+#
+# Each version is published first as one or more release candidates, then released:
+#
+# 1. tag the commit to run as a release candidate, <version>-rc.<n> (eg v2026-10-rc.1)
+# 2. overlay, run on that tag, then prerelease publishes the results as
+#    prereleases/harvest_restrictions_<version>-rc.<n>.zip, with summaries comparing its area
+#    totals to the latest release - for review
+# 3. once a candidate is approved, tag its commit <version> (eg v2026-10). release, run on that
+#    tag (by the release workflow), promotes the commit's latest candidate of that version:
+#    - releases/harvest_restrictions_<version>.zip, a copy of the candidate's archive
+#    - fixed-name latest files under latest/, overwritten by each release
+#    - the release's change log rows under logs/<version>/, never rewritten
+#    - combined change logs under logs/, rebuilt from every release's rows
+# 4. prune-prereleases deletes the candidates of released versions
+#
+# A release is exactly the candidate that was reviewed - nothing is re-run or rebuilt. Nothing a
+# later step depends on is ever overwritten, so the bucket needs no versioning.
+
+# a release candidate's tag: <version>-rc.<n>
+RC_TAG = re.compile(r"^(?P<version>.+)-rc\.(?P<n>[0-9]+)$")
+
+
+def prerelease_key(rc_tag):
+    """a release candidate's archive - written once, never overwritten"""
+    return f"prereleases/{ARCHIVE.format(tag=rc_tag)}"
+
+
+def release_key(release_tag):
+    """a release's archive - written once, never overwritten"""
+    return f"releases/{ARCHIVE.format(tag=release_tag)}"
+
+
+def release_log_key(release_tag, log):
+    """one release's change log rows - written once, never rewritten"""
+    return f"logs/{release_tag}/{log}.csv"
+
+
+def combined_log_key(log):
+    """a combined change log, rebuilt from every release's rows on each release - next to (not
+    in) the per-release logs/<release_tag>/ folders, so it's never read as one"""
+    return f"logs/{log}.csv"
+
+
+class S3Store:
+    """the objects under PREFIX in an s3 bucket, via the aws cli
+
+    Keys passed to and returned by every method are relative to PREFIX.
+    """
+
+    def __init__(self, bucket):
+        self.bucket = bucket
+
+    def url(self, key):
+        return f"s3://{self.bucket}/{PREFIX}/{key}"
+
+    def s3api(self, *args):
+        return subprocess.run(
+            ["aws", "s3api", *args, "--bucket", self.bucket, "--output", "json"],
+            check=True,
+            capture_output=True,
+            text=True,
+        ).stdout
+
+    def upload(self, local_file, key, tags):
+        subprocess.run(["aws", "s3", "cp", local_file, self.url(key)], check=True)
+        tagging = {"TagSet": [{"Key": k, "Value": v} for k, v in tags.items()]}
+        self.s3api(
+            "put-object-tagging",
+            "--key",
+            f"{PREFIX}/{key}",
+            "--tagging",
+            json.dumps(tagging),
+        )
+
+    def tags(self, key):
+        """the tags of the object at key"""
+        tagging = json.loads(
+            self.s3api("get-object-tagging", "--key", f"{PREFIX}/{key}")
+        )
+        return {t["Key"]: t["Value"] for t in tagging["TagSet"]}
+
+    def download(self, key, local_file):
+        """download to local_file, creating its directory if needed"""
+        os.makedirs(os.path.dirname(local_file) or ".", exist_ok=True)
+        subprocess.run(["aws", "s3", "cp", self.url(key), local_file], check=True)
+
+    def list(self, prefix):
+        """sorted keys under prefix"""
+        out = self.s3api("list-objects-v2", "--prefix", f"{PREFIX}/{prefix}")
+        # the cli prints nothing at all when no objects match
+        contents = json.loads(out).get("Contents", []) if out.strip() else []
+        return sorted(c["Key"][len(PREFIX) + 1 :] for c in contents)
+
+    def delete(self, key):
+        subprocess.run(["aws", "s3", "rm", self.url(key)], check=True)
+
+
+def git(*args):
+    return subprocess.check_output(["git", *args]).decode("ascii").strip()
+
+
+# files whose changes can't affect the outputs - every other tracked file must be committed
+# for a run to be the commit's output
+DOCS = ["*.md", "CHANGES.txt", "LICENSE"]
+
+
+def uncommitted_changes():
+    """git status lines of the uncommitted changes to tracked files, other than DOCS
+
+    Untracked files are ignored: the analysis can only use one if a tracked file refers to
+    it, and that change would itself be uncommitted.
+    """
+    # -z: entries NUL-separated, paths unquoted - a rename or copy is followed by its source
+    entries = iter(
+        subprocess.check_output(
+            ["git", "status", "--porcelain", "-z", "--untracked-files=no"]
+        )
+        .decode()
+        .split("\0")
+    )
+    changes = []
+    for entry in entries:
+        if not entry:
+            continue
+        status, paths = entry[:2], [entry[3:]]
+        if "R" in status or "C" in status:
+            paths.append(next(entries))
+        if not all(any(fnmatch.fnmatch(p, doc) for doc in DOCS) for p in paths):
+            changes.append(f"{status} {' <- '.join(paths)}")
+    return changes
+
+
+def committed_head():
+    """the checked-out commit, refusing if it has uncommitted changes (other than to DOCS)
+
+    A candidate is published as the commit's output, so it must be exactly what the commit
+    produces.
+    """
+    changes = uncommitted_changes()
+    if changes:
+        raise ValueError(
+            "Tracked files have uncommitted changes - commit or stash them first, so the "
+            "run is the commit's output:\n" + "\n".join(changes)
+        )
+    return git("rev-parse", "HEAD")
+
+
+def checkout_state():
+    """(HEAD, uncommitted changes other than to DOCS) of the checkout"""
+    return git("rev-parse", "HEAD"), "\n".join(uncommitted_changes())
+
+
+# the commit the overlay results in the database were produced by, written by overlay once
+# it's finished - so prerelease only publishes results it can attribute to the tagged commit
+OVERLAY_RUN = "overlay_run"
+
+
+def record_overlay_run(db_url, git_commit=None, uncommitted_changes=None):
+    """record the overlay run whose results are in the database - or, with no commit, clear
+    the record (a run in progress, or one that failed, has no results to publish)"""
+    with create_engine(db_url).begin() as conn:
+        conn.execute(
+            text(
+                f"CREATE TABLE IF NOT EXISTS {OVERLAY_RUN} "
+                "(git_commit text, uncommitted_changes text, finished_at timestamptz)"
+            )
+        )
+        conn.execute(text(f"TRUNCATE {OVERLAY_RUN}"))
+        if git_commit:
+            conn.execute(
+                text(
+                    f"INSERT INTO {OVERLAY_RUN} "
+                    "VALUES (:git_commit, :uncommitted_changes, now())"
+                ),
+                {"git_commit": git_commit, "uncommitted_changes": uncommitted_changes},
+            )
+
+
+def read_overlay_run(db_url):
+    """the recorded overlay run, as a dict - or None if there isn't one"""
+    engine = create_engine(db_url)
+    if not inspect(engine).has_table(OVERLAY_RUN):
+        return None
+    with engine.connect() as conn:
+        row = conn.execute(text(f"SELECT * FROM {OVERLAY_RUN}")).mappings().first()
+    return dict(row) if row else None
+
+
+def check_overlay_run(overlay_run, commit):
+    """refuse unless the overlay results in the database are commit's, run without
+    uncommitted changes"""
+    if not overlay_run:
+        raise ValueError(
+            "No finished overlay run is recorded in the database - run overlay first"
+        )
+    if overlay_run["git_commit"] != commit:
+        raise ValueError(
+            f"The overlay results in the database are of commit {overlay_run['git_commit']}, "
+            f"not {commit} - run overlay on this commit first"
+        )
+    if overlay_run["uncommitted_changes"]:
+        raise ValueError(
+            "The overlay results in the database were run with uncommitted changes - run "
+            f"overlay on a clean checkout first:\n{overlay_run['uncommitted_changes']}"
+        )
+
+
+def head_tags():
+    """(release tags, release candidate tags) of the checked-out commit - candidates sorted
+    oldest (lowest rc number) to newest"""
+    tags = git("tag", "--points-at", "HEAD").split()
+    rc_tags = sorted(
+        (t for t in tags if RC_TAG.match(t)),
+        key=lambda t: int(RC_TAG.match(t)["n"]),
+    )
+    return [t for t in tags if not RC_TAG.match(t)], rc_tags
+
+
+def add_gpkg_layer(out_file, source, layer_name, *args):
+    """add a layer from source (a file, or a PG: connection with a table or -sql in args) to
+    geopackage out_file as layer_name, creating out_file if needed"""
+    cmd = ["ogr2ogr", "-f", "GPKG"]
+    if os.path.exists(out_file):
+        cmd.append("-update")
+    subprocess.run(
+        cmd + [out_file, source, *args, "-nln", layer_name],
+        check=True,
+    )
+
+
+def read_release_logs(store, work_dir):
+    """read every release's change log rows (logs/<release_tag>/<log>.csv), downloading them
+    to work_dir
+
+    returns {log: df} with each df the rows of all releases combined and ordered by
+    released_at, or None if no release has written that log yet
+    """
+    names = {f"{log}.csv": log for log in LOGS}
+    frames = {log: [] for log in LOGS}
+    for key in store.list("logs/"):
+        parts = key.split("/")
+        log = names.get(parts[2]) if len(parts) == 3 else None
+        if log:
+            local_file = os.path.join(work_dir, key)
+            store.download(key, local_file)
+            frames[log].append(pandas.read_csv(local_file))
+
+    histories = {}
+    for log, release_frames in frames.items():
+        if not release_frames:
+            histories[log] = None
+            continue
+        history = pandas.concat(release_frames, ignore_index=True)
+        # released_at orders releases - tag names and commit dates needn't follow release order
+        released_at = pandas.to_datetime(
+            history["released_at"], utc=True, format="ISO8601"
+        )
+        histories[log] = history.iloc[released_at.argsort(kind="stable")].reset_index(
+            drop=True
+        )
+    return histories
+
+
+def latest_release(history):
+    """tag of the most recent release in a history from read_release_logs(), or None"""
+    if history is None:
+        return None
+    return history["release_tag"].iloc[-1]
+
+
+def build_change(current_file, history, previous_release, columns):
+    """merge this run's totals with the previous release's, keyed on the first column
+
+    Retains every category present in either side (outer join) rather than just those in
+    the previous release. Descriptive columns are filled from whichever side has them, so a
+    category new to this run (or one dropped since the previous release) still gets its
+    labels. Totals/diff/pct_diff are left as genuine NaN (not 0) for a category missing from
+    one side, since 0 would misleadingly imply the category existed with a zero total.
+    """
+    key, *descriptive = columns
+
+    previous = history[history["release_tag"] == previous_release][
+        columns + [AREA]
+    ].rename(columns={AREA: previous_release})
+    current = pandas.read_csv(current_file)[columns + [AREA]].rename(
+        columns={AREA: "current"}
+    )
+
+    merged = previous.merge(current, how="outer", on=key, suffixes=("_previous", ""))
+    for col in descriptive:
+        previous_col = merged.pop(f"{col}_previous")
+        merged[col] = merged[col].combine_first(previous_col)
+
+    merged["diff"] = merged["current"] - merged[previous_release]
+    merged["pct_diff"] = (merged["diff"] / merged[previous_release]) * 100
+
+    # key, descriptive columns, current, previous, diff, pct_diff - explicit rather than
+    # relying on whatever order the merge happens to produce
+    column_order = [key, *descriptive, "current", previous_release, "diff", "pct_diff"]
+    return (
+        merged[column_order]
+        .round({previous_release: 0, "current": 0, "diff": 0, "pct_diff": 2})
+        .set_index(key)
+    )
+
+
+def release_candidate(store):
+    """(rc tag, commit) to run as the checked-out commit's newest release candidate - refusing
+    if it has uncommitted changes, no candidate tag, or its newest is already published"""
+    commit = committed_head()
+    _, rc_tags = head_tags()
+    if not rc_tags:
+        raise ValueError(
+            "The checked-out commit has no release candidate tag - tag it "
+            "<version>-rc.<n> (eg v2026-10-rc.1) to run it"
+        )
+    rc_tag = rc_tags[-1]
+    if prerelease_key(rc_tag) in store.list("prereleases/"):
+        raise ValueError(
+            f"{rc_tag} is already published at {store.url(prerelease_key(rc_tag))} - tag "
+            "the next release candidate to run again"
+        )
+    return rc_tag, commit
+
+
+def publish_prerelease(store, rc_tag, commit, run_dir, out_dir=OUTPUTS):
+    """publish a release candidate's archive to prereleases/
+
+    run_dir holds the run's outputs: OVERLAY_GPKG, SOURCES_GPKG, SOURCES_CSV, and the area
+    totals (<log>.csv). The summaries comparing those totals to the most recent release are
+    written there by this, and archived with the rest. The archive is built in out_dir/prereleases/, kept locally.
+
+    commit is the commit the run started on - refuses to publish if the checkout has changed
+    since, as the run then isn't commit's output.
+    """
+    head = committed_head()
+    if head != commit:
+        raise ValueError(
+            f"The checkout moved from {commit} to {head} during the run - re-run against "
+            "the commit to publish"
+        )
+
+    with tempfile.TemporaryDirectory() as logs_dir:
+        histories = read_release_logs(store, logs_dir)
+    previous_release = None
+    for log, columns in LOGS.items():
+        history = histories[log]
+        if history is None:
+            raise ValueError(
+                f"No {log} change log found under {store.url('logs/')} "
+                "- release at least one version before comparing to it"
+            )
+        previous_release = latest_release(history)
+        build_change(
+            os.path.join(run_dir, f"{log}.csv"), history, previous_release, columns
+        ).to_csv(os.path.join(run_dir, summary(log)))
+        LOG.info(f"{summary(log)} written, comparing to {previous_release}")
+
+    key = prerelease_key(rc_tag)
+    archive = os.path.join(out_dir, key)
+    os.makedirs(os.path.dirname(archive), exist_ok=True)
+    zip_files(
+        archive,
+        [os.path.join(run_dir, name) for name in ARCHIVED_FILES],
+    )
+    # the tags record what the candidate is, for release to check - previous_release is the
+    # release its summaries compare against
+    tags = {
+        "commit": commit,
+        "prerelease": rc_tag,
+        "previous_release": previous_release,
+    }
+    store.upload(archive, key, tags)
+    LOG.info(f"{rc_tag} published to {store.url(key)}")
+
+
+def publish_release(store, out_dir=OUTPUTS):
+    """release the checked-out commit's newest candidate of the version it's tagged with
+
+    Refuses (before publishing anything) if the version is already released, or if the
+    candidate's summaries compare against an older release than the latest.
+
+    Everything is downloaded and built in out_dir/releases/<release_tag>/ before anything is
+    published, each file at the path of its key in the bucket. The release's change log rows
+    are published last: they mark the release as done, so a failure partway through
+    publishing can be retried, and the retry overwrites whatever had been published so far.
+
+    The candidates are left in place - prune-prereleases deletes them.
+    """
+    commit = git("rev-parse", "HEAD")
+    release_date = git("log", "-1", "--format=%aI", commit)
+    release_tags, rc_tags = head_tags()
+    if len(release_tags) != 1:
+        raise ValueError(
+            f"The checked-out commit must have exactly one release tag, it has "
+            f"{release_tags or 'none'}"
+        )
+    release_tag = release_tags[0]
+    rc_tags = [t for t in rc_tags if RC_TAG.match(t)["version"] == release_tag]
+    if not rc_tags:
+        raise ValueError(
+            f"No release candidate of {release_tag} on this commit - release the commit of "
+            f"an approved candidate ({release_tag}-rc.<n>)"
+        )
+    rc_tag = rc_tags[-1]
+
+    # cleared at the start of every run, so leftovers from a failed attempt are never reused
+    work_dir = os.path.join(out_dir, "releases", release_tag)
+    shutil.rmtree(work_dir, ignore_errors=True)
+    os.makedirs(work_dir)
+
+    def local(key):
+        return os.path.join(work_dir, key)
+
+    # refuse to release a tag that's already logged. Each log's rows are published as a
+    # separate file - if only some made it (a failure between the uploads), the release didn't
+    # finish, so its partial rows are dropped here and the retry publishes them again
+    histories = read_release_logs(store, work_dir)
+    logged_in = [
+        log
+        for log, history in histories.items()
+        if history is not None and release_tag in history["release_tag"].values
+    ]
+    if len(logged_in) == len(LOGS):
+        raise ValueError(
+            f"Release {release_tag} is already in {store.url(f'logs/{release_tag}')}/ "
+            "- it has already been released"
+        )
+    for log in logged_in:
+        LOG.warning(
+            f"Release {release_tag} is only partially logged (in {log}) - re-publishing it"
+        )
+        history = histories[log]
+        histories[log] = history[history["release_tag"] != release_tag]
+
+    rc_key = prerelease_key(rc_tag)
+    if rc_key not in store.list("prereleases/"):
+        raise ValueError(
+            f"{rc_tag} isn't published at {store.url(rc_key)} - run overlay and "
+            "prerelease on it first"
+        )
+    LOG.info(f"Releasing {release_tag}: {rc_tag}, commit={commit}")
+
+    # the candidate's summaries compare against whichever release was latest when it ran. If
+    # another release has happened since, their diffs are against an older release
+    previous_release = latest_release(next(iter(histories.values())))
+    rc_previous = store.tags(rc_key).get("previous_release")
+    if rc_previous != previous_release:
+        raise ValueError(
+            f"{rc_tag}'s summaries compare against {rc_previous}, but the latest release is "
+            f"now {previous_release} - their diffs are against an older release. Tag and run "
+            f"a new release candidate to compare against {previous_release}"
+        )
+
+    # the release archive is the candidate's, as is - only its name differs
+    store.download(rc_key, local(rc_key))
+    archive_key = release_key(release_tag)
+    os.makedirs(os.path.dirname(local(archive_key)))
+    shutil.copy(local(rc_key), local(archive_key))
+
+    # the latest files - the archive's, as is
+    with zipfile.ZipFile(local(rc_key)) as z:
+        z.extractall(local("latest"))
+    latest_keys = [f"latest/{name}" for name in ARCHIVED_FILES]
+
+    # this release's change log rows, from each summary's "current" column - a category with no
+    # current value existed in the previous release but not this run, and is excluded rather
+    # than logged as zero. released_at (when this release was made) orders the releases when
+    # the logs are combined
+    released_at = datetime.now(timezone.utc).isoformat(timespec="seconds")
+    release_logs = []
+    combined_logs = []
+    for log, columns in LOGS.items():
+        rows = (
+            pandas.read_csv(local(f"latest/{summary(log)}"))[columns + ["current"]]
+            .rename(columns={"current": AREA})
+            .dropna(subset=[AREA])
+        )
+        rows["release_tag"] = release_tag
+        rows["release_date"] = release_date
+        rows["commit"] = commit[:7]
+        rows["prerelease"] = rc_tag
+        rows["released_at"] = released_at
+
+        release_log = release_log_key(release_tag, log)
+        os.makedirs(os.path.dirname(local(release_log)), exist_ok=True)
+        rows.to_csv(local(release_log), index=False)
+        release_logs.append(release_log)
+
+        # the combined log, rebuilt from every release's rows (fetched above) plus this one's
+        if histories[log] is not None:
+            rows = pandas.concat([histories[log], rows], ignore_index=True)
+        rows.to_csv(local(combined_log_key(log)), index=False)
+        combined_logs.append(combined_log_key(log))
+
+    # everything is built - publish. First the archive, never overwritten once released, then
+    # the latest files and combined change logs, and finally this release's change log rows,
+    # marking the release as done
+    tags = {"commit": commit, "release": release_tag, "prerelease": rc_tag}
+    for key in [archive_key] + latest_keys + combined_logs + release_logs:
+        store.upload(local(key), key, tags)
+        LOG.info(f"{local(key)} published to {store.url(key)}")
+    LOG.info(f"Released {release_tag}")
+
+
+def delete_prereleases(store, dry_run=False, out_dir=OUTPUTS):
+    """delete the release candidates of released versions, and their local copies"""
+    # a version is released once it's in every change log - one in only some is a release
+    # that failed partway through publishing, whose retry still needs its candidate
+    with tempfile.TemporaryDirectory() as logs_dir:
+        histories = read_release_logs(store, logs_dir)
+    released = set.intersection(
+        *(
+            set() if history is None else set(history["release_tag"])
+            for history in histories.values()
+        )
+    )
+
+    prefix, suffix = ARCHIVE.split("{tag}")
+    for key in store.list("prereleases/"):
+        # anything under prereleases/ that isn't a candidate's archive is left alone
+        name = os.path.basename(key)
+        if not (name.startswith(prefix) and name.endswith(suffix)):
+            continue
+        rc = RC_TAG.match(name[len(prefix) : -len(suffix)])
+        if not rc or rc["version"] not in released:
+            continue
+        local_file = os.path.join(out_dir, key)
+        if not os.path.exists(local_file):
+            local_file = None
+        if dry_run:
+            LOG.info(f"Would delete {store.url(key)} ({rc['version']} is released)")
+            if local_file:
+                LOG.info(f"Would delete {local_file}")
+        else:
+            store.delete(key)
+            LOG.info(f"Deleted {store.url(key)} ({rc['version']} is released)")
+            if local_file:
+                os.remove(local_file)
+                LOG.info(f"Deleted {local_file}")
+
+
 @click.group()
 def cli():
     pass
@@ -585,23 +1149,13 @@ def load_db(
     help="Target database url, defaults to $DATABASE_URL environment variable if set",
     default=os.environ.get("DATABASE_URL"),
 )
-@click.option(
-    "--designations_table",
-    default="designations",
-    help="Name of the source designations table (as loaded by load-db), dumped to geopackage alongside overlay outputs",
-)
-@click.option(
-    "--bucket",
-    "-b",
-    default=os.environ.get("BUCKET"),
-    help="Object storage bucket to write outputs, defaults to $BUCKET environment variable if set",
-)
 @verbose_opt
 @quiet_opt
-def overlay(db_url, designations_table, bucket, verbose, quiet):
-    """Run per-tile overlay and write output and rollup/summaries to object storage
+def overlay(db_url, verbose, quiet):
+    """Run per-tile overlay, writing the results to the database
 
-    Everything published is also kept locally, in outputs/drafts/<run_id>/
+    Runs at any commit. The commit, and any uncommitted changes, are recorded with the
+    results - prerelease only publishes results of the tagged commit, with no changes.
     """
     configure_logging((verbose - quiet))
 
@@ -609,29 +1163,10 @@ def overlay(db_url, designations_table, bucket, verbose, quiet):
         raise ValueError(
             "Target database url not provided, set --db_url or $DATABASE_URL"
         )
-    if not bucket:
-        raise ValueError(
-            "Target object storage bucket not provided, set --bucket or $BUCKET"
-        )
 
-    # read the release config, and check it matches what overlay publishes, before the
-    # long-running overlay - rather than failing once it's done
-    config = datarelease.load_config(RELEASE_CONFIG)
-    datarelease.check_inputs(config, RELEASE_FILES, RELEASE_TOTALS)
-
-    # this run's draft, written locally as it is published - just the published files.
-    # Everything else (the unzipped geopackages, the area totals the summaries are built
-    # from) is written to a temporary directory, removed when overlay exits
-    run_id = datarelease.new_run_id()
-    run_dir = os.path.join(OUTPUTS, datarelease.run_prefix(run_id))
-    os.makedirs(run_dir)
-    tmp_dir = tempfile.TemporaryDirectory()
-
-    def tmp(name):
-        return os.path.join(tmp_dir.name, name)
-
-    def draft(name):
-        return os.path.join(run_dir, name)
+    # clear the record of the previous run - the results are about to be replaced
+    commit, changes = checkout_state()
+    record_overlay_run(db_url)
 
     psql = f"psql {db_url} -v ON_ERROR_STOP=1"
 
@@ -649,73 +1184,97 @@ def overlay(db_url, designations_table, bucket, verbose, quiet):
         f"| parallel --tag {psql} -f sql/overlay.sql -v tile={{1}}"
     )
 
-    # dump result to geopackage
-    subprocess.run(
-        [
-            "ogr2ogr",
-            "-f",
-            "GPKG",
-            tmp(OVERLAY_GPKG),
-            f"PG:{db_url}",
-            "-nlt",
-            "MULTIPOLYGON",
-            "-nln",
-            "harvest_restrictions",
-            "-sql",
-            DUMP_SQL,
-        ],
-        check=True,
-    )
-    LOG.info(f"Overlay results written to {tmp(OVERLAY_GPKG)}")
-
-    # dump source designations table to geopackage
-    subprocess.run(
-        [
-            "ogr2ogr",
-            "-f",
-            "GPKG",
-            tmp(SOURCES_GPKG),
-            f"PG:{db_url}",
-            designations_table,
-        ],
-        check=True,
-    )
-    LOG.info(f"{designations_table} written to {tmp(SOURCES_GPKG)}")
-
-    # summarize results
-    run(f"{psql} -f sql/land_designations.sql --csv > {tmp(LAND_DESIGNATIONS)}")
-    run(f"{psql} -f sql/harvest_restrictions.sql --csv > {tmp(HARVEST_RESTRICTIONS)}")
-
-    # flatten sources.json to a csv, for review alongside the rest of this run's draft output
-    write_sources_csv("sources.json", draft(SOURCES_CSV))
-
-    # publish outputs to object storage as a draft, with summaries comparing this run's area
-    # totals to the most recently released version. The totals themselves aren't published -
-    # the summaries carry the same totals (in their "current" column) plus the diffs.
-    datarelease.publish_draft(
-        config,
-        datarelease.S3Store(bucket, config["prefix"]),
-        files={
-            OVERLAY_ZIP: zip_file(tmp(OVERLAY_GPKG), draft(OVERLAY_ZIP)),
-            SOURCES_ZIP: zip_file(tmp(SOURCES_GPKG), draft(SOURCES_ZIP)),
-            SOURCES_CSV: draft(SOURCES_CSV),
-        },
-        current={name: tmp(f) for name, f in RELEASE_TOTALS.items()},
-        work_dir=run_dir,
-        run_id=run_id,
-    )
-    tmp_dir.cleanup()
+    # a checkout changed during the run (a commit, another checkout, an edit) means the
+    # results are no commit's in particular
+    if checkout_state() != (commit, changes):
+        changes = f"the checkout changed during the run\n{changes}".strip()
+    record_overlay_run(db_url, commit, changes)
     LOG.info(
-        f"run_id={run_id} - written to {run_dir}/. Pass --run_id to release to pin this exact run"
+        f"Overlay of commit {commit} finished"
+        + (f", with uncommitted changes:\n{changes}" if changes else "")
     )
 
 
 @cli.command()
 @click.option(
-    "--run_id",
-    default=None,
-    help="Pin a specific overlay run to release, if this commit has been run more than once. Defaults to the most recent run of this commit",
+    "--db_url",
+    "-db",
+    help="Target database url, defaults to $DATABASE_URL environment variable if set",
+    default=os.environ.get("DATABASE_URL"),
 )
+@click.option(
+    "--designations_table",
+    default="designations",
+    help="Name of the source designations table (as loaded by load-db), dumped to geopackage alongside overlay outputs",
+)
+@click.option(
+    "--bucket",
+    "-b",
+    default=os.environ.get("BUCKET"),
+    help="Object storage bucket to write outputs, defaults to $BUCKET environment variable if set",
+)
+@verbose_opt
+@quiet_opt
+def prerelease(db_url, designations_table, bucket, verbose, quiet):
+    """Publish the overlay results in the database as a release candidate
+
+    The checked-out commit must be tagged as a release candidate, <version>-rc.<n>, and the
+    results must be of an overlay run on it with no uncommitted changes. The newest candidate
+    tag is published to prereleases/, and kept locally in outputs/prereleases/
+    """
+    configure_logging((verbose - quiet))
+
+    if not db_url:
+        raise ValueError(
+            "Target database url not provided, set --db_url or $DATABASE_URL"
+        )
+    if not bucket:
+        raise ValueError(
+            "Target object storage bucket not provided, set --bucket or $BUCKET"
+        )
+
+    store = S3Store(bucket)
+    rc_tag, commit = release_candidate(store)
+    check_overlay_run(read_overlay_run(db_url), commit)
+    LOG.info(f"Publishing release candidate {rc_tag}, commit={commit}")
+
+    # the outputs are written to a temporary directory, removed on exit - just the release
+    # candidate's archive is kept, in outputs/prereleases/
+    with tempfile.TemporaryDirectory() as tmp_dir:
+
+        def tmp(name):
+            return os.path.join(tmp_dir, name)
+
+        # the result, and the source designations
+        add_gpkg_layer(
+            tmp(OVERLAY_GPKG),
+            f"PG:{db_url}",
+            "harvest_restrictions",
+            "-nlt",
+            "MULTIPOLYGON",
+            "-sql",
+            DUMP_SQL,
+        )
+        add_gpkg_layer(
+            tmp(SOURCES_GPKG), f"PG:{db_url}", "designations", designations_table
+        )
+        LOG.info(
+            f"Overlay results written to {tmp(OVERLAY_GPKG)}, {designations_table} to "
+            f"{tmp(SOURCES_GPKG)}"
+        )
+
+        # area totals, compared to the previous release in the summaries
+        psql = f"psql {db_url} -v ON_ERROR_STOP=1"
+        for log in LOGS:
+            run(f"{psql} -f sql/{log}.sql --csv > {tmp(log + '.csv')}")
+
+        # flatten sources.json to a csv, for review alongside the rest of the outputs
+        write_sources_csv("sources.json", tmp(SOURCES_CSV))
+
+        publish_prerelease(store, rc_tag, commit, tmp_dir)
+
+
+@cli.command()
 @click.option(
     "--bucket",
     "-b",
@@ -724,12 +1283,14 @@ def overlay(db_url, designations_table, bucket, verbose, quiet):
 )
 @verbose_opt
 @quiet_opt
-def release(run_id, bucket, verbose, quiet):
-    """Release an overlay run of the checked-out commit, which must be tagged with the release tag
+def release(bucket, verbose, quiet):
+    """Release the checked-out commit, which must be tagged with the release tag and a release
+    candidate of it
 
-    Publishes the release's archive under releases/, its change log rows under
-    logs/<release_tag>/, and the fixed-name latest files under latest/, as configured in release.json - see
-    datarelease.release(). The release is built locally first, in outputs/releases/<release_tag>/
+    Promotes the commit's newest release candidate of the version: publishes its archive under
+    releases/, the fixed-name latest files under latest/, and the release's change log rows
+    under logs/<release_tag>/ - see publish_release(). The release is built locally first, in
+    outputs/releases/<release_tag>/
     """
     configure_logging((verbose - quiet))
 
@@ -737,10 +1298,7 @@ def release(run_id, bucket, verbose, quiet):
         raise ValueError(
             "Target object storage bucket not provided, set --bucket or $BUCKET"
         )
-    config = datarelease.load_config(RELEASE_CONFIG)
-    datarelease.release(
-        config, datarelease.S3Store(bucket, config["prefix"]), run_id, OUTPUTS
-    )
+    publish_release(S3Store(bucket))
 
 
 @cli.command()
@@ -748,44 +1306,26 @@ def release(run_id, bucket, verbose, quiet):
     "--bucket",
     "-b",
     default=os.environ.get("BUCKET"),
-    help="Object storage bucket to prune drafts from, defaults to $BUCKET environment variable if set",
-)
-@click.option(
-    "--older_than",
-    type=int,
-    default=None,
-    help="Also delete unreleased runs older than this many days (the newest unreleased run is always kept)",
+    help="Object storage bucket to prune release candidates from, defaults to $BUCKET environment variable if set",
 )
 @click.option(
     "--dry_run",
     "-t",
     is_flag=True,
-    help="List runs that would be deleted, do not delete",
+    help="List release candidates that would be deleted, do not delete",
 )
 @verbose_opt
 @quiet_opt
-def prune_drafts(bucket, older_than, dry_run, verbose, quiet):
-    """Delete overlay runs' drafts/<run_id>/ prefixes that are no longer needed
-
-    By default only released runs are deleted - everything they published was copied into
-    the release. With --older_than, unreleased runs older than that are deleted too, apart
-    from the newest unreleased run, which may still be under review. Local copies of the
-    deleted runs, in outputs/drafts/<run_id>/, are deleted too.
-    """
+def prune_prereleases(bucket, dry_run, verbose, quiet):
+    """Delete the release candidates of released versions, and their local copies in
+    outputs/prereleases/ - each release is a copy of its candidate's archive"""
     configure_logging((verbose - quiet))
 
     if not bucket:
         raise ValueError(
             "Target object storage bucket not provided, set --bucket or $BUCKET"
         )
-    config = datarelease.load_config(RELEASE_CONFIG)
-    datarelease.prune_drafts(
-        config,
-        datarelease.S3Store(bucket, config["prefix"]),
-        older_than,
-        dry_run,
-        OUTPUTS,
-    )
+    delete_prereleases(S3Store(bucket), dry_run)
 
 
 if __name__ == "__main__":
