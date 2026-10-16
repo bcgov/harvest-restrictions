@@ -247,6 +247,8 @@ class MemoryStore:
 
 
 def fake_git(cmd, *args, **kwargs):
+    if cmd[:2] == ["git", "status"]:
+        return b""
     if cmd[:2] == ["git", "describe"]:
         return RELEASE_TAG.encode()
     if cmd[:2] == ["git", "log"]:
@@ -622,7 +624,7 @@ def run_dirs(tmp_path):
 def test_publish_draft(store, run_dirs):
     run_dir, totals_dir = run_dirs
     run_id = "20261006T000000Z"
-    hr.publish_draft(store, run_id, run_dir, totals_dir)
+    hr.publish_draft(store, run_id, run_dir, totals_dir, COMMIT)
 
     # every draft file, then the manifest last, marking the run complete
     manifest_key = hr.draft_key(run_id, hr.MANIFEST)
@@ -660,7 +662,7 @@ def test_publish_draft_then_release(store, run_dirs):
         with open(os.path.join(run_dir, name), "wb") as f:
             f.write(body)
     run_id = "20261006T000000Z"
-    hr.publish_draft(store, run_id, run_dir, totals_dir)
+    hr.publish_draft(store, run_id, run_dir, totals_dir, COMMIT)
 
     run_release(store, run_id=run_id)
     rows = store.read_csv(hr.release_log_key(RELEASE_TAG, "harvest_restrictions"))
@@ -671,7 +673,61 @@ def test_publish_draft_no_release_yet(store, run_dirs):
     for key in store.list("logs/"):
         del store.objects[key]
     with pytest.raises(ValueError, match="release at least one version"):
-        hr.publish_draft(store, "20261006T000000Z", *run_dirs)
+        hr.publish_draft(store, "20261006T000000Z", *run_dirs, COMMIT)
+    assert store.uploads == []
+
+
+def git_with(status="", head=COMMIT):
+    """fake_git, with the given working tree status and HEAD"""
+
+    def fake(cmd, *args, **kwargs):
+        if cmd[:2] == ["git", "status"]:
+            return status.encode()
+        if cmd == ["git", "rev-parse", "HEAD"]:
+            return head.encode()
+        return fake_git(cmd)
+
+    return fake
+
+
+def test_committed_head(store):
+    assert hr.committed_head() == COMMIT
+
+
+def test_committed_head_uncommitted_changes(store, monkeypatch):
+    monkeypatch.setattr(hr.subprocess, "check_output", git_with(" M sql/overlay.sql"))
+    with pytest.raises(ValueError, match="uncommitted changes") as e:
+        hr.committed_head()
+    # the changed files are listed
+    assert "sql/overlay.sql" in str(e.value)
+
+
+def test_committed_head_untracked_files(store, monkeypatch):
+    # only tracked files are checked - git is asked to leave untracked files out
+    calls = []
+
+    def fake(cmd, *args, **kwargs):
+        calls.append(cmd)
+        return fake_git(cmd)
+
+    monkeypatch.setattr(hr.subprocess, "check_output", fake)
+    hr.committed_head()
+    assert ["git", "status", "--porcelain", "--untracked-files=no"] in calls
+
+
+def test_publish_draft_uncommitted_changes(store, run_dirs, monkeypatch):
+    # a file edited during the run
+    monkeypatch.setattr(hr.subprocess, "check_output", git_with(" M sources.json"))
+    with pytest.raises(ValueError, match="uncommitted changes"):
+        hr.publish_draft(store, "20261006T000000Z", *run_dirs, COMMIT)
+    assert store.uploads == []
+
+
+def test_publish_draft_head_moved(store, run_dirs, monkeypatch):
+    # a commit made (or another commit checked out) during the run
+    monkeypatch.setattr(hr.subprocess, "check_output", git_with(head="f00"))
+    with pytest.raises(ValueError, match="moved from"):
+        hr.publish_draft(store, "20261006T000000Z", *run_dirs, COMMIT)
     assert store.uploads == []
 
 

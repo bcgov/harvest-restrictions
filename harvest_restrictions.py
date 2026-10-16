@@ -496,6 +496,22 @@ def git(*args):
     return subprocess.check_output(["git", *args]).decode("ascii").strip()
 
 
+def committed_head():
+    """the checked-out commit, refusing if any tracked file has uncommitted changes
+
+    A run is recorded as the commit's, and released as the commit's output - so it must be
+    exactly what the commit produces. Untracked files are ignored: the analysis can only use
+    one if a tracked file refers to it, and that change would itself be uncommitted.
+    """
+    changes = git("status", "--porcelain", "--untracked-files=no")
+    if changes:
+        raise ValueError(
+            "Tracked files have uncommitted changes - commit or stash them first, so the "
+            f"run is the commit's output:\n{changes}"
+        )
+    return git("rev-parse", "HEAD")
+
+
 def unzip_file(in_zip, out_file):
     """extract the single file in in_zip to out_file - whatever it's named in the zip"""
     with zipfile.ZipFile(in_zip) as z:
@@ -588,15 +604,23 @@ def build_change(current_file, history, previous_release, columns):
     )
 
 
-def publish_draft(store, run_id, run_dir, totals_dir):
-    """publish run_dir's files under drafts/<run_id>/
+def publish_draft(store, run_id, run_dir, totals_dir, commit):
+    """publish run_dir's files under drafts/<run_id>/, as a run of commit
 
     run_dir holds the run's published files, other than the summaries - which are written
     there by this, comparing the area totals in totals_dir (<log>.csv) to the most recent
     release. The manifest is published last - its presence marks the run as complete, so
     release never picks up a run that failed partway through publishing.
+
+    commit is committed_head() as it was when the run started - refuses to publish if the
+    checkout has changed since, as the run then isn't commit's output.
     """
-    commit = git("rev-parse", "HEAD")
+    head = committed_head()
+    if head != commit:
+        raise ValueError(
+            f"The checkout moved from {commit} to {head} during the run - re-run against "
+            "the commit to publish"
+        )
 
     with tempfile.TemporaryDirectory() as logs_dir:
         histories = read_release_logs(store, logs_dir)
@@ -1115,6 +1139,10 @@ def overlay(db_url, designations_table, bucket, verbose, quiet):
             "Target object storage bucket not provided, set --bucket or $BUCKET"
         )
 
+    # the run is published as this commit's - refuse to start with uncommitted changes, rather
+    # than once the long-running overlay is done
+    commit = committed_head()
+
     # this run's draft, written locally as it is published - just the published files.
     # Everything else (the unzipped geopackages, the area totals the summaries are built
     # from) is written to a temporary directory, removed when overlay exits
@@ -1190,7 +1218,7 @@ def overlay(db_url, designations_table, bucket, verbose, quiet):
     # the summaries carry the same totals (in their "current" column) plus the diffs.
     zip_files(draft(OVERLAY_ZIP), [tmp(OVERLAY_GPKG)])
     zip_files(draft(SOURCES_ZIP), [tmp(SOURCES_GPKG)])
-    publish_draft(S3Store(bucket), run_id, run_dir, tmp_dir.name)
+    publish_draft(S3Store(bucket), run_id, run_dir, tmp_dir.name, commit)
     tmp_dir.cleanup()
     LOG.info(
         f"run_id={run_id} - written to {run_dir}/. Pass --run_id to release to pin this exact run"

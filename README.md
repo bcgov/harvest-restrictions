@@ -113,7 +113,7 @@ The `harvest_restrictions` object storage bucket does not require versioning - e
 
         docker compose run -it --rm runner python harvest_restrictions.py load-db -v --out_table designations --truncate
 
-7. Run overlays, dump resulting layer and summaries to geopackage/csv, and publish these outputs to object storage under `drafts/<run_id>/`. This also compares the new summaries to the most recently released version:
+7. Run overlays, dump resulting layer and summaries to geopackage/csv, and publish these outputs to object storage under `drafts/<run_id>/`. This also compares the new summaries to the most recently released version. The run is recorded as the checked-out commit's output, so `overlay` refuses to run (or publish) if tracked files have uncommitted changes - commit them first, on a branch if testing:
 
         docker compose run -it --rm runner python harvest_restrictions.py overlay -v
 
