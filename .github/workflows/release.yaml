@@ -27,7 +27,8 @@ jobs:
     runs-on: ubuntu-latest
     name: release
     container: ghcr.io/bcgov/harvest-restrictions-runner:main
-    environment: production
+    # requires a reviewer's approval before anything is published
+    environment: release
     steps:
       - name: Check out repository code
         uses: actions/checkout@v4
