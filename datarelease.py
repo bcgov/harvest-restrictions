@@ -174,6 +174,11 @@ def check_inputs(config, files, current):
 # --- object storage ---
 
 
+def new_run_id():
+    """a run_id for a new run - the current UTC time, so runs sort oldest to newest"""
+    return datetime.now(timezone.utc).strftime(RUN_ID_FORMAT)
+
+
 def run_prefix(run_id):
     """the drafts/ prefix holding everything one run published
 
@@ -424,7 +429,7 @@ def publish_draft(config, store, files, current, work_dir=".", run_id=None):
     check_inputs(config, files, current)
 
     commit = git("rev-parse", "HEAD")
-    run_id = run_id or datetime.now(timezone.utc).strftime(RUN_ID_FORMAT)
+    run_id = run_id or new_run_id()
 
     # compare this run's totals to the most recent release
     with tempfile.TemporaryDirectory() as logs_dir:
@@ -512,15 +517,15 @@ def find_run(store, commit, run_id, work_dir):
     )
 
 
-def release(config, store, run_id=None):
+def release(config, store, run_id=None, out_dir="."):
     """release a run of the checked-out commit, which must be tagged with the release tag
 
     Defaults to the commit's most recent complete run; run_id pins a specific run. Refuses to
     release (before publishing anything) a tag that's already released, a run whose summaries
     compare against an older release than the latest, or a run missing any of its files.
 
-    Everything is downloaded and built in a working directory, release_<release_tag>/, before
-    anything is published. The release's change log rows are published last: they mark the
+    Everything is downloaded and built in out_dir/releases/<release_tag>/ before anything is
+    published, each file at the path of its key in the store. The release's change log rows are published last: they mark the
     release as done, so a failure partway through publishing can be retried, and the retry
     overwrites whatever had been published so far.
 
@@ -534,12 +539,12 @@ def release(config, store, run_id=None):
 
     # cleared at the start of every run - so leftovers from a failed attempt (or the project's
     # own local outputs, which may share names) never get appended to
-    work_dir = f"release_{release_tag}"
+    work_dir = os.path.join(out_dir, "releases", release_tag)
     shutil.rmtree(work_dir, ignore_errors=True)
     os.makedirs(work_dir)
 
-    def local(name):
-        return os.path.join(work_dir, name)
+    def local(key):
+        return os.path.join(work_dir, key)
 
     # refuse to release a tag that's already logged. Each log's rows are published as a
     # separate file - if only some made it (a failure between the uploads), the release didn't
@@ -590,42 +595,51 @@ def release(config, store, run_id=None):
 
     tags = {"commit": commit, "run_id": run_id, "release": release_tag}
 
+    def run_file(name):
+        return local(draft_key(run_id, name))
+
     # fetch the run's files, building the archive (and the bundle in it) and any converted
-    # latest files from them. The bundle is built in a directory of its own - it may share a
-    # name with a latest file (e.g. a latest geopackage of one of its layers)
+    # latest files from them. The bundle isn't published on its own, so it's built outside
+    # the published keys, in bundle/
     archive = (
         config["archive"].format(release_tag=release_tag)
         if config.get("archive")
         else None
     )
+    archive_key = f"releases/{archive}" if archive else None
     bundle = config.get("bundle")
     bundle_file = os.path.join(work_dir, "bundle", bundle) if bundle else None
     if bundle:
         os.makedirs(os.path.dirname(bundle_file))
     archive_files = [bundle_file] if bundle else []
-    latest_files = []
+    latest_keys = []
     for name in draft_files(config):
-        store.download(draft_key(run_id, name), local(name))
+        store.download(draft_key(run_id, name), run_file(name))
     for output in config["outputs"]:
         name = output["file"]
         if output.get("archive"):
-            archive_files.append(local(name))
+            archive_files.append(run_file(name))
         if output.get("layer"):
             add_gpkg_layer(
                 bundle_file,
-                ogr_path(local(name)),
+                ogr_path(run_file(name)),
                 output["layer"],
                 spatial=not name.endswith(".csv"),
             )
             LOG.info(f"{output['layer']} added to {bundle}, from {name}")
         latest = output.get("latest")
         if latest:
-            if latest != name:
+            key = latest_key(latest)
+            os.makedirs(os.path.dirname(local(key)), exist_ok=True)
+            if latest == name:
+                shutil.copy(run_file(name), local(key))
+            else:
                 layer = output.get("layer") or os.path.splitext(latest)[0]
-                add_gpkg_layer(local(latest), ogr_path(local(name)), layer)
-            latest_files.append(latest)
+                add_gpkg_layer(local(key), ogr_path(run_file(name)), layer)
+            latest_keys.append(key)
     if archive:
-        zip_files(local(archive), archive_files)
+        os.makedirs(os.path.dirname(local(archive_key)), exist_ok=True)
+        zip_files(local(archive_key), archive_files)
         LOG.info(
             f"{archive} built, holding "
             f"{', '.join(os.path.basename(f) for f in archive_files)}"
@@ -640,7 +654,7 @@ def release(config, store, run_id=None):
     combined_logs = []
     for log in config["logs"]:
         rows = (
-            pandas.read_csv(local(log["summary"]))[log["columns"] + ["current"]]
+            pandas.read_csv(run_file(log["summary"]))[log["columns"] + ["current"]]
             .rename(columns={"current": log["value"]})
             .dropna(subset=[log["value"]])
         )
@@ -666,25 +680,24 @@ def release(config, store, run_id=None):
     # everything is built - publish. First the archive, never overwritten once released, then
     # the latest files and combined change logs, and finally this release's change log rows,
     # marking the release as done
-    to_publish = [(archive, f"releases/{archive}")] if archive else []
-    to_publish += [(f, latest_key(f)) for f in latest_files]
-    to_publish += [(f, f) for f in combined_logs]
-    to_publish += [(f, f) for f in release_logs]
-    for name, key in to_publish:
-        store.upload(local(name), key, tags)
-        LOG.info(f"{name} published to {store.url(key)}")
+    to_publish = [archive_key] if archive else []
+    to_publish += latest_keys + combined_logs + release_logs
+    for key in to_publish:
+        store.upload(local(key), key, tags)
+        LOG.info(f"{local(key)} published to {store.url(key)}")
     LOG.info(f"Released {release_tag}")
 
 
 # --- prune ---
 
 
-def prune_drafts(config, store, older_than=None, dry_run=False):
+def prune_drafts(config, store, older_than=None, dry_run=False, out_dir=None):
     """delete runs' drafts/<run_id>/ prefixes that are no longer needed
 
     By default only released runs are deleted - everything they published was copied into
     the release. With older_than (days), unreleased runs older than that are deleted too,
-    apart from the newest unreleased run, which may still be under review.
+    apart from the newest unreleased run, which may still be under review. With out_dir, the
+    local copies of the deleted runs (out_dir/drafts/<run_id>/) are deleted too.
     """
     # a run is released once its rows are in every change log - a run in only some is a
     # release that failed partway through publishing, whose retry still needs the draft
@@ -728,8 +741,16 @@ def prune_drafts(config, store, older_than=None, dry_run=False):
             continue
 
         prefix = run_prefix(run_id)
+        local_dir = os.path.join(out_dir, prefix) if out_dir else None
+        if local_dir and not os.path.isdir(local_dir):
+            local_dir = None
         if dry_run:
             LOG.info(f"Would delete {store.url(prefix)}/ ({reason})")
+            if local_dir:
+                LOG.info(f"Would delete {local_dir}/")
         else:
             store.delete_prefix(prefix)
             LOG.info(f"Deleted {store.url(prefix)}/ ({reason})")
+            if local_dir:
+                shutil.rmtree(local_dir)
+                LOG.info(f"Deleted {local_dir}/")

@@ -642,8 +642,9 @@ def test_release_defaults_to_latest_run(store, tmp_path):
 
     run_release(store)
     assert store.objects["logs/widgets.csv"]["tags"]["run_id"] == later_run
-    release_dir = tmp_path / f"release_{RELEASE_TAG}"
-    assert (release_dir / "widgets.gpkg.zip").read_text() == f"widgets zip {later_run}"
+    release_dir = tmp_path / "releases" / RELEASE_TAG
+    downloaded = release_dir / dr.draft_key(later_run, "widgets.gpkg.zip")
+    assert downloaded.read_text() == f"widgets zip {later_run}"
 
 
 def test_release_pinned_run(store):
@@ -705,8 +706,8 @@ def test_release_stale_summaries(store):
 def test_release_ignores_leftover_local_files(store, tmp_path):
     # the project's own local output, and a bundle from a failed release attempt
     (tmp_path / "widgets.gpkg").write_text("project output")
-    leftover = tmp_path / f"release_{RELEASE_TAG}"
-    leftover.mkdir()
+    leftover = tmp_path / "releases" / RELEASE_TAG
+    leftover.mkdir(parents=True)
     (leftover / "bundle").mkdir()
     (leftover / "bundle" / "widgets.gpkg").write_text("widgets\tstale\tTrue\n")
 
@@ -714,6 +715,15 @@ def test_release_ignores_leftover_local_files(store, tmp_path):
     assert (tmp_path / "widgets.gpkg").read_text() == "project output"
     members = archive_members(store, f"releases/widgets_{RELEASE_TAG}.zip")
     assert b"stale" not in members["widgets.gpkg"]
+
+
+def test_release_builds_locally_by_key(store, tmp_path):
+    run_release(store)
+
+    # each published file is built at its key, under releases/<release_tag>/
+    release_dir = tmp_path / "releases" / RELEASE_TAG
+    for key in store.uploads:
+        assert (release_dir / key).read_bytes() == store.objects[key]["body"]
 
 
 # --- publish_draft ---
@@ -828,8 +838,8 @@ def test_publish_draft_no_release_yet(store, run_files):
 # --- prune_drafts ---
 
 
-def run_prune(store, older_than=None, dry_run=False):
-    dr.prune_drafts(CONFIG, store, older_than, dry_run)
+def run_prune(store, older_than=None, dry_run=False, out_dir=None):
+    dr.prune_drafts(CONFIG, store, older_than, dry_run, out_dir)
 
 
 def runs(store):
@@ -900,3 +910,27 @@ def test_prune_ignores_other_keys(store):
     assert "drafts/widgets.gpkg.zip" in store.objects
     assert "drafts/notarun/file.csv" in store.objects
     assert runs(store) == [RUN_ID, "notarun"]
+
+
+def test_prune_local_copies(store, tmp_path):
+    put_run(store, run_id=RELEASED_RUN)
+    for run_id in (RELEASED_RUN, RUN_ID):
+        run_dir = tmp_path / dr.run_prefix(run_id)
+        run_dir.mkdir(parents=True)
+        (run_dir / dr.MANIFEST).write_text("{}")
+
+    run_prune(store, dry_run=True, out_dir=str(tmp_path))
+    assert (tmp_path / dr.run_prefix(RELEASED_RUN)).exists()
+
+    run_prune(store, out_dir=str(tmp_path))
+    # the released run's local copy goes with it - the unreleased run's is kept
+    assert not (tmp_path / dr.run_prefix(RELEASED_RUN)).exists()
+    assert (tmp_path / dr.run_prefix(RUN_ID)).exists()
+
+
+def test_prune_without_local_copy(store, tmp_path):
+    # a run published from elsewhere (eg CI) has no local copy to delete
+    put_run(store, run_id=RELEASED_RUN)
+
+    run_prune(store, out_dir=str(tmp_path))
+    assert runs(store) == [RUN_ID]
