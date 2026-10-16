@@ -440,6 +440,30 @@ def test_release_candidate_uncommitted_changes(store, monkeypatch):
         hr.release_candidate(store)
 
 
+# --- check_overlay_run ---
+
+
+def test_check_overlay_run():
+    hr.check_overlay_run({"git_commit": COMMIT, "uncommitted_changes": ""}, COMMIT)
+
+
+@pytest.mark.parametrize(
+    "overlay_run, match",
+    [
+        (None, "run overlay first"),
+        ({"git_commit": "f00", "uncommitted_changes": ""}, "of commit f00"),
+        (
+            {"git_commit": COMMIT, "uncommitted_changes": " M sql/overlay.sql"},
+            "uncommitted changes",
+        ),
+    ],
+    ids=["no run", "other commit", "uncommitted changes"],
+)
+def test_check_overlay_run_refuses(overlay_run, match):
+    with pytest.raises(ValueError, match=match):
+        hr.check_overlay_run(overlay_run, COMMIT)
+
+
 # --- publish_prerelease ---
 
 NEW_RC = "v2026-11-rc.1"

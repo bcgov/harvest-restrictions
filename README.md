@@ -113,15 +113,18 @@ The `harvest_restrictions` object storage bucket does not require versioning - e
 
         docker compose run -it --rm runner python harvest_restrictions.py load-db -v --out_table designations --truncate
 
-7. Commit any changes, and tag the commit as a release candidate of the version - `<version>-rc.<n>`, numbering candidates of a version from 1:
-
-        git tag v2026-10-rc.1
-
-8. On that tag, run overlays, and publish the outputs and summaries as the release candidate's archive, `prereleases/harvest_restrictions_<version>-rc.<n>.zip`. The summaries compare the candidate's area totals to the most recent release. `overlay` refuses to run (or publish) if tracked files have uncommitted changes, if the commit has no release candidate tag, or if its newest candidate is already published - a candidate is exactly the tagged commit's output, published once:
+7. Run overlays, writing the results to the database. `overlay` runs at any commit (eg to test changes), recording the commit and any uncommitted changes with the results:
 
         docker compose run -it --rm runner python harvest_restrictions.py overlay -v
 
-    To run the [harvest-restrictions workflow](https://github.com/bcgov/harvest-restrictions/actions/workflows/harvest-restrictions.yaml) instead, run it on the release candidate tag.
+8. To publish the results for review, commit any changes and tag the commit as a release candidate of the version - `<version>-rc.<n>`, numbering candidates of a version from 1 - then publish the release candidate's archive, `prereleases/harvest_restrictions_<version>-rc.<n>.zip`, with summaries comparing its area totals to the most recent release:
+
+        git tag v2026-10-rc.1
+        docker compose run -it --rm runner python harvest_restrictions.py prerelease -v
+
+    `prerelease` refuses unless the commit is tagged as a release candidate whose archive isn't yet published, and the results in the database are of an `overlay` run on this commit with no uncommitted changes - a candidate is exactly the tagged commit's output, published once. Tagging the commit already run is fine, `overlay` needn't be re-run.
+
+    To run the [harvest-restrictions workflow](https://github.com/bcgov/harvest-restrictions/actions/workflows/harvest-restrictions.yaml) instead, run it on the release candidate tag - it publishes the candidate when run on one.
 
 9. Review the release candidate's archive - it's exactly what the release will be:
 
@@ -130,7 +133,7 @@ The `harvest_restrictions` object storage bucket does not require versioning - e
     - `harvest_restrictions_summary.csv`
     - `sources.csv`
 
-    If results are not correct, address the issue, commit the fix, tag the next release candidate (`v2026-10-rc.2`), and re-run from step 3 (presuming the issue is with sources/data). Re-running the same commit (eg after source data changes) also needs a new candidate tag.
+    If results are not correct, address the issue, commit the fix, re-run from step 3 (presuming the issue is with sources/data), and publish it as the next release candidate (`v2026-10-rc.2`). Re-publishing the same commit (eg after source data changes) also needs a new candidate tag.
 
 10. Once a release candidate is approved, tag its commit as the release, and push the tag:
 
@@ -156,7 +159,7 @@ s3://$BUCKET/harvest_restrictions/
 ├── sources/                                  # sources not available for download elsewhere,
 │   ├── CRD.gdb.zip                           #   in their native format - referenced by sources.json
 │   └── ...
-├── prereleases/                              # release candidates, written by `overlay`
+├── prereleases/                              # release candidates, written by `prerelease`
 │   └── harvest_restrictions_<version>-rc.<n>.zip   # as releases/, never overwritten
 ├── latest/                                   # the latest release's files, written by `release`
 │   ├── harvest_restrictions.gpkg
@@ -182,25 +185,25 @@ s3://$BUCKET/harvest_restrictions/
 
 **`cache/`** - written by `cache`, untagged, one geoparquet per source (`hr_<NN>_<alias>.parquet`), overwritten on the next `cache` run for that source. `clear-cache` removes these directly by filename pattern, safe to point at a shared prefix since it only ever touches its own `hr_*.parquet` files.
 
-**`prereleases/harvest_restrictions_<version>-rc.<n>.zip`** - written by `overlay`, one archive per release candidate, never overwritten, laid out as a release archive (see `releases/` below). Tagged with the candidate's `commit`, `prerelease` tag, and the `previous_release` its summaries compare against. Transient by design - `prune-prereleases` (run by the release workflow) deletes the candidates of released versions. The archive holds:
+**`prereleases/harvest_restrictions_<version>-rc.<n>.zip`** - written by `prerelease`, one archive per release candidate, never overwritten, laid out as a release archive (see `releases/` below). Tagged with the candidate's `commit`, `prerelease` tag, and the `previous_release` its summaries compare against. Transient by design - `prune-prereleases` (run by the release workflow) deletes the candidates of released versions. The archive holds:
 
 - `harvest_restrictions.gpkg` - the overlay result (`harvest_restrictions` layer) and its source designations (`designations` layer)
 - `land_designations_summary.csv`, `harvest_restrictions_summary.csv` - comparing the *most recent release* against the candidate with `current`/`diff`/`pct_diff` columns. Retains every category present in either side - a category new to this run or dropped since the previous release still gets its labels, with `diff`/`pct_diff` left as `NaN` rather than misleadingly implying zero area. This is what you review in step 9 above, and what `release` reads (via the `current` column) to append the release's totals to the change log
 - `sources.csv` - a flattened `sources.json` as it stood for this run
 
-**`logs/<release_tag>/land_designations.csv`, `logs/<release_tag>/harvest_restrictions.csv`** - written only by `release`, that release's change log rows, never rewritten. One row per category (`release_tag`, `release_date`, `commit`, `prerelease` - the promoted release candidate, `released_at`, category columns, `area_ha`). Releases before release candidates were introduced have a `run_id` instead of `prerelease`. These are the change log's source of truth: `overlay` reads them to find the previous release to compare against, and `release` refuses to release a tag already logged here. `released_at` (when the release was made) orders the releases - `release_date` is the released commit's author date, which needn't follow release order.
+**`logs/<release_tag>/land_designations.csv`, `logs/<release_tag>/harvest_restrictions.csv`** - written only by `release`, that release's change log rows, never rewritten. One row per category (`release_tag`, `release_date`, `commit`, `prerelease` - the promoted release candidate, `released_at`, category columns, `area_ha`). Releases before release candidates were introduced have a `run_id` instead of `prerelease`. These are the change log's source of truth: `prerelease` reads them to find the previous release to compare against, and `release` refuses to release a tag already logged here. `released_at` (when the release was made) orders the releases - `release_date` is the released commit's author date, which needn't follow release order.
 
 **`logs/land_designations.csv` / `logs/harvest_restrictions.csv`** - the combined change logs, every release's rows from `logs/<release_tag>/` in `released_at` order. Rebuilt by `release` each time, so if damaged they're fixed by the next release.
 
 **`latest/`** - `harvest_restrictions.gpkg`, `harvest_restrictions_sources.gpkg`, `land_designations_summary.csv`, `harvest_restrictions_summary.csv` and `sources.csv`: the latest release's files, written only by `release`, at fixed plain-named keys (no suffix), overwritten on every release. The same five deliverables as separate files rather than one geopackage, for scripts/mapping applications that just want the current release without tracking release tags - point at these instead of the `releases/` archive. Fully redundant with the latest release's archive.
 
-**`releases/harvest_restrictions_<release_tag>.zip`** - written only by `release`, never overwritten, so every past release stays retrievable by tag. A copy of the promoted release candidate's archive. A single download holding the release - only the archive's name carries the release tag: one geopackage (`harvest_restrictions.gpkg`) with both spatial layers - unlike `latest/harvest_restrictions.gpkg`, which holds just the `harvest_restrictions` layer - the summaries comparing it to the previous release, and `overlay`'s `sources.csv`. The zip is seek-optimized (`sozip`), so the geopackage can be read in place without downloading or unzipping, e.g. `ogrinfo /vsizip//vsis3/$BUCKET/harvest_restrictions/releases/harvest_restrictions_<release_tag>.zip/harvest_restrictions.gpkg`.
+**`releases/harvest_restrictions_<release_tag>.zip`** - written only by `release`, never overwritten, so every past release stays retrievable by tag. A copy of the promoted release candidate's archive. A single download holding the release - only the archive's name carries the release tag: one geopackage (`harvest_restrictions.gpkg`) with both spatial layers - unlike `latest/harvest_restrictions.gpkg`, which holds just the `harvest_restrictions` layer - the summaries comparing it to the previous release, and the run's `sources.csv`. The zip is seek-optimized (`sozip`), so the geopackage can be read in place without downloading or unzipping, e.g. `ogrinfo /vsizip//vsis3/$BUCKET/harvest_restrictions/releases/harvest_restrictions_<release_tag>.zip/harvest_restrictions.gpkg`.
 
 ### Local outputs
 
 Everything the scripts generate locally is written under `outputs/` (git-ignored), laid out as in the bucket:
 
-- `outputs/prereleases/` - each release candidate's archive, as `overlay` publishes it. Intermediate files (the unzipped geopackage, the area totals the summaries are built from) are written to a temporary directory (`$TMPDIR`), removed when `overlay` exits - set `TMPDIR` if the default temp location is too small for the overlay geopackage
+- `outputs/prereleases/` - each release candidate's archive, as `prerelease` publishes it. Intermediate files (the unzipped geopackage, the area totals the summaries are built from) are written to a temporary directory (`$TMPDIR`), removed when `prerelease` exits - set `TMPDIR` if the default temp location is too small for the overlay geopackage
 - `outputs/releases/<release_tag>/` - where `release` downloads the release candidate and builds the release before publishing, each file at the path of its key in the bucket (`prereleases/`, `releases/`, `latest/`, `logs/`)
 
 `prune-prereleases` deletes the local copies of the release candidates it prunes from the bucket. Release folders are left for deleting by hand.

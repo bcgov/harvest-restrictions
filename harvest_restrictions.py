@@ -392,8 +392,9 @@ def download_source(source):
 # Each version is published first as one or more release candidates, then released:
 #
 # 1. tag the commit to run as a release candidate, <version>-rc.<n> (eg v2026-10-rc.1)
-# 2. overlay, run on that tag, publishes prereleases/harvest_restrictions_<version>-rc.<n>.zip,
-#    with summaries comparing its area totals to the latest release - for review
+# 2. overlay, run on that tag, then prerelease publishes the results as
+#    prereleases/harvest_restrictions_<version>-rc.<n>.zip, with summaries comparing its area
+#    totals to the latest release - for review
 # 3. once a candidate is approved, tag its commit <version> (eg v2026-10). release, run on that
 #    tag (by the release workflow), promotes the commit's latest candidate of that version:
 #    - releases/harvest_restrictions_<version>.zip, a copy of the candidate's archive
@@ -502,6 +503,69 @@ def committed_head():
             f"run is the commit's output:\\n{changes}"
         )
     return git("rev-parse", "HEAD")
+
+
+def checkout_state():
+    """(HEAD, uncommitted changes to tracked files) of the checkout"""
+    return (
+        git("rev-parse", "HEAD"),
+        git("status", "--porcelain", "--untracked-files=no"),
+    )
+
+
+# the commit the overlay results in the database were produced by, written by overlay once
+# it's finished - so prerelease only publishes results it can attribute to the tagged commit
+OVERLAY_RUN = "overlay_run"
+
+
+def record_overlay_run(db_url, git_commit=None, uncommitted_changes=None):
+    """record the overlay run whose results are in the database - or, with no commit, clear
+    the record (a run in progress, or one that failed, has no results to publish)"""
+    with create_engine(db_url).begin() as conn:
+        conn.execute(
+            text(
+                f"CREATE TABLE IF NOT EXISTS {OVERLAY_RUN} "
+                "(git_commit text, uncommitted_changes text, finished_at timestamptz)"
+            )
+        )
+        conn.execute(text(f"TRUNCATE {OVERLAY_RUN}"))
+        if git_commit:
+            conn.execute(
+                text(
+                    f"INSERT INTO {OVERLAY_RUN} "
+                    "VALUES (:git_commit, :uncommitted_changes, now())"
+                ),
+                {"git_commit": git_commit, "uncommitted_changes": uncommitted_changes},
+            )
+
+
+def read_overlay_run(db_url):
+    """the recorded overlay run, as a dict - or None if there isn't one"""
+    engine = create_engine(db_url)
+    if not inspect(engine).has_table(OVERLAY_RUN):
+        return None
+    with engine.connect() as conn:
+        row = conn.execute(text(f"SELECT * FROM {OVERLAY_RUN}")).mappings().first()
+    return dict(row) if row else None
+
+
+def check_overlay_run(overlay_run, commit):
+    """refuse unless the overlay results in the database are commit's, run without
+    uncommitted changes"""
+    if not overlay_run:
+        raise ValueError(
+            "No finished overlay run is recorded in the database - run overlay first"
+        )
+    if overlay_run["git_commit"] != commit:
+        raise ValueError(
+            f"The overlay results in the database are of commit {overlay_run['git_commit']}, "
+            f"not {commit} - run overlay on this commit first"
+        )
+    if overlay_run["uncommitted_changes"]:
+        raise ValueError(
+            "The overlay results in the database were run with uncommitted changes - run "
+            f"overlay on a clean checkout first:\n{overlay_run['uncommitted_changes']}"
+        )
 
 
 def head_tags():
@@ -736,7 +800,8 @@ def publish_release(store, out_dir=OUTPUTS):
     rc_key = prerelease_key(rc_tag)
     if rc_key not in store.list("prereleases/"):
         raise ValueError(
-            f"{rc_tag} isn't published at {store.url(rc_key)} - run overlay on it first"
+            f"{rc_tag} isn't published at {store.url(rc_key)} - run overlay and "
+            "prerelease on it first"
         )
     LOG.info(f"Releasing {release_tag}: {rc_tag}, commit={commit}")
 
@@ -1072,24 +1137,13 @@ def load_db(
     help="Target database url, defaults to $DATABASE_URL environment variable if set",
     default=os.environ.get("DATABASE_URL"),
 )
-@click.option(
-    "--designations_table",
-    default="designations",
-    help="Name of the source designations table (as loaded by load-db), dumped to geopackage alongside overlay outputs",
-)
-@click.option(
-    "--bucket",
-    "-b",
-    default=os.environ.get("BUCKET"),
-    help="Object storage bucket to write outputs, defaults to $BUCKET environment variable if set",
-)
 @verbose_opt
 @quiet_opt
-def overlay(db_url, designations_table, bucket, verbose, quiet):
-    """Run per-tile overlay, publishing the outputs and summaries as a release candidate
+def overlay(db_url, verbose, quiet):
+    """Run per-tile overlay, writing the results to the database
 
-    The checked-out commit must be tagged as a release candidate, <version>-rc.<n> - the
-    newest such tag is published to prereleases/, and kept locally in outputs/prereleases/
+    Runs at any commit. The commit, and any uncommitted changes, are recorded with the
+    results - prerelease only publishes results of the tagged commit, with no changes.
     """
     configure_logging((verbose - quiet))
 
@@ -1097,23 +1151,10 @@ def overlay(db_url, designations_table, bucket, verbose, quiet):
         raise ValueError(
             "Target database url not provided, set --db_url or $DATABASE_URL"
         )
-    if not bucket:
-        raise ValueError(
-            "Target object storage bucket not provided, set --bucket or $BUCKET"
-        )
 
-    # the release candidate this run publishes - checked before the long-running overlay,
-    # rather than once it's done
-    store = S3Store(bucket)
-    rc_tag, commit = release_candidate(store)
-    LOG.info(f"Running release candidate {rc_tag}, commit={commit}")
-
-    # the run's outputs are written to a temporary directory, removed when overlay exits -
-    # just the release candidate's archive is kept, in outputs/prereleases/
-    tmp_dir = tempfile.TemporaryDirectory()
-
-    def tmp(name):
-        return os.path.join(tmp_dir.name, name)
+    # clear the record of the previous run - the results are about to be replaced
+    commit, changes = checkout_state()
+    record_overlay_run(db_url)
 
     psql = f"psql {db_url} -v ON_ERROR_STOP=1"
 
@@ -1131,30 +1172,93 @@ def overlay(db_url, designations_table, bucket, verbose, quiet):
         f"| parallel --tag {psql} -f sql/overlay.sql -v tile={{1}}"
     )
 
-    # dump the result, and the source designations, to one geopackage
-    add_gpkg_layer(
-        tmp(OVERLAY_GPKG),
-        f"PG:{db_url}",
-        "harvest_restrictions",
-        "-nlt",
-        "MULTIPOLYGON",
-        "-sql",
-        DUMP_SQL,
+    # a checkout changed during the run (a commit, another checkout, an edit) means the
+    # results are no commit's in particular
+    if checkout_state() != (commit, changes):
+        changes = f"the checkout changed during the run\n{changes}".strip()
+    record_overlay_run(db_url, commit, changes)
+    LOG.info(
+        f"Overlay of commit {commit} finished"
+        + (f", with uncommitted changes:\n{changes}" if changes else "")
     )
-    add_gpkg_layer(
-        tmp(OVERLAY_GPKG), f"PG:{db_url}", "designations", designations_table
-    )
-    LOG.info(f"Overlay results and {designations_table} written to {tmp(OVERLAY_GPKG)}")
 
-    # area totals, compared to the previous release in the summaries
-    for log in LOGS:
-        run(f"{psql} -f sql/{log}.sql --csv > {tmp(log + '.csv')}")
 
-    # flatten sources.json to a csv, for review alongside the rest of the outputs
-    write_sources_csv("sources.json", tmp(SOURCES_CSV))
+@cli.command()
+@click.option(
+    "--db_url",
+    "-db",
+    help="Target database url, defaults to $DATABASE_URL environment variable if set",
+    default=os.environ.get("DATABASE_URL"),
+)
+@click.option(
+    "--designations_table",
+    default="designations",
+    help="Name of the source designations table (as loaded by load-db), dumped to geopackage alongside overlay outputs",
+)
+@click.option(
+    "--bucket",
+    "-b",
+    default=os.environ.get("BUCKET"),
+    help="Object storage bucket to write outputs, defaults to $BUCKET environment variable if set",
+)
+@verbose_opt
+@quiet_opt
+def prerelease(db_url, designations_table, bucket, verbose, quiet):
+    """Publish the overlay results in the database as a release candidate
 
-    publish_prerelease(store, rc_tag, commit, tmp_dir.name)
-    tmp_dir.cleanup()
+    The checked-out commit must be tagged as a release candidate, <version>-rc.<n>, and the
+    results must be of an overlay run on it with no uncommitted changes. The newest candidate
+    tag is published to prereleases/, and kept locally in outputs/prereleases/
+    """
+    configure_logging((verbose - quiet))
+
+    if not db_url:
+        raise ValueError(
+            "Target database url not provided, set --db_url or $DATABASE_URL"
+        )
+    if not bucket:
+        raise ValueError(
+            "Target object storage bucket not provided, set --bucket or $BUCKET"
+        )
+
+    store = S3Store(bucket)
+    rc_tag, commit = release_candidate(store)
+    check_overlay_run(read_overlay_run(db_url), commit)
+    LOG.info(f"Publishing release candidate {rc_tag}, commit={commit}")
+
+    # the outputs are written to a temporary directory, removed on exit - just the release
+    # candidate's archive is kept, in outputs/prereleases/
+    with tempfile.TemporaryDirectory() as tmp_dir:
+
+        def tmp(name):
+            return os.path.join(tmp_dir, name)
+
+        # the result, and the source designations, in one geopackage
+        add_gpkg_layer(
+            tmp(OVERLAY_GPKG),
+            f"PG:{db_url}",
+            "harvest_restrictions",
+            "-nlt",
+            "MULTIPOLYGON",
+            "-sql",
+            DUMP_SQL,
+        )
+        add_gpkg_layer(
+            tmp(OVERLAY_GPKG), f"PG:{db_url}", "designations", designations_table
+        )
+        LOG.info(
+            f"Overlay results and {designations_table} written to {tmp(OVERLAY_GPKG)}"
+        )
+
+        # area totals, compared to the previous release in the summaries
+        psql = f"psql {db_url} -v ON_ERROR_STOP=1"
+        for log in LOGS:
+            run(f"{psql} -f sql/{log}.sql --csv > {tmp(log + '.csv')}")
+
+        # flatten sources.json to a csv, for review alongside the rest of the outputs
+        write_sources_csv("sources.json", tmp(SOURCES_CSV))
+
+        publish_prerelease(store, rc_tag, commit, tmp_dir)
 
 
 @cli.command()
