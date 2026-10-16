@@ -7,9 +7,7 @@ on:
       - 'requirements*.txt'
       - 'harvest_restrictions.py'
       - 'test_harvest_restrictions.py'
-      - 'datarelease.py'
-      - 'test_datarelease.py'
-      - 'release.json'
+      - 'test_release.py'
   pull_request:
     branches: [ main ]
     paths:
@@ -17,9 +15,7 @@ on:
       - 'requirements*.txt'
       - 'harvest_restrictions.py'
       - 'test_harvest_restrictions.py'
-      - 'datarelease.py'
-      - 'test_datarelease.py'
-      - 'release.json'
+      - 'test_release.py'
 permissions:
   contents: read
 env:
@@ -44,4 +40,4 @@ jobs:
       - uses: actions/checkout@v4
       - name: Run tests
         run: |
-          python -m pytest -v -rxXs test_harvest_restrictions.py test_datarelease.py
+          python -m pytest -v -rxXs test_harvest_restrictions.py test_release.py

@@ -219,40 +219,6 @@ Every `overlay` run records both `commit` (the git commit that produced it) and 
 The logs were backfilled from pre-existing wide-format records, with `released_at` copied from `release_date`. `v2024-08`, `v2025-04`, `v2025-08`, and `v2026-02` carry real `commit`/`release_date` values from their matching git tags (the latter two were originally recorded under the old `-DRAFT` tag naming convention, since renamed). `v2023-07` and `v2024-04` have no corresponding git tag at all - for those two, `release_date` is approximated as the first of the tag's named month and `commit` is left blank.
 
 
-## Release module (`datarelease.py`)
-
-The draft/release/prune workflow above is implemented in `datarelease.py`, which knows nothing of harvest restrictions - it's driven entirely by `release.json`, and could be reused by any similar analysis (it depends only on `pandas`, `jsonschema`, the aws cli, and GDAL's `ogr2ogr` and `sozip` for geopackages and archives). `harvest_restrictions.py` supplies the analysis, and its `release`/`prune-drafts` commands are thin wrappers.
-
-`release.json` describes what each run publishes (see `CONFIG_SCHEMA` in `datarelease.py`):
-
-- `prefix` - everything is published under `s3://$BUCKET/<prefix>/`
-- `archive` - name of the zip archive of each release, published under `releases/` (`{release_tag}` is replaced with the tag - required, so a downloaded archive says which release it is)
-- `bundle` - name of a geopackage in the archive combining the outputs' layers (it may share a name with a `latest` file)
-- `outputs` - each `file` a run publishes, optionally added to the bundle as `layer` (a non-spatial table for `.csv`), added to the `archive` as is, and/or published under `latest/` as a fixed-name `latest` file - as is if the same name, otherwise converted to a geopackage of that name
-- `logs` - totals compared against the previous release and logged per release: the `summary` file to write, the category `key` and `columns`, the `value` column, and optionally `decimals` to round to (default 0)
-
-To use it from another project:
-
-```python
-import datarelease
-
-config = datarelease.load_config("release.json")
-store = datarelease.S3Store(bucket, config["prefix"])
-
-# after the analysis - files maps each configured output to a local path, current maps each
-# log's name to a local csv of this run's totals (the log's columns plus its value column)
-run_id = datarelease.publish_draft(config, store, files, current)
-
-# on the tagged commit, after review
-datarelease.release(config, store)
-
-# delete drafts of released runs (and, with older_than, old unreleased runs)
-datarelease.prune_drafts(config, store, older_than=90)
-```
-
-Its tests (`test_datarelease.py`) use an unrelated example config, and need no network access or bucket.
-
-
 ## designatedlands
 
 This tool is adapted from the [designated lands script](https://github.com/bcgov/designatedlands). This tool could be used for that analysis by adding mine and oil and gas restriction levels to each source in `sources.json`. Note however that several components of `designatedlands` are not currently supported by this tool:

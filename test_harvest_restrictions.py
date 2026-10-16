@@ -1,7 +1,5 @@
 import pytest
 
-import datarelease
-import harvest_restrictions as hr
 from harvest_restrictions import download_source, parse_sources, validate_sources
 
 
@@ -82,10 +80,3 @@ def test_invalid_file(test_data):
     sources[0]["field_mapper"] = {"name": "INVALID_COLUMN"}
     with pytest.raises(ValueError):
         sources = validate_sources(sources)
-
-
-def test_release_config():
-    # release.json is valid, and matches the files and totals overlay publishes - the same
-    # check overlay makes before running
-    config = datarelease.load_config(hr.RELEASE_CONFIG)
-    datarelease.check_inputs(config, hr.RELEASE_FILES, hr.RELEASE_TOTALS)
