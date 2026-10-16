@@ -467,10 +467,7 @@ def load_db(
                 LOG.info(f"{source['alias']} written to {layer}")
 
 
-# the all_* lists are exported as JSON arrays, the nth entry of each describing the same
-# designation. JSON rather than a delimited string, as source values can contain any delimiter
-# (eg a WHA named "Tiger Salamander; Great Basin Spadefoot"), and a missing value (eg a
-# designation with no name or primary key) stays a null, keeping the lists aligned
+# note that the all_* lists are exported as JSON arrays to retain nulls and keep the arrays aligned
 DUMP_SQL = """select
   harvest_restrictions_id,
   land_designation_name,
