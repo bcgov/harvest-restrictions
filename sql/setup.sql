@@ -1,7 +1,12 @@
 -- create class lookup
 CREATE EXTENSION postgis;
 
-CREATE TABLE harvest_restriction_class_rank_name_xref (harvest_restriction_class_rank integer, harvest_restriction_class_name text); 
+-- restriction type lookup
+
+CREATE TABLE harvest_restriction_class_rank_name_xref (
+  harvest_restriction_class_rank integer,
+  harvest_restriction_class_name text
+);
 
 INSERT INTO harvest_restriction_class_rank_name_xref 
 (harvest_restriction_class_rank, harvest_restriction_class_name) 
@@ -13,7 +18,24 @@ VALUES
 (5, 'Low Restricted'), 
 (6, 'No Special Restriction');
 
--- create output table
+
+--
+-- output tables
+--
+
+-- designations (all input designation sources loaded to a single table)
+CREATE TABLE designations (
+ index                integer,
+ description          text,
+ alias                text,
+ primary_key          text,
+ name                 text,
+ harvest_restriction  integer,
+ geom                 geometry(MultiPolygon,3005)
+);
+CREATE INDEX on designations USING gist (geom);
+
+-- overlay/overlap processing output table
 CREATE TABLE harvest_restrictions (
   harvest_restrictions_id serial primary key,
   land_designation_name text,
@@ -24,7 +46,7 @@ CREATE TABLE harvest_restrictions (
   harvest_restriction_class_rank integer,
   harvest_restriction_class_name text,
   all_land_desig_names text[],
-  all_land_desig_type_ranks text[],
+  all_land_desig_type_ranks integer[],
   all_land_desig_type_codes text[],
   all_land_desig_type_names text[],
   all_land_desig_primary_keys text[],
