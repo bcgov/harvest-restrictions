@@ -115,7 +115,7 @@ The database is set up by `sql/setup.sql` when its container is first created. A
 
         docker compose run -it --rm runner python harvest_restrictions.py load-db -v --out_table designations --truncate
 
-7. Run overlays, writing the results to the database and the draft to `outputs/drafts/`. `overlay` runs at any commit (eg to test changes), recording the commit and any uncommitted changes in the draft's `overlay_run.json`:
+7. Run overlays, writing the results to the database and the draft to `drafts/`. `overlay` runs at any commit (eg to test changes), recording the commit and any uncommitted changes in the draft's `overlay_run.json`:
 
         docker compose run -it --rm runner python harvest_restrictions.py overlay -v
 
@@ -220,13 +220,12 @@ s3://$BUCKET/harvest_restrictions/
 
 ### Local outputs
 
-Everything the scripts generate locally is written under `outputs/` (git-ignored):
+Generated files are written locally to two git-ignored folders:
 
-- `outputs/drafts/` - the latest `overlay` run's outputs and `overlay_run.json` (see step 7 above), replaced by each run. `prerelease` publishes it, leaving it as is
-- `outputs/prereleases/` - each release candidate's archive, as `prerelease` publishes it. The summaries are built in a temporary directory (`$TMPDIR`), removed when `prerelease` exits
+- `drafts/` - the latest `overlay` run's outputs and `overlay_run.json` (see step 7 above), replaced by each run. Every release candidate is a published draft, so no other local copy is kept: `prerelease` builds the archive from the draft in a temporary directory (`$TMPDIR`), removed once it's published, leaving the draft as is - set `TMPDIR` if the default temp location is too small for the archive
 - `outputs/releases/<release_tag>/` - where `release` downloads the release candidate and builds the release before publishing, each file at the path of its key in the bucket (`prereleases/`, `releases/`, `latest/`, `logs/`)
 
-`prune-prereleases` deletes the local copies of the release candidates it prunes from the bucket. Release folders are left for deleting by hand.
+Release folders are left for deleting by hand.
 
 ### Change log history
 

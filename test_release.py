@@ -533,7 +533,7 @@ def draft_dir(tmp_path):
 
 
 def test_publish_prerelease(store, draft_dir, tmp_path):
-    hr.publish_prerelease(store, NEW_RC, COMMIT, draft_dir, out_dir=str(tmp_path))
+    hr.publish_prerelease(store, NEW_RC, COMMIT, draft_dir)
 
     key = hr.prerelease_key(NEW_RC)
     assert store.uploads == [key]
@@ -565,19 +565,18 @@ def test_publish_prerelease(store, draft_dir, tmp_path):
     ]
     assert summary.iloc[0]["diff"] == 20
 
-    # kept locally
-    assert (tmp_path / key).read_bytes() == store.objects[key]["body"]
-
-    # the draft is left as is - the summaries aren't written to it
+    # nothing is kept locally but the draft (in tmp_path/drafts/), left as is - the summaries
+    # aren't written to it
+    assert os.listdir(tmp_path) == ["drafts"]
     assert sorted(os.listdir(draft_dir)) == sorted(
         [hr.OVERLAY_RUN_JSON, hr.SOURCES_CSV, hr.OVERLAY_GPKG, hr.SOURCES_GPKG]
         + [f"{log}.csv" for log in hr.LOGS]
     )
 
 
-def test_publish_prerelease_then_release(store, draft_dir, tmp_path, monkeypatch):
+def test_publish_prerelease_then_release(store, draft_dir, monkeypatch):
     # what publish_prerelease publishes is what publish_release reads
-    hr.publish_prerelease(store, NEW_RC, COMMIT, draft_dir, out_dir=str(tmp_path))
+    hr.publish_prerelease(store, NEW_RC, COMMIT, draft_dir)
 
     checkout(monkeypatch, tags=["v2026-11", NEW_RC])
     run_release(store)
@@ -585,11 +584,11 @@ def test_publish_prerelease_then_release(store, draft_dir, tmp_path, monkeypatch
     assert list(rows["area_ha"]) == [120]
 
 
-def test_publish_prerelease_no_release_yet(store, draft_dir, tmp_path):
+def test_publish_prerelease_no_release_yet(store, draft_dir):
     for key in store.list("logs/"):
         del store.objects[key]
     with pytest.raises(ValueError, match="release at least one version"):
-        hr.publish_prerelease(store, NEW_RC, COMMIT, draft_dir, out_dir=str(tmp_path))
+        hr.publish_prerelease(store, NEW_RC, COMMIT, draft_dir)
     assert store.uploads == []
 
 
@@ -606,19 +605,17 @@ def test_publish_prerelease_no_release_yet(store, draft_dir, tmp_path):
     ],
     ids=["other commit", "uncommitted changes", "checkout changed"],
 )
-def test_publish_prerelease_refuses_draft(
-    store, draft_dir, tmp_path, commit, changes, match
-):
+def test_publish_prerelease_refuses_draft(store, draft_dir, commit, changes, match):
     hr.write_overlay_run(draft_dir, commit, changes)
     with pytest.raises(ValueError, match=match):
-        hr.publish_prerelease(store, NEW_RC, COMMIT, draft_dir, out_dir=str(tmp_path))
+        hr.publish_prerelease(store, NEW_RC, COMMIT, draft_dir)
     assert store.uploads == []
 
 
-def test_publish_prerelease_unfinished_draft(store, draft_dir, tmp_path):
+def test_publish_prerelease_unfinished_draft(store, draft_dir):
     os.remove(os.path.join(draft_dir, hr.OVERLAY_RUN_JSON))
     with pytest.raises(ValueError, match="run overlay first"):
-        hr.publish_prerelease(store, NEW_RC, COMMIT, draft_dir, out_dir=str(tmp_path))
+        hr.publish_prerelease(store, NEW_RC, COMMIT, draft_dir)
     assert store.uploads == []
 
 
@@ -827,7 +824,7 @@ def test_prune_released_versions(store):
     put_prerelease(store, "v2026-02-rc.1")
     put_prerelease(store, "v2026-02-rc.2")
 
-    hr.delete_prereleases(store, out_dir=".")
+    hr.delete_prereleases(store)
     # just the released version's - v2026-10 isn't released yet
     assert candidates(store) == [f"harvest_restrictions_{RC_TAG}.zip"]
 
@@ -835,7 +832,7 @@ def test_prune_released_versions(store):
 def test_prune_after_release(store):
     run_release(store)
 
-    hr.delete_prereleases(store, out_dir=".")
+    hr.delete_prereleases(store)
     assert candidates(store) == []
 
 
@@ -846,14 +843,14 @@ def test_prune_keeps_partially_released_version(store):
         store, RELEASE_TAG, "2026-10-02T00:00:00+00:00", logs=["land_designations"]
     )
 
-    hr.delete_prereleases(store, out_dir=".")
+    hr.delete_prereleases(store)
     assert candidates(store) == [f"harvest_restrictions_{RC_TAG}.zip"]
 
 
 def test_prune_dry_run(store):
     put_prerelease(store, "v2026-02-rc.1")
 
-    hr.delete_prereleases(store, dry_run=True, out_dir=".")
+    hr.delete_prereleases(store, dry_run=True)
     assert len(candidates(store)) == 2
 
 
@@ -861,30 +858,6 @@ def test_prune_ignores_other_keys(store):
     store.put("prereleases/notes.txt", "?")
     store.put("prereleases/harvest_restrictions_v2026-02.zip", "not a candidate")
 
-    hr.delete_prereleases(store, out_dir=".")
+    hr.delete_prereleases(store)
     assert "prereleases/notes.txt" in store.objects
     assert "prereleases/harvest_restrictions_v2026-02.zip" in store.objects
-
-
-def test_prune_local_copies(store, tmp_path):
-    put_prerelease(store, "v2026-02-rc.1")
-    for rc_tag in ("v2026-02-rc.1", RC_TAG):
-        local = tmp_path / hr.prerelease_key(rc_tag)
-        local.parent.mkdir(exist_ok=True)
-        local.write_text("zip")
-
-    hr.delete_prereleases(store, dry_run=True, out_dir=str(tmp_path))
-    assert (tmp_path / hr.prerelease_key("v2026-02-rc.1")).exists()
-
-    hr.delete_prereleases(store, out_dir=str(tmp_path))
-    # the released version's local copy goes with it - the unreleased version's is kept
-    assert not (tmp_path / hr.prerelease_key("v2026-02-rc.1")).exists()
-    assert (tmp_path / hr.prerelease_key(RC_TAG)).exists()
-
-
-def test_prune_without_local_copy(store, tmp_path):
-    # a candidate published from elsewhere (eg CI) has no local copy to delete
-    put_prerelease(store, "v2026-02-rc.1")
-
-    hr.delete_prereleases(store, out_dir=str(tmp_path))
-    assert candidates(store) == [f"harvest_restrictions_{RC_TAG}.zip"]

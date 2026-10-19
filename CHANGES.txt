@@ -7,16 +7,16 @@ v2026-08
   cache              Download sources defined in provided sources.json file
   clear-cache        Delete cached parquet files written by cache (hr_*.parquet)
   load-db            Load source layers from parquet cache to the postgresql db
-  overlay            Run per-tile overlay, writing the results to the database and outputs/drafts/
-  prerelease         Publish the overlay draft in outputs/drafts/ as a release candidate
+  overlay            Run per-tile overlay, writing the results to the database and drafts/
+  prerelease         Publish the overlay draft in drafts/ as a release candidate
   prune-prereleases  Delete the release candidates of released versions
   release            Release the checked-out commit's release candidate
 
 - releases are made in two steps:
   - release candidate: tag a commit <version>-rc.<n>, run `overlay` on it (writing the draft to
-    outputs/drafts/, with overlay_run.json recording the commit and any uncommitted changes),
-    then `prerelease` publishes the draft for review (only if it was run on the tagged commit,
-    with no uncommitted changes other than to documentation)
+    drafts/, with overlay_run.json recording the commit and any uncommitted changes), then
+    `prerelease` publishes the draft for review (only if it was run on the tagged commit, with
+    no uncommitted changes other than to documentation)
   - release: tag the approved candidate's commit <version> and push the tag - the release
     workflow (requiring approval) promotes the candidate as is, then deletes the version's
     release candidates

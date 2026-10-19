@@ -38,13 +38,11 @@ CACHE_PATH = (
     else None
 )
 
-# everything generated locally is written under here - overlay's draft in drafts/, and laid
-# out as in the bucket, each release candidate's archive in prereleases/, each release built
-# in releases/<release_tag>/
+# each release is built here, in releases/<release_tag>/, laid out as in the bucket
 OUTPUTS = "outputs"
 
 # overlay's outputs, replaced by each run - prerelease publishes them as a release candidate
-DRAFT_DIR = os.path.join(OUTPUTS, "drafts")
+DRAFT_DIR = "drafts"
 
 # the draft's record of what it was run on: commit, uncommitted_changes, finished_at - written
 # last, so a draft without it is unfinished
@@ -411,7 +409,7 @@ def download_source(source):
 # Each version is published first as one or more release candidates, then released:
 #
 # 1. tag the commit to run as a release candidate, <version>-rc.<n> (eg v2026-10-rc.1)
-# 2. overlay, run on that tag, writes its outputs to outputs/drafts/, then prerelease
+# 2. overlay, run on that tag, writes its outputs to drafts/, then prerelease
 #    publishes the draft as prereleases/harvest_restrictions_<version>-rc.<n>.zip, with
 #    summaries comparing its area totals to the latest release - for review
 # 3. once a candidate is approved, tag its commit <version> (eg v2026-10). release, run on that
@@ -574,7 +572,9 @@ def read_overlay_run(draft_dir):
 def check_draft(draft, commit):
     """refuse unless the draft is commit's, run without uncommitted changes"""
     if not draft:
-        raise ValueError(f"No finished overlay draft in {DRAFT_DIR} - run overlay first")
+        raise ValueError(
+            f"No finished overlay draft in {DRAFT_DIR} - run overlay first"
+        )
     if draft["commit"] != commit:
         raise ValueError(
             f"The draft is of commit {draft['commit']}, not {commit} - run overlay on this "
@@ -705,24 +705,22 @@ def release_candidate(store):
     return rc_tag, commit
 
 
-def publish_prerelease(store, rc_tag, commit, draft_dir=DRAFT_DIR, out_dir=OUTPUTS):
+def publish_prerelease(store, rc_tag, commit, draft_dir=DRAFT_DIR):
     """publish the draft as a release candidate's archive in prereleases/
 
     draft_dir holds overlay's outputs: OVERLAY_GPKG, SOURCES_GPKG, SOURCES_CSV, the area
     totals (<log>.csv), and OVERLAY_RUN_JSON. Refuses unless the draft is commit's, with no
     uncommitted changes. The summaries comparing the totals to the most recent release are
     built here, and archived with the rest - the draft itself is left as is. The archive is
-    built in out_dir/prereleases/, kept locally.
+    built in a temporary directory, removed once it's published - the draft is the local copy.
     """
     check_draft(read_overlay_run(draft_dir), commit)
 
     with tempfile.TemporaryDirectory() as logs_dir:
         histories = read_release_logs(store, logs_dir)
     key = prerelease_key(rc_tag)
-    archive = os.path.join(out_dir, key)
-    os.makedirs(os.path.dirname(archive), exist_ok=True)
     summaries = [summary(log) for log in LOGS]
-    with tempfile.TemporaryDirectory() as summary_dir:
+    with tempfile.TemporaryDirectory() as tmp_dir:
         previous_release = None
         for log, columns in LOGS.items():
             history = histories[log]
@@ -733,25 +731,29 @@ def publish_prerelease(store, rc_tag, commit, draft_dir=DRAFT_DIR, out_dir=OUTPU
                 )
             previous_release = latest_release(history)
             build_change(
-                os.path.join(draft_dir, f"{log}.csv"), history, previous_release, columns
-            ).to_csv(os.path.join(summary_dir, summary(log)))
+                os.path.join(draft_dir, f"{log}.csv"),
+                history,
+                previous_release,
+                columns,
+            ).to_csv(os.path.join(tmp_dir, summary(log)))
             LOG.info(f"{summary(log)} written, comparing to {previous_release}")
 
+        archive = os.path.join(tmp_dir, os.path.basename(key))
         zip_files(
             archive,
             [
-                os.path.join(summary_dir if name in summaries else draft_dir, name)
+                os.path.join(tmp_dir if name in summaries else draft_dir, name)
                 for name in ARCHIVED_FILES
             ],
         )
-    # the tags record what the candidate is, for release to check - previous_release is the
-    # release its summaries compare against
-    tags = {
-        "commit": commit,
-        "prerelease": rc_tag,
-        "previous_release": previous_release,
-    }
-    store.upload(archive, key, tags)
+        # the tags record what the candidate is, for release to check - previous_release is
+        # the release its summaries compare against
+        tags = {
+            "commit": commit,
+            "prerelease": rc_tag,
+            "previous_release": previous_release,
+        }
+        store.upload(archive, key, tags)
     LOG.info(f"{rc_tag} published to {store.url(key)}")
 
 
@@ -883,8 +885,8 @@ def publish_release(store, out_dir=OUTPUTS):
     LOG.info(f"Released {release_tag}")
 
 
-def delete_prereleases(store, dry_run=False, out_dir=OUTPUTS):
-    """delete the release candidates of released versions, and their local copies"""
+def delete_prereleases(store, dry_run=False):
+    """delete the release candidates of released versions"""
     # a version is released once it's in every change log - one in only some is a release
     # that failed partway through publishing, whose retry still needs its candidate
     with tempfile.TemporaryDirectory() as logs_dir:
@@ -905,19 +907,11 @@ def delete_prereleases(store, dry_run=False, out_dir=OUTPUTS):
         rc = RC_TAG.match(name[len(prefix) : -len(suffix)])
         if not rc or rc["version"] not in released:
             continue
-        local_file = os.path.join(out_dir, key)
-        if not os.path.exists(local_file):
-            local_file = None
         if dry_run:
             LOG.info(f"Would delete {store.url(key)} ({rc['version']} is released)")
-            if local_file:
-                LOG.info(f"Would delete {local_file}")
         else:
             store.delete(key)
             LOG.info(f"Deleted {store.url(key)} ({rc['version']} is released)")
-            if local_file:
-                os.remove(local_file)
-                LOG.info(f"Deleted {local_file}")
 
 
 @click.group()
@@ -1143,8 +1137,7 @@ def load_db(
 @verbose_opt
 @quiet_opt
 def overlay(db_url, designations_table, verbose, quiet):
-    """Run per-tile overlay, writing the results to the database and the draft in
-    outputs/drafts/
+    """Run per-tile overlay, writing the results to the database and the draft in drafts/
 
     Runs at any commit. The commit, and any uncommitted changes, are recorded in the draft's
     overlay_run.json - prerelease only publishes a draft of the tagged commit, with no
@@ -1224,11 +1217,11 @@ def overlay(db_url, designations_table, verbose, quiet):
 @verbose_opt
 @quiet_opt
 def prerelease(bucket, verbose, quiet):
-    """Publish the overlay draft in outputs/drafts/ as a release candidate
+    """Publish the overlay draft in drafts/ as a release candidate
 
     The checked-out commit must be tagged as a release candidate, <version>-rc.<n>, and the
     draft must be of an overlay run on it with no uncommitted changes. The newest candidate
-    tag is published to prereleases/, and kept locally in outputs/prereleases/
+    tag is published to prereleases/
     """
     configure_logging((verbose - quiet))
 
@@ -1286,8 +1279,8 @@ def release(bucket, verbose, quiet):
 @verbose_opt
 @quiet_opt
 def prune_prereleases(bucket, dry_run, verbose, quiet):
-    """Delete the release candidates of released versions, and their local copies in
-    outputs/prereleases/ - each release is a copy of its candidate's archive"""
+    """Delete the release candidates of released versions - each release is a copy of its
+    candidate's archive"""
     configure_logging((verbose - quiet))
 
     if not bucket:
