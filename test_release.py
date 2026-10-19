@@ -1,3 +1,5 @@
+# --- WARNING - this file is 100% unreviewed AI slop
+
 import io
 import json
 import os
