@@ -337,7 +337,6 @@ def put_release_log(store, release_tag, released_at, logs=None):
                     "release_tag": release_tag,
                     "release_date": "2026-01-01",
                     "commit": "0000000",
-                    "prerelease": f"{release_tag}-rc.1",
                     "released_at": released_at,
                 }
             ]
@@ -445,7 +444,7 @@ def test_committed_head_renames(store, monkeypatch, status):
 
 def test_checkout_state_ignores_docs(store, monkeypatch):
     checkout(monkeypatch, status=" M README.md\0 M sources.json\0")
-    assert hr.checkout_state() == (COMMIT, " M sources.json")
+    assert hr.checkout_state() == (COMMIT, [" M sources.json"])
 
 
 # --- release_candidate ---
@@ -475,28 +474,41 @@ def test_release_candidate_uncommitted_changes(store, monkeypatch):
         hr.release_candidate(store)
 
 
-# --- check_overlay_run ---
+# --- draft ---
 
 
-def test_check_overlay_run():
-    hr.check_overlay_run({"git_commit": COMMIT, "uncommitted_changes": ""}, COMMIT)
+def test_overlay_run_json(tmp_path):
+    hr.write_overlay_run(str(tmp_path), COMMIT, [" M sql/overlay.sql"])
+    draft = hr.read_overlay_run(str(tmp_path))
+    assert draft["commit"] == COMMIT
+    assert draft["uncommitted_changes"] == [" M sql/overlay.sql"]
+    assert pandas.notna(pandas.to_datetime(draft["finished_at"]))
+
+
+def test_read_overlay_run_unfinished(tmp_path):
+    # no overlay_run.json - the overlay didn't finish (or hasn't run)
+    assert hr.read_overlay_run(str(tmp_path)) is None
+
+
+def test_check_draft():
+    hr.check_draft({"commit": COMMIT, "uncommitted_changes": []}, COMMIT)
 
 
 @pytest.mark.parametrize(
-    "overlay_run, match",
+    "draft, match",
     [
         (None, "run overlay first"),
-        ({"git_commit": "f00", "uncommitted_changes": ""}, "of commit f00"),
+        ({"commit": "f00", "uncommitted_changes": []}, "of commit f00"),
         (
-            {"git_commit": COMMIT, "uncommitted_changes": " M sql/overlay.sql"},
+            {"commit": COMMIT, "uncommitted_changes": [" M sql/overlay.sql"]},
             "uncommitted changes",
         ),
     ],
-    ids=["no run", "other commit", "uncommitted changes"],
+    ids=["no draft", "other commit", "uncommitted changes"],
 )
-def test_check_overlay_run_refuses(overlay_run, match):
+def test_check_draft_refuses(draft, match):
     with pytest.raises(ValueError, match=match):
-        hr.check_overlay_run(overlay_run, COMMIT)
+        hr.check_draft(draft, COMMIT)
 
 
 # --- publish_prerelease ---
@@ -505,22 +517,23 @@ NEW_RC = "v2026-11-rc.1"
 
 
 @pytest.fixture
-def run_dir(tmp_path):
-    """a run's outputs and area totals, as overlay writes them"""
-    run_dir = tmp_path / "run"
-    run_dir.mkdir()
-    (run_dir / hr.OVERLAY_GPKG).write_text("gpkg")
-    (run_dir / hr.SOURCES_GPKG).write_text("designations gpkg")
-    (run_dir / hr.SOURCES_CSV).write_text(SOURCES_CSV_BODY)
+def draft_dir(tmp_path):
+    """a draft of COMMIT, as overlay writes it"""
+    draft_dir = tmp_path / "drafts"
+    draft_dir.mkdir()
+    (draft_dir / hr.OVERLAY_GPKG).write_text("gpkg")
+    (draft_dir / hr.SOURCES_GPKG).write_text("designations gpkg")
+    (draft_dir / hr.SOURCES_CSV).write_text(SOURCES_CSV_BODY)
     for log, row in LOG_ROWS.items():
         pandas.DataFrame([{**row, "area_ha": 120.0}]).to_csv(
-            run_dir / f"{log}.csv", index=False
+            draft_dir / f"{log}.csv", index=False
         )
-    return str(run_dir)
+    hr.write_overlay_run(str(draft_dir), COMMIT, [])
+    return str(draft_dir)
 
 
-def test_publish_prerelease(store, run_dir, tmp_path):
-    hr.publish_prerelease(store, NEW_RC, COMMIT, run_dir, out_dir=str(tmp_path))
+def test_publish_prerelease(store, draft_dir, tmp_path):
+    hr.publish_prerelease(store, NEW_RC, COMMIT, draft_dir, out_dir=str(tmp_path))
 
     key = hr.prerelease_key(NEW_RC)
     assert store.uploads == [key]
@@ -531,8 +544,8 @@ def test_publish_prerelease(store, run_dir, tmp_path):
         "previous_release": PREVIOUS_RELEASE,
     }
 
-    # the geopackages, sources and summaries comparing the run's totals to the previous
-    # release
+    # the geopackages, sources and summaries comparing the draft's totals to the previous
+    # release - not overlay_run.json
     members = zip_members(store.objects[key]["body"])
     assert sorted(members) == [
         "harvest_restrictions.gpkg",
@@ -555,10 +568,16 @@ def test_publish_prerelease(store, run_dir, tmp_path):
     # kept locally
     assert (tmp_path / key).read_bytes() == store.objects[key]["body"]
 
+    # the draft is left as is - the summaries aren't written to it
+    assert sorted(os.listdir(draft_dir)) == sorted(
+        [hr.OVERLAY_RUN_JSON, hr.SOURCES_CSV, hr.OVERLAY_GPKG, hr.SOURCES_GPKG]
+        + [f"{log}.csv" for log in hr.LOGS]
+    )
 
-def test_publish_prerelease_then_release(store, run_dir, tmp_path, monkeypatch):
+
+def test_publish_prerelease_then_release(store, draft_dir, tmp_path, monkeypatch):
     # what publish_prerelease publishes is what publish_release reads
-    hr.publish_prerelease(store, NEW_RC, COMMIT, run_dir, out_dir=str(tmp_path))
+    hr.publish_prerelease(store, NEW_RC, COMMIT, draft_dir, out_dir=str(tmp_path))
 
     checkout(monkeypatch, tags=["v2026-11", NEW_RC])
     run_release(store)
@@ -566,27 +585,40 @@ def test_publish_prerelease_then_release(store, run_dir, tmp_path, monkeypatch):
     assert list(rows["area_ha"]) == [120]
 
 
-def test_publish_prerelease_no_release_yet(store, run_dir):
+def test_publish_prerelease_no_release_yet(store, draft_dir, tmp_path):
     for key in store.list("logs/"):
         del store.objects[key]
     with pytest.raises(ValueError, match="release at least one version"):
-        hr.publish_prerelease(store, NEW_RC, COMMIT, run_dir)
+        hr.publish_prerelease(store, NEW_RC, COMMIT, draft_dir, out_dir=str(tmp_path))
     assert store.uploads == []
 
 
-def test_publish_prerelease_uncommitted_changes(store, run_dir, monkeypatch):
-    # a file edited during the run
-    checkout(monkeypatch, status=" M sources.json")
-    with pytest.raises(ValueError, match="uncommitted changes"):
-        hr.publish_prerelease(store, NEW_RC, COMMIT, run_dir)
+@pytest.mark.parametrize(
+    "commit, changes, match",
+    [
+        ("f00", [], "of commit f00"),
+        (COMMIT, [" M sources.json"], "uncommitted changes"),
+        (
+            COMMIT,
+            ["the checkout changed during the run"],
+            "the checkout changed during the run",
+        ),
+    ],
+    ids=["other commit", "uncommitted changes", "checkout changed"],
+)
+def test_publish_prerelease_refuses_draft(
+    store, draft_dir, tmp_path, commit, changes, match
+):
+    hr.write_overlay_run(draft_dir, commit, changes)
+    with pytest.raises(ValueError, match=match):
+        hr.publish_prerelease(store, NEW_RC, COMMIT, draft_dir, out_dir=str(tmp_path))
     assert store.uploads == []
 
 
-def test_publish_prerelease_head_moved(store, run_dir, monkeypatch):
-    # a commit made (or another commit checked out) during the run
-    checkout(monkeypatch, head="f00")
-    with pytest.raises(ValueError, match="moved from"):
-        hr.publish_prerelease(store, NEW_RC, COMMIT, run_dir)
+def test_publish_prerelease_unfinished_draft(store, draft_dir, tmp_path):
+    os.remove(os.path.join(draft_dir, hr.OVERLAY_RUN_JSON))
+    with pytest.raises(ValueError, match="run overlay first"):
+        hr.publish_prerelease(store, NEW_RC, COMMIT, draft_dir, out_dir=str(tmp_path))
     assert store.uploads == []
 
 
@@ -645,7 +677,7 @@ def test_release_logs(store):
     assert row["release_tag"] == RELEASE_TAG
     assert row["release_date"] == RELEASE_DATE
     assert row["commit"] == COMMIT[:7]
-    assert row["prerelease"] == RC_TAG
+    assert "prerelease" not in rows.columns
     assert pandas.notna(row["released_at"])
 
     designations = store.read_csv(hr.release_log_key(RELEASE_TAG, "land_designations"))

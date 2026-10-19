@@ -38,9 +38,17 @@ CACHE_PATH = (
     else None
 )
 
-# everything generated locally is written under here, laid out as in the bucket - each release
-# candidate's archive in prereleases/, each release built in releases/<release_tag>/
+# everything generated locally is written under here - overlay's draft in drafts/, and laid
+# out as in the bucket, each release candidate's archive in prereleases/, each release built
+# in releases/<release_tag>/
 OUTPUTS = "outputs"
+
+# overlay's outputs, replaced by each run - prerelease publishes them as a release candidate
+DRAFT_DIR = os.path.join(OUTPUTS, "drafts")
+
+# the draft's record of what it was run on: commit, uncommitted_changes, finished_at - written
+# last, so a draft without it is unfinished
+OVERLAY_RUN_JSON = "overlay_run.json"
 
 # everything published is under this prefix in the bucket
 PREFIX = "harvest_restrictions"
@@ -403,9 +411,9 @@ def download_source(source):
 # Each version is published first as one or more release candidates, then released:
 #
 # 1. tag the commit to run as a release candidate, <version>-rc.<n> (eg v2026-10-rc.1)
-# 2. overlay, run on that tag, then prerelease publishes the results as
-#    prereleases/harvest_restrictions_<version>-rc.<n>.zip, with summaries comparing its area
-#    totals to the latest release - for review
+# 2. overlay, run on that tag, writes its outputs to outputs/drafts/, then prerelease
+#    publishes the draft as prereleases/harvest_restrictions_<version>-rc.<n>.zip, with
+#    summaries comparing its area totals to the latest release - for review
 # 3. once a candidate is approved, tag its commit <version> (eg v2026-10). release, run on that
 #    tag (by the release workflow), promotes the commit's latest candidate of that version:
 #    - releases/harvest_restrictions_<version>.zip, a copy of the candidate's archive
@@ -539,49 +547,43 @@ def committed_head():
 
 def checkout_state():
     """(HEAD, uncommitted changes other than to DOCS) of the checkout"""
-    return git("rev-parse", "HEAD"), "\n".join(uncommitted_changes())
+    return git("rev-parse", "HEAD"), uncommitted_changes()
 
 
-def record_overlay_run(db_url, git_commit=None, uncommitted_changes=None):
-    """record the overlay run whose results are in the database - or, with no commit, clear
-    the record (a run in progress, or one that failed, has no results to publish)"""
-    with create_engine(db_url).begin() as conn:
-        conn.execute(text("TRUNCATE overlay_run"))
-        if git_commit:
-            conn.execute(
-                text(
-                    "INSERT INTO overlay_run "
-                    "VALUES (:git_commit, :uncommitted_changes, now())"
-                ),
-                {"git_commit": git_commit, "uncommitted_changes": uncommitted_changes},
-            )
+def write_overlay_run(draft_dir, commit, changes):
+    """record what the draft in draft_dir was run on - written last, marking it finished"""
+    draft = {
+        "commit": commit,
+        "uncommitted_changes": changes,
+        "finished_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
+    }
+    with open(os.path.join(draft_dir, OVERLAY_RUN_JSON), "w") as f:
+        json.dump(draft, f, indent=2)
 
 
-def read_overlay_run(db_url):
-    """the recorded overlay run, as a dict - or None if there's no finished run (the record
-    is cleared when an overlay starts, and written when it finishes)"""
-    engine = create_engine(db_url)
-    with engine.connect() as conn:
-        row = conn.execute(text("SELECT * FROM overlay_run")).mappings().first()
-    return dict(row) if row else None
+def read_overlay_run(draft_dir):
+    """the draft's record, as a dict - or None if there's no finished draft (the draft is
+    removed when an overlay starts, and its record written when it finishes)"""
+    path = os.path.join(draft_dir, OVERLAY_RUN_JSON)
+    if not os.path.exists(path):
+        return None
+    with open(path) as f:
+        return json.load(f)
 
 
-def check_overlay_run(overlay_run, commit):
-    """refuse unless the overlay results in the database are commit's, run without
-    uncommitted changes"""
-    if not overlay_run:
+def check_draft(draft, commit):
+    """refuse unless the draft is commit's, run without uncommitted changes"""
+    if not draft:
+        raise ValueError(f"No finished overlay draft in {DRAFT_DIR} - run overlay first")
+    if draft["commit"] != commit:
         raise ValueError(
-            "No finished overlay run is recorded in the database - run overlay first"
+            f"The draft is of commit {draft['commit']}, not {commit} - run overlay on this "
+            "commit first"
         )
-    if overlay_run["git_commit"] != commit:
+    if draft["uncommitted_changes"]:
         raise ValueError(
-            f"The overlay results in the database are of commit {overlay_run['git_commit']}, "
-            f"not {commit} - run overlay on this commit first"
-        )
-    if overlay_run["uncommitted_changes"]:
-        raise ValueError(
-            "The overlay results in the database were run with uncommitted changes - run "
-            f"overlay on a clean checkout first:\n{overlay_run['uncommitted_changes']}"
+            "The draft was run with uncommitted changes - run overlay on a clean checkout "
+            "first:\n" + "\n".join(draft["uncommitted_changes"])
         )
 
 
@@ -703,46 +705,45 @@ def release_candidate(store):
     return rc_tag, commit
 
 
-def publish_prerelease(store, rc_tag, commit, run_dir, out_dir=OUTPUTS):
-    """publish a release candidate's archive to prereleases/
+def publish_prerelease(store, rc_tag, commit, draft_dir=DRAFT_DIR, out_dir=OUTPUTS):
+    """publish the draft as a release candidate's archive in prereleases/
 
-    run_dir holds the run's outputs: OVERLAY_GPKG, SOURCES_GPKG, SOURCES_CSV, and the area
-    totals (<log>.csv). The summaries comparing those totals to the most recent release are
-    written there by this, and archived with the rest. The archive is built in out_dir/prereleases/, kept locally.
-
-    commit is the commit the run started on - refuses to publish if the checkout has changed
-    since, as the run then isn't commit's output.
+    draft_dir holds overlay's outputs: OVERLAY_GPKG, SOURCES_GPKG, SOURCES_CSV, the area
+    totals (<log>.csv), and OVERLAY_RUN_JSON. Refuses unless the draft is commit's, with no
+    uncommitted changes. The summaries comparing the totals to the most recent release are
+    built here, and archived with the rest - the draft itself is left as is. The archive is
+    built in out_dir/prereleases/, kept locally.
     """
-    head = committed_head()
-    if head != commit:
-        raise ValueError(
-            f"The checkout moved from {commit} to {head} during the run - re-run against "
-            "the commit to publish"
-        )
+    check_draft(read_overlay_run(draft_dir), commit)
 
     with tempfile.TemporaryDirectory() as logs_dir:
         histories = read_release_logs(store, logs_dir)
-    previous_release = None
-    for log, columns in LOGS.items():
-        history = histories[log]
-        if history is None:
-            raise ValueError(
-                f"No {log} change log found under {store.url('logs/')} "
-                "- release at least one version before comparing to it"
-            )
-        previous_release = latest_release(history)
-        build_change(
-            os.path.join(run_dir, f"{log}.csv"), history, previous_release, columns
-        ).to_csv(os.path.join(run_dir, summary(log)))
-        LOG.info(f"{summary(log)} written, comparing to {previous_release}")
-
     key = prerelease_key(rc_tag)
     archive = os.path.join(out_dir, key)
     os.makedirs(os.path.dirname(archive), exist_ok=True)
-    zip_files(
-        archive,
-        [os.path.join(run_dir, name) for name in ARCHIVED_FILES],
-    )
+    summaries = [summary(log) for log in LOGS]
+    with tempfile.TemporaryDirectory() as summary_dir:
+        previous_release = None
+        for log, columns in LOGS.items():
+            history = histories[log]
+            if history is None:
+                raise ValueError(
+                    f"No {log} change log found under {store.url('logs/')} "
+                    "- release at least one version before comparing to it"
+                )
+            previous_release = latest_release(history)
+            build_change(
+                os.path.join(draft_dir, f"{log}.csv"), history, previous_release, columns
+            ).to_csv(os.path.join(summary_dir, summary(log)))
+            LOG.info(f"{summary(log)} written, comparing to {previous_release}")
+
+        zip_files(
+            archive,
+            [
+                os.path.join(summary_dir if name in summaries else draft_dir, name)
+                for name in ARCHIVED_FILES
+            ],
+        )
     # the tags record what the candidate is, for release to check - previous_release is the
     # release its summaries compare against
     tags = {
@@ -859,7 +860,6 @@ def publish_release(store, out_dir=OUTPUTS):
         rows["release_tag"] = release_tag
         rows["release_date"] = release_date
         rows["commit"] = commit[:7]
-        rows["prerelease"] = rc_tag
         rows["released_at"] = released_at
 
         release_log = release_log_key(release_tag, log)
@@ -1135,13 +1135,20 @@ def load_db(
     help="Target database url, defaults to $DATABASE_URL environment variable if set",
     default=os.environ.get("DATABASE_URL"),
 )
+@click.option(
+    "--designations_table",
+    default="designations",
+    help="Name of the source designations table (as loaded by load-db), dumped to geopackage alongside overlay outputs",
+)
 @verbose_opt
 @quiet_opt
-def overlay(db_url, verbose, quiet):
-    """Run per-tile overlay, writing the results to the database
+def overlay(db_url, designations_table, verbose, quiet):
+    """Run per-tile overlay, writing the results to the database and the draft in
+    outputs/drafts/
 
-    Runs at any commit. The commit, and any uncommitted changes, are recorded with the
-    results - prerelease only publishes results of the tagged commit, with no changes.
+    Runs at any commit. The commit, and any uncommitted changes, are recorded in the draft's
+    overlay_run.json - prerelease only publishes a draft of the tagged commit, with no
+    changes.
     """
     configure_logging((verbose - quiet))
 
@@ -1150,9 +1157,9 @@ def overlay(db_url, verbose, quiet):
             "Target database url not provided, set --db_url or $DATABASE_URL"
         )
 
-    # clear the record of the previous run - the results are about to be replaced
+    # remove the previous draft - the results are about to be replaced
     commit, changes = checkout_state()
-    record_overlay_run(db_url)
+    shutil.rmtree(DRAFT_DIR, ignore_errors=True)
 
     psql = f"psql {db_url} -v ON_ERROR_STOP=1"
 
@@ -1170,29 +1177,44 @@ def overlay(db_url, verbose, quiet):
         f"| parallel --tag {psql} -f sql/overlay.sql -v tile={{1}}"
     )
 
+    def draft(name):
+        return os.path.join(DRAFT_DIR, name)
+
+    os.makedirs(DRAFT_DIR)
+
+    # the result, and the source designations
+    add_gpkg_layer(
+        draft(OVERLAY_GPKG),
+        f"PG:{db_url}",
+        "harvest_restrictions",
+        "-nlt",
+        "MULTIPOLYGON",
+        "-sql",
+        DUMP_SQL,
+    )
+    add_gpkg_layer(
+        draft(SOURCES_GPKG), f"PG:{db_url}", "designations", designations_table
+    )
+
+    # area totals, compared to the previous release in the summaries prerelease builds
+    for log in LOGS:
+        run(f"{psql} -f sql/{log}.sql --csv > {draft(log + '.csv')}")
+
+    # flatten sources.json to a csv, for review alongside the rest of the outputs
+    write_sources_csv("sources.json", draft(SOURCES_CSV))
+
     # a checkout changed during the run (a commit, another checkout, an edit) means the
     # results are no commit's in particular
     if checkout_state() != (commit, changes):
-        changes = f"the checkout changed during the run\n{changes}".strip()
-    record_overlay_run(db_url, commit, changes)
+        changes = ["the checkout changed during the run"] + changes
+    write_overlay_run(DRAFT_DIR, commit, changes)
     LOG.info(
-        f"Overlay of commit {commit} finished"
-        + (f", with uncommitted changes:\n{changes}" if changes else "")
+        f"Overlay of commit {commit} written to {DRAFT_DIR}"
+        + (", with uncommitted changes:\n" + "\n".join(changes) if changes else "")
     )
 
 
 @cli.command()
-@click.option(
-    "--db_url",
-    "-db",
-    help="Target database url, defaults to $DATABASE_URL environment variable if set",
-    default=os.environ.get("DATABASE_URL"),
-)
-@click.option(
-    "--designations_table",
-    default="designations",
-    help="Name of the source designations table (as loaded by load-db), dumped to geopackage alongside overlay outputs",
-)
 @click.option(
     "--bucket",
     "-b",
@@ -1201,19 +1223,15 @@ def overlay(db_url, verbose, quiet):
 )
 @verbose_opt
 @quiet_opt
-def prerelease(db_url, designations_table, bucket, verbose, quiet):
-    """Publish the overlay results in the database as a release candidate
+def prerelease(bucket, verbose, quiet):
+    """Publish the overlay draft in outputs/drafts/ as a release candidate
 
     The checked-out commit must be tagged as a release candidate, <version>-rc.<n>, and the
-    results must be of an overlay run on it with no uncommitted changes. The newest candidate
+    draft must be of an overlay run on it with no uncommitted changes. The newest candidate
     tag is published to prereleases/, and kept locally in outputs/prereleases/
     """
     configure_logging((verbose - quiet))
 
-    if not db_url:
-        raise ValueError(
-            "Target database url not provided, set --db_url or $DATABASE_URL"
-        )
     if not bucket:
         raise ValueError(
             "Target object storage bucket not provided, set --bucket or $BUCKET"
@@ -1221,43 +1239,8 @@ def prerelease(db_url, designations_table, bucket, verbose, quiet):
 
     store = S3Store(bucket)
     rc_tag, commit = release_candidate(store)
-    check_overlay_run(read_overlay_run(db_url), commit)
     LOG.info(f"Publishing release candidate {rc_tag}, commit={commit}")
-
-    # the outputs are written to a temporary directory, removed on exit - just the release
-    # candidate's archive is kept, in outputs/prereleases/
-    with tempfile.TemporaryDirectory() as tmp_dir:
-
-        def tmp(name):
-            return os.path.join(tmp_dir, name)
-
-        # the result, and the source designations
-        add_gpkg_layer(
-            tmp(OVERLAY_GPKG),
-            f"PG:{db_url}",
-            "harvest_restrictions",
-            "-nlt",
-            "MULTIPOLYGON",
-            "-sql",
-            DUMP_SQL,
-        )
-        add_gpkg_layer(
-            tmp(SOURCES_GPKG), f"PG:{db_url}", "designations", designations_table
-        )
-        LOG.info(
-            f"Overlay results written to {tmp(OVERLAY_GPKG)}, {designations_table} to "
-            f"{tmp(SOURCES_GPKG)}"
-        )
-
-        # area totals, compared to the previous release in the summaries
-        psql = f"psql {db_url} -v ON_ERROR_STOP=1"
-        for log in LOGS:
-            run(f"{psql} -f sql/{log}.sql --csv > {tmp(log + '.csv')}")
-
-        # flatten sources.json to a csv, for review alongside the rest of the outputs
-        write_sources_csv("sources.json", tmp(SOURCES_CSV))
-
-        publish_prerelease(store, rc_tag, commit, tmp_dir)
+    publish_prerelease(store, rc_tag, commit)
 
 
 @cli.command()

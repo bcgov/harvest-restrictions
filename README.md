@@ -115,11 +115,25 @@ The database is set up by `sql/setup.sql` when its container is first created. A
 
         docker compose run -it --rm runner python harvest_restrictions.py load-db -v --out_table designations --truncate
 
-7. Run overlays, writing the results to the database. `overlay` runs at any commit (eg to test changes), recording the commit and any uncommitted changes with the results:
+7. Run overlays, writing the results to the database and the draft to `outputs/drafts/`. `overlay` runs at any commit (eg to test changes), recording the commit and any uncommitted changes in the draft's `overlay_run.json`:
 
         docker compose run -it --rm runner python harvest_restrictions.py overlay -v
 
-8. To publish the results for review, commit any changes and tag the commit as a release candidate of the version - `<version>-rc.<n>`, numbering candidates of a version from 1 - then publish the release candidate's archive, `prereleases/harvest_restrictions_<version>-rc.<n>.zip`, with summaries comparing its area totals to the most recent release:
+    Each run replaces the draft. The draft can be reviewed before tagging it as a release candidate:
+
+    - `harvest_restrictions.gpkg`, `harvest_restrictions_sources.gpkg`, `sources.csv` - as archived in a release
+    - `land_designations.csv`, `harvest_restrictions.csv` - the area totals, which `prerelease` compares to the most recent release
+    - `overlay_run.json` - what the draft was run on, written when `overlay` finishes (a draft without it is unfinished):
+
+            {
+              "commit": "f439b88c2d1e7a4b9f0c3e5a6b8d2f1e4c7a9b03",
+              "uncommitted_changes": [" M sql/overlay.sql"],
+              "finished_at": "2026-10-19T21:02:11+00:00"
+            }
+
+      `uncommitted_changes` lists the `git status` lines of changed tracked files other than documentation - empty for a clean checkout, and starting with `the checkout changed during the run` if it did
+
+8. To publish the results for review, commit any changes and tag the commit as a release candidate of the version - `<version>-rc.<n>`, numbering candidates of a version from 1 - then publish the draft as the release candidate's archive, `prereleases/harvest_restrictions_<version>-rc.<n>.zip`, with summaries comparing its area totals to the most recent release:
 
         git tag v2026-10-rc.1
         git push origin v2026-10-rc.1
@@ -127,7 +141,7 @@ The database is set up by `sql/setup.sql` when its container is first created. A
 
     Push the candidate tag - the release workflow finds the candidate to release from the tags on the released commit.
 
-    `prerelease` refuses unless the commit is tagged as a release candidate whose archive isn't yet published, and the results in the database are of an `overlay` run on this commit with no uncommitted changes - a candidate is exactly the tagged commit's output, published once. Uncommitted changes to documentation (`*.md`, `CHANGES.txt`, `LICENSE`) are allowed, changes to any other tracked file are not. Tagging the commit already run is fine, `overlay` needn't be re-run.
+    `prerelease` refuses unless the commit is tagged as a release candidate whose archive isn't yet published, and the draft is of an `overlay` run on this commit with no uncommitted changes - a candidate is exactly the tagged commit's output, published once. Uncommitted changes to documentation (`*.md`, `CHANGES.txt`, `LICENSE`) are allowed, changes to any other tracked file are not. Tagging the commit already run is fine, `overlay` needn't be re-run.
 
     To run the [harvest-restrictions workflow](https://github.com/bcgov/harvest-restrictions/actions/workflows/harvest-restrictions.yaml) instead, run it on the release candidate tag - it publishes the candidate when run on one.
 
@@ -196,7 +210,7 @@ s3://$BUCKET/harvest_restrictions/
 - `land_designations_summary.csv`, `harvest_restrictions_summary.csv` - comparing the *most recent release* against the candidate with `current`/`diff`/`pct_diff` columns. Retains every category present in either side - a category new to this run or dropped since the previous release still gets its labels, with `diff`/`pct_diff` left as `NaN` rather than misleadingly implying zero area. This is what you review in step 9 above, and what `release` reads (via the `current` column) to append the release's totals to the change log
 - `sources.csv` - a flattened `sources.json` as it stood for this run
 
-**`logs/<release_tag>/land_designations.csv`, `logs/<release_tag>/harvest_restrictions.csv`** - written only by `release`, that release's change log rows, never rewritten. One row per category (`release_tag`, `release_date`, `commit`, `prerelease` - the promoted release candidate, `released_at`, category columns, `area_ha`). Releases before release candidates were introduced have a `run_id` instead of `prerelease`. These are the change log's source of truth: `prerelease` reads them to find the previous release to compare against, and `release` refuses to release a tag already logged here. `released_at` (when the release was made) orders the releases - `release_date` is the released commit's author date, which needn't follow release order.
+**`logs/<release_tag>/land_designations.csv`, `logs/<release_tag>/harvest_restrictions.csv`** - written only by `release`, that release's change log rows, never rewritten. One row per category (category columns, `area_ha`, `release_tag`, `release_date`, `commit`, `released_at`). Older releases also have a `prerelease` (the promoted release candidate) or `run_id` column - the promoted candidate is recorded in the release archive's `prerelease` tag. These are the change log's source of truth: `prerelease` reads them to find the previous release to compare against, and `release` refuses to release a tag already logged here. `released_at` (when the release was made) orders the releases - `release_date` is the released commit's author date, which needn't follow release order.
 
 **`logs/land_designations.csv` / `logs/harvest_restrictions.csv`** - the combined change logs, every release's rows from `logs/<release_tag>/` in `released_at` order. Rebuilt by `release` each time, so if damaged they're fixed by the next release.
 
@@ -206,9 +220,10 @@ s3://$BUCKET/harvest_restrictions/
 
 ### Local outputs
 
-Everything the scripts generate locally is written under `outputs/` (git-ignored), laid out as in the bucket:
+Everything the scripts generate locally is written under `outputs/` (git-ignored):
 
-- `outputs/prereleases/` - each release candidate's archive, as `prerelease` publishes it. Intermediate files (the geopackages, the area totals the summaries are built from) are written to a temporary directory (`$TMPDIR`), removed when `prerelease` exits - set `TMPDIR` if the default temp location is too small for the overlay geopackage
+- `outputs/drafts/` - the latest `overlay` run's outputs and `overlay_run.json` (see step 7 above), replaced by each run. `prerelease` publishes it, leaving it as is
+- `outputs/prereleases/` - each release candidate's archive, as `prerelease` publishes it. The summaries are built in a temporary directory (`$TMPDIR`), removed when `prerelease` exits
 - `outputs/releases/<release_tag>/` - where `release` downloads the release candidate and builds the release before publishing, each file at the path of its key in the bucket (`prereleases/`, `releases/`, `latest/`, `logs/`)
 
 `prune-prereleases` deletes the local copies of the release candidates it prunes from the bucket. Release folders are left for deleting by hand.

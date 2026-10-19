@@ -55,11 +55,3 @@ CREATE TABLE harvest_restrictions (
   map_tile_250k text,
   geom geometry(MULTIPOLYGON, 3005)
 );
-
--- log commit associated with a given overlay run
--- (to guard against changes made between running overlay and tagging a pre-release)
-CREATE TABLE overlay_run (
-  git_commit text,
-  uncommitted_changes text,
-  finished_at timestamptz
-);
