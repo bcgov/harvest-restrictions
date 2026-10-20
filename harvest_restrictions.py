@@ -134,7 +134,7 @@ def parse_sources(sources):
         if slug != alias:
             parsed[i]["alias"] = slug
             LOG.warning(
-                "{alias} - alias adjusted to {slug}, consider editing alias in config file"
+                f"{alias} - alias adjusted to {slug}, consider editing alias in config file"
             )
 
     LOG.info("Source json is valid")
@@ -228,7 +228,7 @@ def validate_bcgw(source):
 
     # is primary key present and not null?
     if "primary_key" in source and source["primary_key"]:
-        if source["primary_key"] not in columns:
+        if source["primary_key"].upper() not in columns:
             raise ValueError(
                 f"Validation error: {source['alias']} - Primary key - {source['primary_key']} is not present in {table}"
             )
@@ -300,13 +300,9 @@ def download_source(source):
             as_gdf=True,
             lowercase=True,
         )
-        # if primary key is not provided in config, default to the pk noted in bcdata
-        if ("primary_key" not in source.keys() or not source["primary_key"]) and source[
-            "source"
-        ].lower() in bcdata.primary_keys:
-            source["primary_key"] = bcdata.primary_keys[source["source"].lower()]
-        else:
-            source["primary_key"] = None
+        # if primary key is not provided in config, default to the pk noted in bcdata (if any)
+        if not source.get("primary_key"):
+            source["primary_key"] = bcdata.primary_keys.get(source["source"].lower())
 
     # download file
     elif source["source_type"] == "FILE":
@@ -949,9 +945,10 @@ def load_db(
 
     if not in_path and not dry_run:
         raise ValueError("Input path not provided, set --in_path or $BUCKET")
-
-    # connect to db
-    db = create_engine(db_url)
+    if not db_url and not dry_run:
+        raise ValueError(
+            "Target database url not provided, set --db_url or $DATABASE_URL"
+        )
 
     # load sources file
     with open(sources_file, "r") as f:
@@ -969,6 +966,7 @@ def load_db(
         sources = validate_sources(sources)
 
     else:
+        db = create_engine(db_url)
         if truncate:
             if out_table and inspect(db).has_table(out_table):
                 with db.begin() as conn:
