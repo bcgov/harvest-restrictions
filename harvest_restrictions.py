@@ -38,11 +38,11 @@ CACHE_PATH = (
     else None
 )
 
-# each release is built here, in releases/<release_tag>/, laid out as in the bucket
-OUTPUTS = "outputs"
-
 # overlay's outputs, replaced by each run - prerelease publishes them as a release candidate
 DRAFT_DIR = "drafts"
+
+# each release is built here, in <release_tag>/, laid out as in the bucket
+RELEASES_DIR = "releases"
 
 # the draft's record of what it was run on: commit, uncommitted_changes, finished_at - written
 # last, so a draft without it is unfinished
@@ -757,13 +757,13 @@ def publish_prerelease(store, rc_tag, commit, draft_dir=DRAFT_DIR):
     LOG.info(f"{rc_tag} published to {store.url(key)}")
 
 
-def publish_release(store, out_dir=OUTPUTS):
+def publish_release(store, releases_dir=RELEASES_DIR):
     """release the checked-out commit's newest candidate of the version it's tagged with
 
     Refuses (before publishing anything) if the version is already released, or if the
     candidate's summaries compare against an older release than the latest.
 
-    Everything is downloaded and built in out_dir/releases/<release_tag>/ before anything is
+    Everything is downloaded and built in releases_dir/<release_tag>/ before anything is
     published, each file at the path of its key in the bucket. The release's change log rows
     are published last: they mark the release as done, so a failure partway through
     publishing can be retried, and the retry overwrites whatever had been published so far.
@@ -788,7 +788,7 @@ def publish_release(store, out_dir=OUTPUTS):
     rc_tag = rc_tags[-1]
 
     # cleared at the start of every run, so leftovers from a failed attempt are never reused
-    work_dir = os.path.join(out_dir, "releases", release_tag)
+    work_dir = os.path.join(releases_dir, release_tag)
     shutil.rmtree(work_dir, ignore_errors=True)
     os.makedirs(work_dir)
 
@@ -1252,7 +1252,7 @@ def release(bucket, verbose, quiet):
     Promotes the commit's newest release candidate of the version: publishes its archive under
     releases/, the fixed-name latest files under latest/, and the release's change log rows
     under logs/<release_tag>/ - see publish_release(). The release is built locally first, in
-    outputs/releases/<release_tag>/
+    releases/<release_tag>/
     """
     configure_logging((verbose - quiet))
 

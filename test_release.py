@@ -381,7 +381,7 @@ def checkout(monkeypatch, **kwargs):
 
 
 def run_release(store):
-    hr.publish_release(store, out_dir=".")
+    hr.publish_release(store)
 
 
 # --- committed_head ---

@@ -223,7 +223,7 @@ s3://$BUCKET/harvest_restrictions/
 Generated files are written locally to two git-ignored folders:
 
 - `drafts/` - the latest `overlay` run's outputs and `overlay_run.json` (see step 7 above), replaced by each run. Every release candidate is a published draft, so no other local copy is kept: `prerelease` builds the archive from the draft in a temporary directory (`$TMPDIR`), removed once it's published, leaving the draft as is - set `TMPDIR` if the default temp location is too small for the archive
-- `outputs/releases/<release_tag>/` - where `release` downloads the release candidate and builds the release before publishing, each file at the path of its key in the bucket (`prereleases/`, `releases/`, `latest/`, `logs/`)
+- `releases/<release_tag>/` - where `release` downloads the release candidate and builds the release before publishing, each file at the path of its key in the bucket (`prereleases/`, `releases/`, `latest/`, `logs/`)
 
 Release folders are left for deleting by hand.
 
