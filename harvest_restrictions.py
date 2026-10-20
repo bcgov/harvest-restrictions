@@ -369,7 +369,7 @@ def download_source(source):
 #    - the release's area totals, appended to the change logs, logs/<log>.csv
 #    - releases/harvest_restrictions_<version>.zip, a copy of the candidate's archive -
 #      published last, marking the version released
-# 4. prune-prereleases deletes the candidates of released versions
+#    then deletes the version's candidates
 #
 # A release is exactly the candidate that was reviewed - nothing is re-run or rebuilt.
 
@@ -526,26 +526,14 @@ def read_release_logs(store, work_dir):
     """read the change logs (logs/<log>.csv), downloading them to work_dir
 
     returns {log: df} with each df every release's rows, in release order (each release
-    appends its own), or None if no release has written that log yet
+    appends its own)
     """
-    keys = store.list("logs/")
     histories = {}
     for log in LOGS:
-        key = f"logs/{log}.csv"
-        if key not in keys:
-            histories[log] = None
-            continue
-        local_file = os.path.join(work_dir, key)
-        store.download(key, local_file)
+        local_file = os.path.join(work_dir, "logs", f"{log}.csv")
+        store.download(f"logs/{log}.csv", local_file)
         histories[log] = pandas.read_csv(local_file)
     return histories
-
-
-def latest_release(history):
-    """tag of the most recent release in a history from read_release_logs(), or None"""
-    if history is None:
-        return None
-    return history["release_tag"].iloc[-1]
 
 
 def build_change(current_file, history, previous_release, columns):
@@ -623,12 +611,7 @@ def publish_prerelease(store, rc_tag, commit, draft_dir="drafts"):
     with tempfile.TemporaryDirectory() as tmp_dir:
         for log, columns in LOGS.items():
             history = histories[log]
-            if history is None:
-                raise ValueError(
-                    f"No {log} change log found under {store.url('logs/')} "
-                    "- release at least one version before comparing to it"
-                )
-            previous_release = latest_release(history)
+            previous_release = history["release_tag"].iloc[-1]
             build_change(
                 os.path.join(draft_dir, f"{log}.csv"),
                 history,
@@ -661,7 +644,8 @@ def publish_release(store):
     done, so a failure partway through publishing can be retried, and the retry overwrites
     whatever had been published so far.
 
-    The candidates are left in place - prune-prereleases deletes them.
+    Once the archive is published, the version's candidates are deleted - the release is a
+    copy of the one promoted.
     """
     commit = git("rev-parse", "HEAD")
     release_tags, rc_tags = head_tags()
@@ -695,7 +679,7 @@ def publish_release(store):
         # attempt that failed before finishing - dropped here, and published again
         histories = read_release_logs(store, work_dir)
         for log, history in histories.items():
-            if history is not None and release_tag in history["release_tag"].values:
+            if release_tag in history["release_tag"].values:
                 LOG.warning(
                     f"Release {release_tag} is partially logged (in {log}) - re-publishing it"
                 )
@@ -722,7 +706,7 @@ def publish_release(store):
         # the candidate's summaries compare against whichever release was latest when it
         # ran - the summaries' column after "current", named for that release. If another
         # release has happened since, their diffs are against an older release
-        previous_release = latest_release(next(iter(histories.values())))
+        previous_release = next(iter(histories.values()))["release_tag"].iloc[-1]
         columns = list(pandas.read_csv(local(f"latest/{next(iter(LOGS))}_summary.csv")))
         rc_previous = columns[columns.index("current") + 1]
         if rc_previous != previous_release:
@@ -736,7 +720,6 @@ def publish_release(store):
         # this release's change log rows, from each summary's "current" column - a category
         # with no current value existed in the previous release but not this run, and is
         # excluded rather than logged as zero - appended to the change logs
-        os.makedirs(local("logs"), exist_ok=True)
         log_keys = []
         for log, columns in LOGS.items():
             rows = (
@@ -749,8 +732,7 @@ def publish_release(store):
             # first, for sorting and filtering the logs by eye
             rows.insert(0, "release_tag", release_tag)
 
-            if histories[log] is not None:
-                rows = pandas.concat([histories[log], rows], ignore_index=True)
+            rows = pandas.concat([histories[log], rows], ignore_index=True)
             rows.to_csv(local(f"logs/{log}.csv"), index=False)
             log_keys.append(f"logs/{log}.csv")
 
@@ -761,27 +743,11 @@ def publish_release(store):
             LOG.info(f"{local(key)} published to {store.url(key)}")
     LOG.info(f"Released {release_tag}")
 
-
-def delete_prereleases(store, dry_run=False):
-    """delete the release candidates of released versions"""
-    # a version is released once its archive is published, the last thing release publishes -
-    # a release that failed partway through publishing still needs its candidate for the retry
-    released = store.list("releases/")
-
-    prefix, suffix = ARCHIVE.split("{tag}")
-    for key in store.list("drafts/"):
-        # anything under drafts/ that isn't a candidate's archive is left alone
-        name = os.path.basename(key)
-        if not (name.startswith(prefix) and name.endswith(suffix)):
-            continue
-        rc = RC_TAG.match(name[len(prefix) : -len(suffix)])
-        if not rc or release_key(rc["version"]) not in released:
-            continue
-        if dry_run:
-            LOG.info(f"Would delete {store.url(key)} ({rc['version']} is released)")
-        else:
-            store.delete(key)
-            LOG.info(f"Deleted {store.url(key)} ({rc['version']} is released)")
+    # the version's candidates (drafts/harvest_restrictions_<version>-rc.*) - after the
+    # archive, so a failed release keeps them for its retry
+    for key in store.list(prerelease_key(f"{release_tag}-rc.").removesuffix(".zip")):
+        store.delete(key)
+        LOG.info(f"Deleted {store.url(key)}")
 
 
 @click.group()
@@ -1155,33 +1121,6 @@ def release(bucket, verbose, quiet):
             "Target object storage bucket not provided, set --bucket or $BUCKET"
         )
     publish_release(S3Store(bucket))
-
-
-@cli.command()
-@click.option(
-    "--bucket",
-    "-b",
-    default=os.environ.get("BUCKET"),
-    help="Object storage bucket to prune release candidates from, defaults to $BUCKET environment variable if set",
-)
-@click.option(
-    "--dry_run",
-    "-t",
-    is_flag=True,
-    help="List release candidates that would be deleted, do not delete",
-)
-@verbose_opt
-@quiet_opt
-def prune_prereleases(bucket, dry_run, verbose, quiet):
-    """Delete the release candidates of released versions - each release is a copy of its
-    candidate's archive"""
-    configure_logging((verbose - quiet))
-
-    if not bucket:
-        raise ValueError(
-            "Target object storage bucket not provided, set --bucket or $BUCKET"
-        )
-    delete_prereleases(S3Store(bucket), dry_run)
 
 
 if __name__ == "__main__":

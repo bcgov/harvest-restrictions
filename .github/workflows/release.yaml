@@ -41,6 +41,3 @@ jobs:
         run: |
           git config --global --add safe.directory /__w/harvest-restrictions/harvest-restrictions
           python harvest_restrictions.py release -v
-      - name: Prune release candidates
-        # only candidates of released versions (including this one) - others are left alone
-        run: python harvest_restrictions.py prune-prereleases -v

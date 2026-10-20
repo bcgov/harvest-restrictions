@@ -560,14 +560,6 @@ def test_publish_prerelease_then_release(store, draft_dir, monkeypatch):
     assert list(rows[rows["release_tag"] == "v2026-11"]["area_ha"]) == [120]
 
 
-def test_publish_prerelease_no_release_yet(store, draft_dir):
-    for key in store.list("logs/"):
-        del store.objects[key]
-    with pytest.raises(ValueError, match="release at least one version"):
-        hr.publish_prerelease(store, NEW_RC, COMMIT, draft_dir)
-    assert store.uploads == []
-
-
 @pytest.mark.parametrize(
     "commit, changes, match",
     [
@@ -599,6 +591,7 @@ def test_publish_prerelease_unfinished_draft(store, draft_dir):
 
 
 def test_release_publishes(store):
+    candidate = store.objects[RC_KEY]
     run_release(store)
 
     latest_keys = [
@@ -614,16 +607,13 @@ def test_release_publishes(store):
     assert store.uploads == latest_keys + log_keys + [ARCHIVE_KEY]
 
     # the archive is the candidate's, as is
-    assert store.objects[ARCHIVE_KEY] == store.objects[RC_KEY]
+    assert store.objects[ARCHIVE_KEY] == candidate
 
     # the latest files are the archive's, as is
-    members = zip_members(store.objects[RC_KEY])
+    members = zip_members(candidate)
     assert latest_keys == [f"latest/{name}" for name in members]
     for name, body in members.items():
         assert store.objects[f"latest/{name}"] == body
-
-    # the candidate is left for prune-prereleases
-    assert RC_KEY in store.objects
 
 
 def test_release_logs(store):
@@ -656,11 +646,10 @@ def test_release_newest_candidate(store, monkeypatch):
     put_prerelease(store, "v2026-10-rc.2")
     put_prerelease(store, "v2026-11-rc.3")
     checkout(monkeypatch, tags=[RELEASE_TAG, RC_TAG, "v2026-10-rc.2", "v2026-11-rc.3"])
+    candidate = store.objects[hr.prerelease_key("v2026-10-rc.2")]
 
     run_release(store)
-    assert (
-        store.objects[ARCHIVE_KEY] == store.objects[hr.prerelease_key("v2026-10-rc.2")]
-    )
+    assert store.objects[ARCHIVE_KEY] == candidate
 
 
 def test_release_no_candidate_on_commit(store, monkeypatch):
@@ -729,7 +718,6 @@ def test_read_release_logs(store, tmp_path):
     histories = hr.read_release_logs(store, str(tmp_path))
     for history in histories.values():
         assert list(history["release_tag"]) == [PREVIOUS_RELEASE, "v2025-08"]
-    assert hr.latest_release(histories["harvest_restrictions"]) == "v2025-08"
 
 
 def test_read_release_logs_ignores_other_keys(store, tmp_path):
@@ -744,54 +732,28 @@ def test_read_release_logs_ignores_other_keys(store, tmp_path):
     assert list(histories["harvest_restrictions"]["release_tag"]) == [PREVIOUS_RELEASE]
 
 
-def test_read_release_logs_none_yet(tmp_path):
-    histories = hr.read_release_logs(MemoryStore(), str(tmp_path))
-    assert histories == {log: None for log in hr.LOGS}
-
-
-# --- delete_prereleases ---
+# --- deleting candidates ---
 
 
 def candidates(store):
     return [os.path.basename(k) for k in store.list("drafts/")]
 
 
-def test_prune_released_versions(store):
-    put_prerelease(store, "v2026-02-rc.1")
-    put_prerelease(store, "v2026-02-rc.2")
-
-    hr.delete_prereleases(store)
-    # just the released version's - v2026-10 isn't released yet
-    assert candidates(store) == [f"harvest_restrictions_{RC_TAG}.zip"]
-
-
-def test_prune_after_release(store):
-    run_release(store)
-
-    hr.delete_prereleases(store)
-    assert candidates(store) == []
-
-
-def test_prune_keeps_partially_released_version(store):
-    # a release that failed before publishing its archive - its retry still needs the
-    # candidate
-    put_release_log(store, RELEASE_TAG)
-
-    hr.delete_prereleases(store)
-    assert candidates(store) == [f"harvest_restrictions_{RC_TAG}.zip"]
-
-
-def test_prune_dry_run(store):
-    put_prerelease(store, "v2026-02-rc.1")
-
-    hr.delete_prereleases(store, dry_run=True)
-    assert len(candidates(store)) == 2
-
-
-def test_prune_ignores_other_keys(store):
+def test_release_deletes_candidates(store):
+    # every candidate of the released version, on this commit or not - not other versions'
+    put_prerelease(store, "v2026-10-rc.2")
+    put_prerelease(store, "v2026-11-rc.1")
     store.put("drafts/notes.txt", "?")
-    store.put("drafts/harvest_restrictions_v2026-02.zip", "not a candidate")
 
-    hr.delete_prereleases(store)
-    assert "drafts/notes.txt" in store.objects
-    assert "drafts/harvest_restrictions_v2026-02.zip" in store.objects
+    run_release(store)
+    assert candidates(store) == ["harvest_restrictions_v2026-11-rc.1.zip", "notes.txt"]
+
+
+def test_failed_release_keeps_candidates(store):
+    # another release since the candidate ran - the release is refused, and its retry (with
+    # a new candidate) may still want this one
+    put_release(store, "v2026-05")
+
+    with pytest.raises(ValueError):
+        run_release(store)
+    assert candidates(store) == [f"harvest_restrictions_{RC_TAG}.zip"]
