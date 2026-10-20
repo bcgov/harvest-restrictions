@@ -77,6 +77,13 @@ DRAFT = re.compile(rf"(?P<version>{VERSION.pattern})-draft(?P<n>[1-9][0-9]*)")
 
 verbose_opt = click.option("--verbose", "-v", count=True, help="Increase verbosity.")
 quiet_opt = click.option("--quiet", "-q", count=True, help="Decrease verbosity.")
+bucket_opt = click.option(
+    "--bucket",
+    "-b",
+    envvar="BUCKET",
+    required=True,
+    help="Object storage bucket to publish to, defaults to $BUCKET environment variable if set",
+)
 
 
 def configure_logging(verbosity):
@@ -388,13 +395,12 @@ def draft_key(draft):
 def published_drafts(store, version):
     """the names of version's published drafts, <version>-draft<n>, from their archives
     (drafts/harvest_restrictions_<version>-draft<n>.zip)"""
-    prefix, suffix = draft_key("{tag}").split("{tag}")
-    names = [
-        key[len(prefix) : -len(suffix)]
-        for key in store.list(f"{prefix}{version}-draft")
-        if key.endswith(suffix)
+    archive = re.compile(rf"drafts/harvest_restrictions_(?P<name>{DRAFT.pattern})\.zip")
+    return [
+        m["name"]
+        for key in store.list(f"drafts/harvest_restrictions_{version}-draft")
+        if (m := archive.fullmatch(key))
     ]
-    return [name for name in names if DRAFT.fullmatch(name)]
 
 
 def release_key(release_tag):
@@ -414,14 +420,6 @@ class S3Store:
     def url(self, key):
         return f"s3://{self.bucket}/{PREFIX}/{key}"
 
-    def s3api(self, *args):
-        return subprocess.run(
-            ["aws", "s3api", *args, "--bucket", self.bucket, "--output", "json"],
-            check=True,
-            capture_output=True,
-            text=True,
-        ).stdout
-
     def upload(self, local_file, key):
         subprocess.run(["aws", "s3", "cp", local_file, self.url(key)], check=True)
 
@@ -438,7 +436,22 @@ class S3Store:
 
     def list(self, prefix):
         """sorted keys under prefix"""
-        out = self.s3api("list-objects-v2", "--prefix", f"{PREFIX}/{prefix}")
+        out = subprocess.run(
+            [
+                "aws",
+                "s3api",
+                "list-objects-v2",
+                "--bucket",
+                self.bucket,
+                "--prefix",
+                f"{PREFIX}/{prefix}",
+                "--output",
+                "json",
+            ],
+            check=True,
+            capture_output=True,
+            text=True,
+        ).stdout
         # the cli prints nothing at all when no objects match
         contents = json.loads(out).get("Contents", []) if out.strip() else []
         return sorted(c["Key"][len(PREFIX) + 1 :] for c in contents)
@@ -579,14 +592,17 @@ def build_change(current_file, history, previous_release, columns):
     )
 
 
-def check_version_order(version, latest_release):
+def check_version_order(version, histories):
     """refuse unless version sorts after the latest release - versions sort by date, and the
-    change logs are in release order, so a version can't be released after a later one"""
+    change logs are in release order, so a version can't be released after a later one.
+    Returns the latest release, the last logged"""
+    latest_release = next(iter(histories.values()))["release_tag"].iloc[-1]
     if version <= latest_release:
         raise ValueError(
             f"{version} doesn't sort after the latest release, {latest_release} - use a "
             "later version (vYYYY-MM, or vYYYY-MM-DD for a hotfix)"
         )
+    return latest_release
 
 
 def tag_release(version, commit):
@@ -628,8 +644,7 @@ def publish_draft(store, version, draft_dir="drafts"):
     summaries = [f"{log}_summary.csv" for log in LOGS]
     with tempfile.TemporaryDirectory() as tmp_dir:
         histories = read_release_logs(store, tmp_dir)
-        previous_release = next(iter(histories.values()))["release_tag"].iloc[-1]
-        check_version_order(version, previous_release)
+        previous_release = check_version_order(version, histories)
 
         n = max(
             (int(DRAFT.fullmatch(d)["n"]) for d in published_drafts(store, version)),
@@ -691,7 +706,7 @@ def publish_release(store, draft):
             return os.path.join(work_dir, key)
 
         archive_key = release_key(version)
-        if archive_key in store.list("releases/"):
+        if archive_key in store.list(archive_key):
             raise ValueError(
                 f"Release {version} is already published at {store.url(archive_key)} - it "
                 "has already been released"
@@ -706,11 +721,10 @@ def publish_release(store, draft):
                     f"Release {version} is partially logged (in {log}) - re-publishing it"
                 )
                 histories[log] = history[history["release_tag"] != version]
-        previous_release = next(iter(histories.values()))["release_tag"].iloc[-1]
-        check_version_order(version, previous_release)
+        previous_release = check_version_order(version, histories)
 
         published = draft_key(draft)
-        if published not in store.list("drafts/"):
+        if published not in store.list(published):
             raise ValueError(f"{draft} isn't published at {store.url(published)}")
 
         # the draft's archive - its files are the latest files, as is, its summaries give
@@ -1087,12 +1101,7 @@ def overlay(db_url, designations_table, verbose, quiet, draft_dir="drafts"):
 
 @cli.command("publish-draft")
 @click.argument("version")
-@click.option(
-    "--bucket",
-    "-b",
-    default=os.environ.get("BUCKET"),
-    help="Object storage bucket to write outputs, defaults to $BUCKET environment variable if set",
-)
+@bucket_opt
 @verbose_opt
 @quiet_opt
 def publish_draft_command(version, bucket, verbose, quiet):
@@ -1103,23 +1112,12 @@ def publish_draft_command(version, bucket, verbose, quiet):
     bucket as <version>-draft<n>, numbered after the version's drafts already published
     """
     configure_logging((verbose - quiet))
-
-    if not bucket:
-        raise ValueError(
-            "Target object storage bucket not provided, set --bucket or $BUCKET"
-        )
-
     publish_draft(S3Store(bucket), version)
 
 
 @cli.command()
 @click.argument("draft")
-@click.option(
-    "--bucket",
-    "-b",
-    default=os.environ.get("BUCKET"),
-    help="Object storage bucket to publish outputs to, defaults to $BUCKET environment variable if set",
-)
+@bucket_opt
 @verbose_opt
 @quiet_opt
 def release(draft, bucket, verbose, quiet):
@@ -1131,11 +1129,6 @@ def release(draft, bucket, verbose, quiet):
     publish_release(). The release is built in a temporary directory first
     """
     configure_logging((verbose - quiet))
-
-    if not bucket:
-        raise ValueError(
-            "Target object storage bucket not provided, set --bucket or $BUCKET"
-        )
     publish_release(S3Store(bucket), draft)
 
 

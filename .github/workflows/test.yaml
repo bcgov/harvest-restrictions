@@ -37,7 +37,7 @@ jobs:
     env:
         DEBIAN_FRONTEND: noninteractive
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - name: Run tests
         run: |
           python -m pytest -v -rxXs test_harvest_restrictions.py test_release.py
