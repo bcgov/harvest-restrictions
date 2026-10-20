@@ -27,10 +27,16 @@ for log in hr.LOGS:
     for k in folder_keys:
         store.download(k, f"release_logs_backup/{k}")
         frames.append(pandas.read_csv(f"release_logs_backup/{k}"))
-    # ordered by released_at - tag names and commit dates needn't follow release order
-    rows = pandas.concat(frames, ignore_index=True)
-    released_at = pandas.to_datetime(rows["released_at"], utc=True, format="ISO8601")
-    rows = rows.iloc[released_at.argsort(kind="stable")]
+    # in release order - the release tags (vYYYY-MM) sort by date. run_id was never filled
+    # in by the backfill, and released_at isn't needed to order the releases - neither is
+    # written by release
+    rows = (
+        pandas.concat(frames, ignore_index=True)
+        .drop(columns=["run_id", "released_at"], errors="ignore")
+        .sort_values("release_tag", kind="stable")
+    )
+    # first, for sorting and filtering the logs by eye
+    rows.insert(0, "release_tag", rows.pop("release_tag"))
     rows.to_csv(f"release_logs_backup/{key}", index=False)
     print(f"release_logs_backup/{key}: {list(rows['release_tag'].unique())}")
     if "--delete" in sys.argv:

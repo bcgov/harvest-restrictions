@@ -321,12 +321,11 @@ def put_release_log(store, release_tag, logs=None):
         rows = pandas.DataFrame(
             [
                 {
+                    "release_tag": release_tag,
                     **row,
                     "area_ha": 100.0,
-                    "release_tag": release_tag,
                     "release_date": "2026-01-01",
                     "commit": "0000000",
-                    "released_at": "2026-01-02T00:00:00+00:00",
                 }
             ]
         )
@@ -651,10 +650,12 @@ def test_release_logs(store):
     assert row["release_date"] == RELEASE_DATE
     assert row["commit"] == COMMIT[:7]
     assert "prerelease" not in rows.columns
-    assert pandas.notna(row["released_at"])
 
     designations = store.read_csv("logs/land_designations.csv")
-    assert list(designations.columns[:5]) == hr.LOGS["land_designations"]
+    # release_tag first, then the category columns
+    assert (
+        list(designations.columns[:6]) == ["release_tag"] + hr.LOGS["land_designations"]
+    )
 
 
 def test_release_newest_candidate(store, monkeypatch):

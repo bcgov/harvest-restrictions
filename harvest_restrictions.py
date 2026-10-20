@@ -737,7 +737,6 @@ def publish_release(store):
         # this release's change log rows, from each summary's "current" column - a category
         # with no current value existed in the previous release but not this run, and is
         # excluded rather than logged as zero - appended to the change logs
-        released_at = datetime.now(timezone.utc).isoformat(timespec="seconds")
         os.makedirs(local("logs"), exist_ok=True)
         log_keys = []
         for log, columns in LOGS.items():
@@ -748,10 +747,10 @@ def publish_release(store):
                 .rename(columns={"current": "area_ha"})
                 .dropna(subset=["area_ha"])
             )
-            rows["release_tag"] = release_tag
+            # first, for sorting and filtering the logs by eye
+            rows.insert(0, "release_tag", release_tag)
             rows["release_date"] = release_date
             rows["commit"] = commit[:7]
-            rows["released_at"] = released_at
 
             if histories[log] is not None:
                 rows = pandas.concat([histories[log], rows], ignore_index=True)
