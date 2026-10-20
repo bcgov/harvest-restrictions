@@ -39,14 +39,15 @@ CACHE_PATH = (
     f"s3://{os.environ['BUCKET']}/{PREFIX}/cache" if os.environ.get("BUCKET") else None
 )
 
-# the overlay result (harvest_restrictions layer), and its source designations (designations
-# layer)
+# output harvest restrictions gpkg
 OVERLAY_GPKG = "harvest_restrictions.gpkg"
+
+# sources gpkg, with "designations" layer
 SOURCES_GPKG = "harvest_restrictions_sources.gpkg"
 
-# the area totals compared to the previous release and logged with each release, by log name -
-# each log's columns, the first being its key. overlay builds each log's totals with
-# sql/<log>.sql, and compares them to the previous release's in <log>_summary.csv
+# area summaries are logged per release
+# keys are the two queries in /sql and corresponding output csv files
+# lists are the columns included in each
 LOGS = {
     "land_designations": [
         "land_designation_type_rank",
@@ -61,32 +62,15 @@ LOGS = {
     ],
 }
 
-# a release candidate's tag: <version>-rc.<n>
-RC_TAG = re.compile(r"^(?P<version>.+)-rc\.(?P<n>[0-9]+)$")
-
-
-def summary(log):
-    return f"{log}_summary.csv"
-
-
 # each release candidate's and release's archive, holding these files - which are also each
 # release's latest/ files
 ARCHIVE = "harvest_restrictions_{tag}.zip"
 ARCHIVED_FILES = [OVERLAY_GPKG, SOURCES_GPKG, "sources.csv"] + [
-    summary(log) for log in LOGS
+    f"{log}_summary.csv" for log in LOGS
 ]
 
-SOURCES_CSV_COLUMNS = [
-    "harvest_restriction",
-    "alias",
-    "description",
-    "source",
-    "source_type",
-    "layer",
-    "query",
-    "name_field",
-]
-
+# a release candidate's tag: <version>-rc.<n>
+RC_TAG = re.compile(r"^(?P<version>.+)-rc\.(?P<n>[0-9]+)$")
 
 verbose_opt = click.option("--verbose", "-v", count=True, help="Increase verbosity.")
 quiet_opt = click.option("--quiet", "-q", count=True, help="Decrease verbosity.")
@@ -153,7 +137,19 @@ def write_sources_csv(sources_file, out_file):
         sources = json.load(f)
     with open(out_file, "w", newline="") as f:
         writer = csv.writer(f)
-        writer.writerow(["index"] + SOURCES_CSV_COLUMNS)
+        writer.writerow(
+            [
+                "index",
+                "harvest_restriction",
+                "alias",
+                "description",
+                "source",
+                "source_type",
+                "layer",
+                "query",
+                "name_field",
+            ]
+        )
         for index, source in enumerate(sources, start=1):
             writer.writerow(
                 [
@@ -678,7 +674,7 @@ def publish_prerelease(store, rc_tag, commit, draft_dir="drafts"):
     with tempfile.TemporaryDirectory() as logs_dir:
         histories = read_release_logs(store, logs_dir)
     key = prerelease_key(rc_tag)
-    summaries = [summary(log) for log in LOGS]
+    summaries = [f"{log}_summary.csv" for log in LOGS]
     with tempfile.TemporaryDirectory() as tmp_dir:
         previous_release = None
         for log, columns in LOGS.items():
@@ -694,8 +690,8 @@ def publish_prerelease(store, rc_tag, commit, draft_dir="drafts"):
                 history,
                 previous_release,
                 columns,
-            ).to_csv(os.path.join(tmp_dir, summary(log)))
-            LOG.info(f"{summary(log)} written, comparing to {previous_release}")
+            ).to_csv(os.path.join(tmp_dir, f"{log}_summary.csv"))
+            LOG.info(f"{log}_summary.csv written, comparing to {previous_release}")
 
         archive = os.path.join(tmp_dir, os.path.basename(key))
         zip_files(
@@ -816,7 +812,9 @@ def publish_release(store):
         combined_logs = []
         for log, columns in LOGS.items():
             rows = (
-                pandas.read_csv(local(f"latest/{summary(log)}"))[columns + ["current"]]
+                pandas.read_csv(local(f"latest/{log}_summary.csv"))[
+                    columns + ["current"]
+                ]
                 .rename(columns={"current": "area_ha"})
                 .dropna(subset=["area_ha"])
             )
