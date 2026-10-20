@@ -2,6 +2,10 @@ name: harvest-restrictions
 run-name: ${{ github.actor }} Full harvest-restrictions workflow
 on:
   workflow_dispatch:
+    inputs:
+      version:
+        description: "Publish the results as a draft of this version (vYYYY-MM, or vYYYY-MM-DD for a hotfix) - leave empty to only run the overlays"
+        required: false
 permissions:
   contents: read
 env:
@@ -16,3 +20,5 @@ jobs:
     uses: ./.github/workflows/process.yaml
     secrets: inherit
     needs: download
+    with:
+      version: ${{ inputs.version }}

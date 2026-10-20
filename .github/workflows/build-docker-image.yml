@@ -1,6 +1,14 @@
 name: build-docker-image
 on:
   workflow_dispatch:
+  # called by the release workflow, to build the release's images - its tag is pushed with the
+  # workflow's token, which doesn't trigger the tag push below
+  workflow_call:
+    inputs:
+      version:
+        description: "The release to build, by its tag (eg v2026-10)"
+        type: string
+        required: true
   push:
     branches:
       - 'main'
@@ -23,6 +31,9 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@v5
+        with:
+          # a release's tag, when called by the release workflow - else the triggering ref
+          ref: ${{ inputs.version }}
       - name: Log in to the Container registry
         uses: docker/login-action@650006c6eb7dba73a995cc03b0b2d7f5ca915bee # v4.2.0
         with:
@@ -34,6 +45,13 @@ jobs:
         uses: docker/metadata-action@80c7e94dd9b9319bd5eb7a0e0fe9291e23a2a2e9 # v6.1.0
         with:
           images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}-runner
+          # a release's images are tagged with its version only - the release workflow runs
+          # on a branch, whose image tag the release's commit mustn't replace
+          tags: |
+            type=raw,value=${{ inputs.version }},enable=${{ inputs.version != '' }}
+            type=ref,event=branch,enable=${{ inputs.version == '' }}
+            type=ref,event=tag,enable=${{ inputs.version == '' }}
+            type=ref,event=pr
       - name: Build and push runner image
         uses: docker/build-push-action@f9f3042f7e2789586610d6e8b85c8f03e5195baf # v7.2.0
         with:
@@ -51,6 +69,9 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@v5
+        with:
+          # a release's tag, when called by the release workflow - else the triggering ref
+          ref: ${{ inputs.version }}
       - name: Log in to the Container registry
         uses: docker/login-action@650006c6eb7dba73a995cc03b0b2d7f5ca915bee # v4.2.0
         with:
@@ -62,6 +83,13 @@ jobs:
         uses: docker/metadata-action@80c7e94dd9b9319bd5eb7a0e0fe9291e23a2a2e9 # v6.1.0
         with:
           images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}-db
+          # a release's images are tagged with its version only - the release workflow runs
+          # on a branch, whose image tag the release's commit mustn't replace
+          tags: |
+            type=raw,value=${{ inputs.version }},enable=${{ inputs.version != '' }}
+            type=ref,event=branch,enable=${{ inputs.version == '' }}
+            type=ref,event=tag,enable=${{ inputs.version == '' }}
+            type=ref,event=pr
       - name: Build and push db image
         uses: docker/build-push-action@f9f3042f7e2789586610d6e8b85c8f03e5195baf # v7.2.0
         with:

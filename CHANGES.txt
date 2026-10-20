@@ -8,17 +8,18 @@ v2026-08
   clear-cache        Delete cached parquet files written by cache (hr_*.parquet)
   load-db            Load source layers from parquet cache to the postgresql db
   overlay            Run per-tile overlay, writing the results to the database and drafts/
-  prerelease         Publish the overlay draft in drafts/ as a release candidate
-  release            Release the checked-out commit's release candidate
+  publish-draft      Publish the local draft in drafts/ as VERSION's next draft
+  release            Release DRAFT, a published draft
 
 - releases are made in two steps:
-  - release candidate: tag a commit <version>-rc.<n>, run `overlay` on it (writing the draft to
-    drafts/, with overlay_run.json recording the commit and any uncommitted changes), then
-    `prerelease` publishes the draft for review (only if it was run on the tagged commit, with
-    no uncommitted changes other than to documentation)
-  - release: tag the approved candidate's commit <version> and push the tag - the release
-    workflow (requiring approval) promotes the candidate as is, then deletes the version's
-    release candidates
+  - draft: run `overlay` on a commit (writing the local draft to drafts/, with
+    overlay_run.json recording the commit and any uncommitted changes), then
+    `publish-draft <version>` publishes it for review as the version's next draft,
+    <version>-draft<n> (only if it was run on the checked-out commit, with no uncommitted
+    changes other than to documentation). A version is vYYYY-MM, or vYYYY-MM-DD for a hotfix
+  - release: run the release workflow (requiring approval) with the approved draft - it tags
+    the draft's commit <version>, pushes the tag, promotes the draft as is, then deletes the
+    version's drafts
 
 - in support of change tracking/reporting:
   - overlapping data are always sorted by index, primary_key, name
@@ -37,14 +38,15 @@ v2026-08
   ├── sources/                                  # sources not available for download elsewhere,
   │   ├── CRD.gdb.zip                           #   in their native format - referenced by sources.json
   │   └── ...
-  ├── drafts/                                   # release candidates (published drafts), written by `prerelease`
-  │   └── harvest_restrictions_<version>-rc.<n>.zip   # as releases/, never overwritten
+  ├── drafts/                                   # published drafts, written by `publish-draft`
+  │   └── harvest_restrictions_<version>-draft<n>.zip   # as releases/, never overwritten
   ├── latest/                                   # the latest release's files, written by `release`
   │   ├── harvest_restrictions.gpkg
   │   ├── harvest_restrictions_sources.gpkg
   │   ├── land_designations_summary.csv
   │   ├── harvest_restrictions_summary.csv
-  │   └── sources.csv
+  │   ├── sources.csv
+  │   └── overlay_run.json
   ├── logs/                                     # change logs, appended to by `release`
   │   ├── land_designations.csv
   │   └── harvest_restrictions.csv
@@ -54,5 +56,6 @@ v2026-08
           ├── harvest_restrictions_sources.gpkg (designations layer)
           ├── land_designations_summary.csv
           ├── harvest_restrictions_summary.csv
-          └── sources.csv
+          ├── sources.csv
+          └── overlay_run.json
 

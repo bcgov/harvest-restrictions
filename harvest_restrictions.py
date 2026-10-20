@@ -40,7 +40,7 @@ CACHE_PATH = (
 )
 
 # the change logs, by log name - each log is the area_ha of each category, per release.
-# overlay writes each log's totals to <log>.csv with sql/<log>.sql, prerelease compares them
+# overlay writes each log's totals to <log>.csv with sql/<log>.sql, publish-draft compares them
 # to the previous release's in <log>_summary.csv, and release appends them to logs/<log>.csv.
 # The columns describe a category - the first is its key, matching the totals across
 # releases, the rest are labels
@@ -58,20 +58,22 @@ LOGS = {
     ],
 }
 
-# each release candidate's and release's archive, holding these files - which are also each
-# release's latest/ files
+# each published draft's and release's archive, holding these files - which are also each
+# release's latest/ files. overlay_run.json records the commit the draft was run on
 ARCHIVE = "harvest_restrictions_{tag}.zip"
 ARCHIVED_FILES = [
     "harvest_restrictions.gpkg",
     "harvest_restrictions_sources.gpkg",
     "sources.csv",
+    "overlay_run.json",
 ] + [f"{log}_summary.csv" for log in LOGS]
 
-# a release's tag, its version: vYYYY-MM, or vYYYY-MM-DD for a hotfix - either sorts by date
+# a version, and its release's git tag: vYYYY-MM, or vYYYY-MM-DD for a hotfix - either sorts
+# by date
 VERSION = re.compile(r"v\d{4}-\d{2}(-\d{2})?")
 
-# a release candidate's tag: <version>-rc.<n>, numbered from 1
-RC_TAG = re.compile(rf"(?P<version>{VERSION.pattern})-rc\.(?P<n>[1-9][0-9]*)")
+# a published draft's name: <version>-draft<n>, numbered from 1 by publish-draft
+DRAFT = re.compile(rf"(?P<version>{VERSION.pattern})-draft(?P<n>[1-9][0-9]*)")
 
 verbose_opt = click.option("--verbose", "-v", count=True, help="Increase verbosity.")
 quiet_opt = click.option("--quiet", "-q", count=True, help="Decrease verbosity.")
@@ -358,29 +360,41 @@ def download_source(source):
     return df
 
 
-# --- release candidates and releases ---
+# --- drafts and releases ---
 #
-# Each version is published first as one or more release candidates, then released:
+# Each version is published first as one or more drafts, for review, then released:
 #
-# 1. tag the commit to run as a release candidate, <version>-rc.<n> (eg v2026-10-rc.1)
-# 2. overlay, run on that tag, writes its outputs to drafts/, then prerelease
-#    publishes the draft as drafts/harvest_restrictions_<version>-rc.<n>.zip, with
-#    summaries comparing its area totals to the latest release - for review
-# 3. once a candidate is approved, tag its commit <version> (eg v2026-10). release, run on that
-#    tag (by the release workflow), promotes the commit's latest candidate of that version:
+# 1. overlay, run on a commit, writes its outputs to the local draft, drafts/
+# 2. publish-draft <version> (eg v2026-10) publishes the local draft as the version's next
+#    draft, drafts/harvest_restrictions_<version>-draft<n>.zip, with summaries comparing its
+#    area totals to the latest release - for review
+# 3. once a draft is approved, release <draft> (eg v2026-10-draft2) - run by the release
+#    workflow - tags the draft's commit <version>, pushes the tag, and publishes:
 #    - fixed-name latest files under latest/, overwritten by each release
 #    - the release's area totals, appended to the change logs, logs/<log>.csv
-#    - releases/harvest_restrictions_<version>.zip, a copy of the candidate's archive -
+#    - releases/harvest_restrictions_<version>.zip, a copy of the draft's archive -
 #      published last, marking the version released
-#    then deletes the version's candidates
+#    then deletes the version's drafts
 #
-# A release is exactly the candidate that was reviewed - nothing is re-run or rebuilt.
+# A release is exactly the draft that was reviewed - nothing is re-run or rebuilt.
 
 
-def prerelease_key(rc_tag):
-    """a release candidate's archive - written once, never overwritten. Candidates are
-    published drafts, so they're under drafts/, the local draft folder's name"""
-    return f"drafts/{ARCHIVE.format(tag=rc_tag)}"
+def draft_key(draft):
+    """a published draft's archive - written once, never overwritten. Under drafts/, the
+    local draft folder's name"""
+    return f"drafts/{ARCHIVE.format(tag=draft)}"
+
+
+def published_drafts(store, version):
+    """the names of version's published drafts, <version>-draft<n>, from their archives
+    (drafts/harvest_restrictions_<version>-draft<n>.zip)"""
+    prefix, suffix = draft_key("{tag}").split("{tag}")
+    names = [
+        key[len(prefix) : -len(suffix)]
+        for key in store.list(f"{prefix}{version}-draft")
+        if key.endswith(suffix)
+    ]
+    return [name for name in names if DRAFT.fullmatch(name)]
 
 
 def release_key(release_tag):
@@ -503,17 +517,6 @@ def check_draft(draft_dir, commit):
         )
 
 
-def head_tags():
-    """(release tags, release candidate tags) of the checked-out commit - candidates sorted
-    oldest (lowest rc number) to newest. Tags matching neither are ignored"""
-    tags = git("tag", "--points-at", "HEAD").split()
-    rc_tags = sorted(
-        (t for t in tags if RC_TAG.fullmatch(t)),
-        key=lambda t: int(RC_TAG.fullmatch(t)["n"]),
-    )
-    return [t for t in tags if VERSION.fullmatch(t)], rc_tags
-
-
 def add_gpkg_layer(out_file, source, layer_name, *args):
     """add a layer from source (a file, or a PG: connection with a table or -sql in args) to
     geopackage out_file as layer_name, creating out_file if needed"""
@@ -581,49 +584,60 @@ def check_version_order(version, latest_release):
     change logs are in release order, so a version can't be released after a later one"""
     if version <= latest_release:
         raise ValueError(
-            f"{version} doesn't sort after the latest release, {latest_release} - tag a "
+            f"{version} doesn't sort after the latest release, {latest_release} - use a "
             "later version (vYYYY-MM, or vYYYY-MM-DD for a hotfix)"
         )
 
 
-def release_candidate(store):
-    """(rc tag, commit) to publish as the checked-out commit's newest release candidate -
-    refusing if it has no candidate tag, or its newest is already published. The checkout
-    itself needn't be clean: what's published is the draft, which check_draft checks"""
-    commit = git("rev-parse", "HEAD")
-    _, rc_tags = head_tags()
-    if not rc_tags:
-        raise ValueError(
-            "The checked-out commit has no release candidate tag - tag it "
-            "<version>-rc.<n> (eg v2026-10-rc.1) to run it"
-        )
-    rc_tag = rc_tags[-1]
-    if prerelease_key(rc_tag) in store.list("drafts/"):
-        raise ValueError(
-            f"{rc_tag} is already published at {store.url(prerelease_key(rc_tag))} - tag "
-            "the next release candidate to run again"
-        )
-    return rc_tag, commit
+def tag_release(version, commit):
+    """tag commit as version's release, and push the tag - a retried release finds its tag
+    already there, but a tag of the version on another commit is refused"""
+    if git("tag", "--list", version):
+        tagged = git("rev-parse", f"{version}^{{commit}}")
+        if tagged != commit:
+            raise ValueError(
+                f"Tag {version} is already on commit {tagged}, not the draft's {commit}"
+            )
+    else:
+        git("tag", "-a", version, "-m", version, commit)
+    git("push", "origin", f"refs/tags/{version}")
+    LOG.info(f"Tagged {commit} {version}")
 
 
-def publish_prerelease(store, rc_tag, commit, draft_dir="drafts"):
-    """publish the draft as a release candidate's archive in drafts/ in the bucket
+def publish_draft(store, version, draft_dir="drafts"):
+    """publish the local draft as version's next draft, in drafts/ in the bucket
 
     draft_dir holds overlay's outputs: harvest_restrictions.gpkg,
     harvest_restrictions_sources.gpkg, sources.csv, the area totals (<log>.csv), and
-    overlay_run.json. Refuses unless the draft is commit's, with no uncommitted changes. The
-    summaries comparing the totals to the most recent release are built here, and archived
-    with the rest - the draft itself is left as is. The archive is built in a temporary
-    directory, removed once it's published - the draft is the local copy.
+    overlay_run.json. Refuses unless the draft is of the checked-out commit, with no
+    uncommitted changes, and the version sorts after the latest release. The summaries
+    comparing the totals to the most recent release are built here, and archived with the
+    rest - the draft itself is left as is. The archive is built in a temporary directory,
+    removed once it's published - the draft is the local copy.
+
+    Drafts are numbered from 1, after the version's already published - returns the
+    published draft's name, <version>-draft<n>
     """
+    if not VERSION.fullmatch(version):
+        raise ValueError(
+            f"{version} isn't a version - vYYYY-MM, or vYYYY-MM-DD for a hotfix"
+        )
+    commit = git("rev-parse", "HEAD")
     check_draft(draft_dir, commit)
 
-    key = prerelease_key(rc_tag)
     summaries = [f"{log}_summary.csv" for log in LOGS]
     with tempfile.TemporaryDirectory() as tmp_dir:
         histories = read_release_logs(store, tmp_dir)
         previous_release = next(iter(histories.values()))["release_tag"].iloc[-1]
-        check_version_order(RC_TAG.fullmatch(rc_tag)["version"], previous_release)
+        check_version_order(version, previous_release)
+
+        n = max(
+            (int(DRAFT.fullmatch(d)["n"]) for d in published_drafts(store, version)),
+            default=0,
+        )
+        name = f"{version}-draft{n + 1}"
+        key = draft_key(name)
+
         for log, columns in LOGS.items():
             build_change(
                 os.path.join(draft_dir, f"{log}.csv"),
@@ -642,91 +656,82 @@ def publish_prerelease(store, rc_tag, commit, draft_dir="drafts"):
             ],
         )
         store.upload(archive, key)
-    LOG.info(f"{rc_tag} published to {store.url(key)}")
+    LOG.info(f"{name} (commit {commit}) published to {store.url(key)}")
+    return name
 
 
-def publish_release(store):
-    """release the checked-out commit's newest candidate of the version it's tagged with
+def publish_release(store, draft):
+    """release a published draft (<version>-draft<n>) - tagging its commit <version>, and
+    pushing the tag, before publishing anything
 
-    Refuses (before publishing anything) if the version is already released, or if the
-    candidate's summaries compare against an older release than the latest.
+    Refuses (before tagging or publishing anything) if the version is already released, or
+    doesn't sort after the latest release, or if the draft's summaries compare against
+    an older release than the latest.
 
     Everything is downloaded and built in a temporary directory before anything is
     published, each file at the path of its key in the bucket, and removed once published -
-    nothing is kept locally. The release archive is copied from the candidate's in the
-    bucket. The release archive is published last: it marks the release as
-    done, so a failure partway through publishing can be retried, and the retry overwrites
-    whatever had been published so far.
+    nothing is kept locally. The release archive is copied from the draft's in the
+    bucket. The release archive is published last: it marks the release as done, so a
+    failure partway through publishing can be retried, and the retry overwrites whatever had
+    been published so far.
 
-    Once the archive is published, the version's candidates are deleted - the release is a
-    copy of the one promoted.
+    Once the archive is published, the version's drafts are deleted - the release is a copy
+    of the one promoted.
     """
-    commit = git("rev-parse", "HEAD")
-    release_tags, rc_tags = head_tags()
-    if len(release_tags) != 1:
+    match = DRAFT.fullmatch(draft)
+    if not match:
         raise ValueError(
-            f"The checked-out commit must have exactly one release tag (vYYYY-MM, or "
-            f"vYYYY-MM-DD for a hotfix), it has {release_tags or 'none'}"
+            f"{draft} isn't a draft - <version>-draft<n>, eg v2026-10-draft2"
         )
-    release_tag = release_tags[0]
-    rc_tags = [t for t in rc_tags if RC_TAG.fullmatch(t)["version"] == release_tag]
-    if not rc_tags:
-        raise ValueError(
-            f"No release candidate of {release_tag} on this commit - release the commit of "
-            f"an approved candidate ({release_tag}-rc.<n>)"
-        )
-    rc_tag = rc_tags[-1]
+    version = match["version"]
 
     with tempfile.TemporaryDirectory() as work_dir:
 
         def local(key):
             return os.path.join(work_dir, key)
 
-        archive_key = release_key(release_tag)
+        archive_key = release_key(version)
         if archive_key in store.list("releases/"):
             raise ValueError(
-                f"Release {release_tag} is already published at "
-                f"{store.url(archive_key)} - it has already been released"
+                f"Release {version} is already published at {store.url(archive_key)} - it "
+                "has already been released"
             )
 
         # the archive is published last, so any rows of this release in the logs are from an
         # attempt that failed before finishing - dropped here, and published again
         histories = read_release_logs(store, work_dir)
         for log, history in histories.items():
-            if release_tag in history["release_tag"].values:
+            if version in history["release_tag"].values:
                 LOG.warning(
-                    f"Release {release_tag} is partially logged (in {log}) - re-publishing it"
+                    f"Release {version} is partially logged (in {log}) - re-publishing it"
                 )
-                histories[log] = history[history["release_tag"] != release_tag]
+                histories[log] = history[history["release_tag"] != version]
         previous_release = next(iter(histories.values()))["release_tag"].iloc[-1]
-        check_version_order(release_tag, previous_release)
+        check_version_order(version, previous_release)
 
-        rc_key = prerelease_key(rc_tag)
-        if rc_key not in store.list("drafts/"):
-            raise ValueError(
-                f"{rc_tag} isn't published at {store.url(rc_key)} - run overlay and "
-                "prerelease on it first"
-            )
-        LOG.info(f"Releasing {release_tag}: {rc_tag}, commit={commit}")
+        published = draft_key(draft)
+        if published not in store.list("drafts/"):
+            raise ValueError(f"{draft} isn't published at {store.url(published)}")
 
-        # the candidate's archive - its files are the latest files, as is, and its summaries
-        # give the release's change log rows
-        store.download(rc_key, local(rc_key))
-        with zipfile.ZipFile(local(rc_key)) as z:
+        # the draft's archive - its files are the latest files, as is, its summaries give
+        # the release's change log rows, and its overlay_run.json the commit to tag
+        store.download(published, local(published))
+        with zipfile.ZipFile(local(published)) as z:
             z.extractall(local("latest"))
         latest_keys = [f"latest/{name}" for name in ARCHIVED_FILES]
+        with open(local("latest/overlay_run.json")) as f:
+            commit = json.load(f)["commit"]
 
-        # the candidate's summaries compare against whichever release was latest when it
+        # the draft's summaries compare against whichever release was latest when it
         # ran - the summaries' column after "current", named for that release. If another
         # release has happened since, their diffs are against an older release
         columns = list(pandas.read_csv(local(f"latest/{next(iter(LOGS))}_summary.csv")))
-        rc_previous = columns[columns.index("current") + 1]
-        if rc_previous != previous_release:
+        draft_previous = columns[columns.index("current") + 1]
+        if draft_previous != previous_release:
             raise ValueError(
-                f"{rc_tag}'s summaries compare against {rc_previous}, but the latest "
+                f"{draft}'s summaries compare against {draft_previous}, but the latest "
                 f"release is now {previous_release} - their diffs are against an older "
-                f"release. Tag and run a new release candidate to compare against "
-                f"{previous_release}"
+                f"release. Publish a new draft to compare against {previous_release}"
             )
 
         # this release's change log rows, from each summary's "current" column - a category
@@ -742,27 +747,28 @@ def publish_release(store):
                 .dropna(subset=["area_ha"])
             )
             # first, for sorting and filtering the logs by eye
-            rows.insert(0, "release_tag", release_tag)
+            rows.insert(0, "release_tag", version)
 
             rows = pandas.concat([histories[log], rows], ignore_index=True)
             rows.to_csv(local(f"logs/{log}.csv"), index=False)
             log_keys.append(f"logs/{log}.csv")
 
-        # everything is built - publish. The latest files and change logs, then the archive -
-        # the candidate's, as is, copied in the bucket - never overwritten once released,
-        # marking the release as done
+        # everything is built - tag the release, then publish. The latest files and change
+        # logs, then the archive - the draft's, as is, copied in the bucket - never
+        # overwritten once released, marking the release as done
+        LOG.info(f"Releasing {version}: {draft}, commit={commit}")
+        tag_release(version, commit)
         for key in latest_keys + log_keys:
             store.upload(local(key), key)
             LOG.info(f"{local(key)} published to {store.url(key)}")
-        store.copy(rc_key, archive_key)
-        LOG.info(f"{store.url(rc_key)} copied to {store.url(archive_key)}")
-    LOG.info(f"Released {release_tag}")
+        store.copy(published, archive_key)
+        LOG.info(f"{store.url(published)} copied to {store.url(archive_key)}")
+    LOG.info(f"Released {version}")
 
-    # the version's candidates (drafts/harvest_restrictions_<version>-rc.*) - after the
-    # archive, so a failed release keeps them for its retry
-    for key in store.list(prerelease_key(f"{release_tag}-rc.").removesuffix(".zip")):
-        store.delete(key)
-        LOG.info(f"Deleted {store.url(key)}")
+    # the version's drafts - after the archive, so a failed release keeps them for its retry
+    for name in published_drafts(store, version):
+        store.delete(draft_key(name))
+        LOG.info(f"Deleted {store.url(draft_key(name))}")
 
 
 @click.group()
@@ -991,7 +997,7 @@ def overlay(db_url, designations_table, verbose, quiet, draft_dir="drafts"):
     """Run per-tile overlay, writing the results to the database and the draft in drafts/
 
     Runs at any commit. The commit, and any uncommitted changes, are recorded in the draft's
-    overlay_run.json - prerelease only publishes a draft of the tagged commit, with no
+    overlay_run.json - publish-draft only publishes a draft of the checked-out commit, with no
     changes.
     """
     configure_logging((verbose - quiet))
@@ -1061,7 +1067,7 @@ def overlay(db_url, designations_table, verbose, quiet, draft_dir="drafts"):
         designations_table,
     )
 
-    # area totals, compared to the previous release in the summaries prerelease builds
+    # area totals, compared to the previous release in the summaries publish-draft builds
     for log in LOGS:
         run(f"{psql} -f sql/{log}.sql --csv > {os.path.join(draft_dir, log + '.csv')}")
 
@@ -1079,7 +1085,8 @@ def overlay(db_url, designations_table, verbose, quiet, draft_dir="drafts"):
     )
 
 
-@cli.command()
+@cli.command("publish-draft")
+@click.argument("version")
 @click.option(
     "--bucket",
     "-b",
@@ -1088,12 +1095,12 @@ def overlay(db_url, designations_table, verbose, quiet, draft_dir="drafts"):
 )
 @verbose_opt
 @quiet_opt
-def prerelease(bucket, verbose, quiet):
-    """Publish the overlay draft in drafts/ as a release candidate
+def publish_draft_command(version, bucket, verbose, quiet):
+    """Publish the local draft in drafts/ as VERSION's next draft
 
-    The checked-out commit must be tagged as a release candidate, <version>-rc.<n>, and the
-    draft must be of an overlay run on it with no uncommitted changes. The newest candidate
-    tag is published to drafts/ in the bucket
+    VERSION is vYYYY-MM, or vYYYY-MM-DD for a hotfix. The draft must be of an overlay run on
+    the checked-out commit with no uncommitted changes. It's published to drafts/ in the
+    bucket as <version>-draft<n>, numbered after the version's drafts already published
     """
     configure_logging((verbose - quiet))
 
@@ -1102,13 +1109,11 @@ def prerelease(bucket, verbose, quiet):
             "Target object storage bucket not provided, set --bucket or $BUCKET"
         )
 
-    store = S3Store(bucket)
-    rc_tag, commit = release_candidate(store)
-    LOG.info(f"Publishing release candidate {rc_tag}, commit={commit}")
-    publish_prerelease(store, rc_tag, commit)
+    publish_draft(S3Store(bucket), version)
 
 
 @cli.command()
+@click.argument("draft")
 @click.option(
     "--bucket",
     "-b",
@@ -1117,14 +1122,13 @@ def prerelease(bucket, verbose, quiet):
 )
 @verbose_opt
 @quiet_opt
-def release(bucket, verbose, quiet):
-    """Release the checked-out commit, which must be tagged with the release tag and a release
-    candidate of it
+def release(draft, bucket, verbose, quiet):
+    """Release DRAFT, a published draft (eg v2026-10-draft2)
 
-    Promotes the commit's newest release candidate of the version: publishes the fixed-name
-    latest files under latest/, appends the release's rows to the change logs under logs/, and
-    publishes its archive under releases/ - see publish_release(). The release is built in a
-    temporary directory first
+    Tags the draft's commit with its version (eg v2026-10) and pushes the tag, then
+    publishes the fixed-name latest files under latest/, appends the release's rows to the
+    change logs under logs/, and publishes its archive under releases/ - see
+    publish_release(). The release is built in a temporary directory first
     """
     configure_logging((verbose - quiet))
 
@@ -1132,7 +1136,7 @@ def release(bucket, verbose, quiet):
         raise ValueError(
             "Target object storage bucket not provided, set --bucket or $BUCKET"
         )
-    publish_release(S3Store(bucket))
+    publish_release(S3Store(bucket), draft)
 
 
 if __name__ == "__main__":
