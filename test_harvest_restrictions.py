@@ -52,7 +52,7 @@ def test_parse_alias(test_data):
 
 def test_download_bcgw(test_data):
     sources = [s for s in parse_sources(test_data) if s["alias"] == "park_national"]
-    sources = validate_sources(sources)
+    validate_sources(sources)
     df = download_source(sources[0])
     assert len(df) > 0
 
@@ -61,14 +61,14 @@ def test_invalid_bcgw(test_data):
     sources = [s for s in parse_sources(test_data) if s["alias"] == "park_national"]
     sources[0]["field_mapper"] = {"name": "INVALID_COLUMN"}
     with pytest.raises(ValueError):
-        sources = validate_sources(sources)
+        validate_sources(sources)
 
 
 def test_download_file(test_data, tmpdir):
     sources = [
         s for s in parse_sources(test_data) if s["alias"] == "crd_water_supply_area"
     ]
-    sources = validate_sources(sources)
+    validate_sources(sources)
     df = download_source(sources[0])
     assert len(df) > 0
 
@@ -79,4 +79,4 @@ def test_invalid_file(test_data):
     ]
     sources[0]["field_mapper"] = {"name": "INVALID_COLUMN"}
     with pytest.raises(ValueError):
-        sources = validate_sources(sources)
+        validate_sources(sources)

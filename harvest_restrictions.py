@@ -117,28 +117,42 @@ def parse_sources(sources):
     jsonschema.validate(instance=sources, schema=schema)
 
     # sources are presumed to be ordered by importance/hierarchy,
-    # sources occuring earlier in the list override sources lower in the list.
-    # add an index (base 1) indicating the hierchy level of a given source
+    # sources occurring earlier in the list override sources lower in the list.
+    # add an index (base 1) indicating the hierarchy level of a given source
     sources = [dict(d, index=index + 1) for (index, d) in enumerate(sources)]
 
-    parsed = sources
-    for i, source in enumerate(sources):
+    for source in sources:
         # replace string {CURRENT_DATE} with todays date
-        if source["query"] and "{CURRENT_DATE}" in source["query"]:
-            parsed[i]["query"] = parsed[i]["query"].replace(
+        if source["query"]:
+            source["query"] = source["query"].replace(
                 "{CURRENT_DATE}", datetime.today().strftime("%Y-%m-%d")
             )
         # slugify the alias
         alias = source["alias"]
         slug = slugify(alias, separator="_", lowercase=True)
         if slug != alias:
-            parsed[i]["alias"] = slug
+            source["alias"] = slug
             LOG.warning(
                 f"{alias} - alias adjusted to {slug}, consider editing alias in config file"
             )
 
     LOG.info("Source json is valid")
-    return parsed
+    return sources
+
+
+def select_source(sources, alias, sources_file):
+    """just the source with alias, if given - else all sources"""
+    if not alias:
+        return sources
+    if alias not in [s["alias"] for s in sources]:
+        raise ValueError(f"Source {alias} is not present in {sources_file}")
+    return [s for s in sources if s["alias"] == alias]
+
+
+def cache_layer(source):
+    """the name of a source's cached parquet file (without .parquet) - and of its table,
+    when load-db loads each source to its own table"""
+    return f"hr_{source['index']:02d}_{source['alias']}"
 
 
 def write_sources_csv(sources_file, out_file):
@@ -191,7 +205,7 @@ def validate_file(source):
     # are expected columns present?
     columns = [x.lower() for x in df.columns]
     # is primary key present and not null?
-    if "primary_key" in source and source["primary_key"]:
+    if source.get("primary_key"):
         if source["primary_key"].lower() not in columns:
             raise ValueError(
                 f"Validation error: {source['alias']} - primary key is not present - {source['primary_key']}"
@@ -210,7 +224,7 @@ def validate_file(source):
         )
 
     # presume layer is defined correctly if no errors are raised
-    LOG.info(f"Validation successful: {source['alias']} - record count: {str(count)}")
+    LOG.info(f"Validation successful: {source['alias']} - record count: {count}")
 
 
 def validate_bcgw(source):
@@ -227,7 +241,7 @@ def validate_bcgw(source):
     columns = [c["column_name"] for c in table_def["schema"]]
 
     # is primary key present and not null?
-    if "primary_key" in source and source["primary_key"]:
+    if source.get("primary_key"):
         if source["primary_key"].upper() not in columns:
             raise ValueError(
                 f"Validation error: {source['alias']} - Primary key - {source['primary_key']} is not present in {table}"
@@ -249,7 +263,7 @@ def validate_bcgw(source):
         )
 
     # presume source is defined correctly if no errors are raised
-    LOG.info(f"Validation successful: {source['alias']} - record count: {str(count)}")
+    LOG.info(f"Validation successful: {source['alias']} - record count: {count}")
 
 
 def to_multipart(df):
@@ -257,26 +271,16 @@ def to_multipart(df):
     geopandas has no built-in func for dumping singlepart to multipart
     https://gis.stackexchange.com/questions/311320/casting-geometry-to-multi-using-geopandas
     """
+    multi = {Point: MultiPoint, LineString: MultiLineString, Polygon: MultiPolygon}
     df["geom"] = [
-        MultiPoint([feature]) if isinstance(feature, Point) else feature
-        for feature in df["geom"]
-    ]
-    df["geom"] = [
-        MultiLineString([feature]) if isinstance(feature, LineString) else feature
-        for feature in df["geom"]
-    ]
-    df["geom"] = [
-        MultiPolygon([feature]) if isinstance(feature, Polygon) else feature
+        multi[type(feature)]([feature]) if type(feature) in multi else feature
         for feature in df["geom"]
     ]
     return df
 
 
-def validate_sources(sources, validate_data=True, alias=None):
-    """
-    Validate json, whether data sources exist, and assign hierarchy index
-    based on position in list
-    """
+def validate_sources(sources):
+    """validate that each source exists, with the columns it's configured with, and has data"""
     for source in sources:
         if source["source_type"] == "BCGW":
             validate_bcgw(source)
@@ -284,9 +288,6 @@ def validate_sources(sources, validate_data=True, alias=None):
             validate_file(source)
 
     LOG.info("Validation successful: all layers appear valid")
-
-    # return validated (and indexed/dated) sources as ordered dictionary
-    return sources
 
 
 def download_source(source):
@@ -330,7 +331,7 @@ def download_source(source):
     df["__description__"] = source["description"]
     df["__alias__"] = source["alias"].lower()
     df["__primary_key__"] = ""
-    if "primary_key" in source and source["primary_key"]:
+    if source.get("primary_key"):
         df["__primary_key__"] = df[source["primary_key"].lower()].astype(
             "str"
         )  # handle pks as strings
@@ -817,24 +818,15 @@ def cache(sources_file, source_alias, dry_run, out_path, verbose, quiet):
     with open(sources_file, "r") as f:
         sources = parse_sources(json.load(f))
 
-    # if specified, use only one source
-    if source_alias:
-        if source_alias not in [s["alias"] for s in sources]:
-            raise ValueError(f"Source {source_alias} is not present in {sources_file}")
-        else:
-            sources = [s for s in sources if s["alias"] == source_alias]
-
-    sources = validate_sources(sources)
+    sources = select_source(sources, source_alias, sources_file)
+    validate_sources(sources)
 
     # download each data source, dump to file
     if not dry_run:
         for source in sources:
             df = download_source(source)
-            layer = (
-                "hr_" + str(source["index"]).zfill(2) + "_" + source["alias"].lower()
-            )
             # parquet is one file per layer and direct write to s3 is supported
-            out_file = os.path.join(out_path, layer + ".parquet")
+            out_file = os.path.join(out_path, cache_layer(source) + ".parquet")
             df.to_parquet(out_file)
 
             LOG.info(f"{source['alias']} written to {out_file}")
@@ -954,16 +946,11 @@ def load_db(
     with open(sources_file, "r") as f:
         sources = parse_sources(json.load(f))
 
-    # if specified, use only one source
-    if source_alias:
-        if source_alias not in [s["alias"] for s in sources]:
-            raise ValueError(f"Source {source_alias} is not present in {sources_file}")
-        else:
-            sources = [s for s in sources if s["alias"] == source_alias]
+    sources = select_source(sources, source_alias, sources_file)
 
     # only validate on dry-run
     if dry_run:
-        sources = validate_sources(sources)
+        validate_sources(sources)
 
     else:
         db = create_engine(db_url)
@@ -976,9 +963,7 @@ def load_db(
                 LOG.warning("--truncate has no effect without --out_table")
 
         for source in sources:
-            layer = (
-                "hr_" + str(source["index"]).zfill(2) + "_" + source["alias"].lower()
-            )
+            layer = cache_layer(source)
             in_file = os.path.join(in_path, layer + ".parquet")
             df = geopandas.read_parquet(in_file)
             # if out_table specified, write to that table, appending if it exists
