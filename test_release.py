@@ -15,7 +15,7 @@ RELEASE_TAG = "v2026-10"
 RC_TAG = "v2026-10-rc.1"
 RELEASE_DATE = "2026-10-01T10:00:00-07:00"
 PREVIOUS_RELEASE = "v2026-02"
-RC_KEY = f"prereleases/harvest_restrictions_{RC_TAG}.zip"
+RC_KEY = f"drafts/harvest_restrictions_{RC_TAG}.zip"
 ARCHIVE_KEY = f"releases/harvest_restrictions_{RELEASE_TAG}.zip"
 SOURCES_CSV_BODY = "index,alias\n1,park_national\n"
 
@@ -537,7 +537,7 @@ def test_publish_prerelease(store, draft_dir, tmp_path):
 
     key = hr.prerelease_key(NEW_RC)
     assert store.uploads == [key]
-    assert key == "prereleases/harvest_restrictions_v2026-11-rc.1.zip"
+    assert key == "drafts/harvest_restrictions_v2026-11-rc.1.zip"
     assert store.tags(key) == {
         "commit": COMMIT,
         "prerelease": NEW_RC,
@@ -803,7 +803,7 @@ def test_read_release_logs_ignores_other_keys(store, tmp_path):
 
 
 def candidates(store):
-    return [os.path.basename(k) for k in store.list("prereleases/")]
+    return [os.path.basename(k) for k in store.list("drafts/")]
 
 
 def test_prune_released_versions(store):
@@ -841,9 +841,9 @@ def test_prune_dry_run(store):
 
 
 def test_prune_ignores_other_keys(store):
-    store.put("prereleases/notes.txt", "?")
-    store.put("prereleases/harvest_restrictions_v2026-02.zip", "not a candidate")
+    store.put("drafts/notes.txt", "?")
+    store.put("drafts/harvest_restrictions_v2026-02.zip", "not a candidate")
 
     hr.delete_prereleases(store)
-    assert "prereleases/notes.txt" in store.objects
-    assert "prereleases/harvest_restrictions_v2026-02.zip" in store.objects
+    assert "drafts/notes.txt" in store.objects
+    assert "drafts/harvest_restrictions_v2026-02.zip" in store.objects

@@ -38,7 +38,7 @@ v2026-08
   ├── sources/                                  # sources not available for download elsewhere,
   │   ├── CRD.gdb.zip                           #   in their native format - referenced by sources.json
   │   └── ...
-  ├── prereleases/                              # release candidates, written by `prerelease`
+  ├── drafts/                                   # release candidates (published drafts), written by `prerelease`
   │   └── harvest_restrictions_<version>-rc.<n>.zip   # as releases/, never overwritten
   ├── latest/                                   # the latest release's files, written by `release`
   │   ├── harvest_restrictions.gpkg

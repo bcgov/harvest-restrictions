@@ -41,6 +41,9 @@ CACHE_PATH = (
 # overlay's outputs, replaced by each run - prerelease publishes them as a release candidate
 DRAFT_DIR = "drafts"
 
+# release candidates are published drafts - in the bucket under the local draft folder's name
+PRERELEASES = f"{DRAFT_DIR}/"
+
 # the draft's record of what it was run on: commit, uncommitted_changes, finished_at - written
 # last, so a draft without it is unfinished
 OVERLAY_RUN_JSON = "overlay_run.json"
@@ -407,7 +410,7 @@ def download_source(source):
 #
 # 1. tag the commit to run as a release candidate, <version>-rc.<n> (eg v2026-10-rc.1)
 # 2. overlay, run on that tag, writes its outputs to drafts/, then prerelease
-#    publishes the draft as prereleases/harvest_restrictions_<version>-rc.<n>.zip, with
+#    publishes the draft as drafts/harvest_restrictions_<version>-rc.<n>.zip, with
 #    summaries comparing its area totals to the latest release - for review
 # 3. once a candidate is approved, tag its commit <version> (eg v2026-10). release, run on that
 #    tag (by the release workflow), promotes the commit's latest candidate of that version:
@@ -422,7 +425,7 @@ def download_source(source):
 
 def prerelease_key(rc_tag):
     """a release candidate's archive - written once, never overwritten"""
-    return f"prereleases/{ARCHIVE.format(tag=rc_tag)}"
+    return f"{PRERELEASES}{ARCHIVE.format(tag=rc_tag)}"
 
 
 def release_key(release_tag):
@@ -694,7 +697,7 @@ def release_candidate(store):
             "<version>-rc.<n> (eg v2026-10-rc.1) to run it"
         )
     rc_tag = rc_tags[-1]
-    if prerelease_key(rc_tag) in store.list("prereleases/"):
+    if prerelease_key(rc_tag) in store.list(PRERELEASES):
         raise ValueError(
             f"{rc_tag} is already published at {store.url(prerelease_key(rc_tag))} - tag "
             "the next release candidate to run again"
@@ -703,7 +706,7 @@ def release_candidate(store):
 
 
 def publish_prerelease(store, rc_tag, commit, draft_dir=DRAFT_DIR):
-    """publish the draft as a release candidate's archive in prereleases/
+    """publish the draft as a release candidate's archive in drafts/ in the bucket
 
     draft_dir holds overlay's outputs: OVERLAY_GPKG, SOURCES_GPKG, SOURCES_CSV, the area
     totals (<log>.csv), and OVERLAY_RUN_JSON. Refuses unless the draft is commit's, with no
@@ -814,7 +817,7 @@ def publish_release(store):
             histories[log] = history[history["release_tag"] != release_tag]
 
         rc_key = prerelease_key(rc_tag)
-        if rc_key not in store.list("prereleases/"):
+        if rc_key not in store.list(PRERELEASES):
             raise ValueError(
                 f"{rc_tag} isn't published at {store.url(rc_key)} - run overlay and "
                 "prerelease on it first"
@@ -899,8 +902,8 @@ def delete_prereleases(store, dry_run=False):
     )
 
     prefix, suffix = ARCHIVE.split("{tag}")
-    for key in store.list("prereleases/"):
-        # anything under prereleases/ that isn't a candidate's archive is left alone
+    for key in store.list(PRERELEASES):
+        # anything under drafts/ that isn't a candidate's archive is left alone
         name = os.path.basename(key)
         if not (name.startswith(prefix) and name.endswith(suffix)):
             continue
@@ -1221,7 +1224,7 @@ def prerelease(bucket, verbose, quiet):
 
     The checked-out commit must be tagged as a release candidate, <version>-rc.<n>, and the
     draft must be of an overlay run on it with no uncommitted changes. The newest candidate
-    tag is published to prereleases/
+    tag is published to drafts/ in the bucket
     """
     configure_logging((verbose - quiet))
 

@@ -133,7 +133,7 @@ The database is set up by `sql/setup.sql` when its container is first created. A
 
       `uncommitted_changes` lists the `git status` lines of changed tracked files other than documentation - empty for a clean checkout, and starting with `the checkout changed during the run` if it did
 
-8. To publish the results for review, commit any changes and tag the commit as a release candidate of the version - `<version>-rc.<n>`, numbering candidates of a version from 1 - then publish the draft as the release candidate's archive, `prereleases/harvest_restrictions_<version>-rc.<n>.zip`, with summaries comparing its area totals to the most recent release:
+8. To publish the results for review, commit any changes and tag the commit as a release candidate of the version - `<version>-rc.<n>`, numbering candidates of a version from 1 - then publish the draft as the release candidate's archive, `drafts/harvest_restrictions_<version>-rc.<n>.zip` in the bucket, with summaries comparing its area totals to the most recent release:
 
         git tag v2026-10-rc.1
         git push origin v2026-10-rc.1
@@ -179,7 +179,7 @@ s3://$BUCKET/harvest_restrictions/
 ├── sources/                                  # sources not available for download elsewhere,
 │   ├── CRD.gdb.zip                           #   in their native format - referenced by sources.json
 │   └── ...
-├── prereleases/                              # release candidates, written by `prerelease`
+├── drafts/                                   # release candidates (published drafts), written by `prerelease`
 │   └── harvest_restrictions_<version>-rc.<n>.zip   # as releases/, never overwritten
 ├── latest/                                   # the latest release's files, written by `release`
 │   ├── harvest_restrictions.gpkg
@@ -204,7 +204,7 @@ s3://$BUCKET/harvest_restrictions/
 
 **`cache/`** - written by `cache`, untagged, one geoparquet per source (`hr_<NN>_<alias>.parquet`), overwritten on the next `cache` run for that source. `clear-cache` removes these directly by filename pattern, safe to point at a shared prefix since it only ever touches its own `hr_*.parquet` files.
 
-**`prereleases/harvest_restrictions_<version>-rc.<n>.zip`** - written by `prerelease`, one archive per release candidate, never overwritten, laid out as a release archive (see `releases/` below). Tagged with the candidate's `commit`, `prerelease` tag, and the `previous_release` its summaries compare against. Transient by design - `prune-prereleases` (run by the release workflow) deletes the candidates of released versions. The archive holds:
+**`drafts/harvest_restrictions_<version>-rc.<n>.zip`** - written by `prerelease`, one archive per release candidate, never overwritten, laid out as a release archive (see `releases/` below). Tagged with the candidate's `commit`, `prerelease` tag, and the `previous_release` its summaries compare against. Transient by design - `prune-prereleases` (run by the release workflow) deletes the candidates of released versions. The archive holds:
 
 - `harvest_restrictions.gpkg`, `harvest_restrictions_sources.gpkg` - the overlay result (`harvest_restrictions` layer) and its source designations (`designations` layer)
 - `land_designations_summary.csv`, `harvest_restrictions_summary.csv` - comparing the *most recent release* against the candidate with `current`/`diff`/`pct_diff` columns. Retains every category present in either side - a category new to this run or dropped since the previous release still gets its labels, with `diff`/`pct_diff` left as `NaN` rather than misleadingly implying zero area. This is what you review in step 9 above, and what `release` reads (via the `current` column) to append the release's totals to the change log
