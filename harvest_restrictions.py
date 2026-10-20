@@ -38,9 +38,6 @@ CACHE_PATH = (
     else None
 )
 
-# release candidates are published drafts - in the bucket under the local draft folder's name
-PRERELEASES = "drafts/"
-
 # the draft's record of what it was run on: commit, uncommitted_changes, finished_at - written
 # last, so a draft without it is unfinished
 OVERLAY_RUN_JSON = "overlay_run.json"
@@ -421,8 +418,9 @@ def download_source(source):
 
 
 def prerelease_key(rc_tag):
-    """a release candidate's archive - written once, never overwritten"""
-    return f"{PRERELEASES}{ARCHIVE.format(tag=rc_tag)}"
+    """a release candidate's archive - written once, never overwritten. Candidates are
+    published drafts, so they're under drafts/, the local draft folder's name"""
+    return f"drafts/{ARCHIVE.format(tag=rc_tag)}"
 
 
 def release_key(release_tag):
@@ -692,7 +690,7 @@ def release_candidate(store):
             "<version>-rc.<n> (eg v2026-10-rc.1) to run it"
         )
     rc_tag = rc_tags[-1]
-    if prerelease_key(rc_tag) in store.list(PRERELEASES):
+    if prerelease_key(rc_tag) in store.list("drafts/"):
         raise ValueError(
             f"{rc_tag} is already published at {store.url(prerelease_key(rc_tag))} - tag "
             "the next release candidate to run again"
@@ -812,7 +810,7 @@ def publish_release(store):
             histories[log] = history[history["release_tag"] != release_tag]
 
         rc_key = prerelease_key(rc_tag)
-        if rc_key not in store.list(PRERELEASES):
+        if rc_key not in store.list("drafts/"):
             raise ValueError(
                 f"{rc_tag} isn't published at {store.url(rc_key)} - run overlay and "
                 "prerelease on it first"
@@ -897,7 +895,7 @@ def delete_prereleases(store, dry_run=False):
     )
 
     prefix, suffix = ARCHIVE.split("{tag}")
-    for key in store.list(PRERELEASES):
+    for key in store.list("drafts/"):
         # anything under drafts/ that isn't a candidate's archive is left alone
         name = os.path.basename(key)
         if not (name.startswith(prefix) and name.endswith(suffix)):
