@@ -72,8 +72,9 @@ flattened AS
   GROUP BY map_tile
 ),
 
--- get the attributes and sort by index
-sorted AS
+-- get the attributes of every designation covering each polygon (polygons inside none -
+-- holes - are dropped)
+attributed AS
 (
   SELECT
     p.index,
@@ -81,16 +82,14 @@ sorted AS
     p.description,
     p.primary_key,
     p.name,
-    COALESCE(p.harvest_restriction, 0) as harvest_restriction,
+    p.harvest_restriction,
     hrn.harvest_restriction_class_name,
     f.map_tile,
     f.geom
   FROM flattened f
-  LEFT OUTER JOIN cleaned p
+  INNER JOIN cleaned p
   ON ST_Contains(p.geom, ST_PointOnSurface(f.geom))
   INNER JOIN harvest_restriction_class_rank_name_xref hrn on p.harvest_restriction = hrn.harvest_restriction_class_rank
-  WHERE p.index is not null
-  ORDER BY p.index, p.primary_key
 ),
 
 -- aggregate each polygon's designations into lists, every list ordered by the same complete
@@ -108,7 +107,7 @@ aggregated as (
     array_agg(harvest_restriction ORDER BY index, primary_key, name) as harvest_restrictions_all,
     array_agg(harvest_restriction_class_name ORDER BY index, primary_key, name) as harvest_restriction_class_names_all,
     geom
-  FROM sorted
+  FROM attributed
   GROUP BY map_tile, geom
 )
 
