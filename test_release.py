@@ -23,35 +23,53 @@ import pytest
 
 import harvest_restrictions as hr
 
+# --- the names used throughout ---
+
+# the commit that is checked out, and that every draft was run on
 COMMIT = "abc1234def5678"
-RELEASE_TAG = "v2026-10"
-DRAFT = "v2026-10-draft1"
+# the release already made, at the start of every test
 PREVIOUS_RELEASE = "v2026-02"
-NEW_VERSION = "v2026-11"
+# the draft already published, at the start of every test - and the version it releases
+DRAFT = "v2026-10-draft1"
+RELEASE_TAG = "v2026-10"
+# where the draft is published, and where its release's archive is published
 DRAFT_KEY = f"drafts/harvest_restrictions_{DRAFT}.zip"
 ARCHIVE_KEY = f"releases/harvest_restrictions_{RELEASE_TAG}.zip"
+# a version not yet drafted, for the publish_draft tests
+NEW_VERSION = "v2026-11"
 
 
 # --- fakes ---
 
 
 class MemoryStore:
-    """in-memory stand-in for S3Store - objects holds each key's contents, and uploads
-    the keys published, in order"""
+    """A fake s3 bucket, with the same methods as S3Store, so it can be passed to
+    publish_draft and publish_release in its place.
+
+    The bucket's files are kept in self.objects, a dict of {key: contents} - the contents
+    as bytes, as read from a file. Tests look in it to check what was published.
+
+    Every key published (by upload or copy) is also added to self.uploads, in order - so
+    tests can check the order files were published in, or that nothing was.
+    """
 
     def __init__(self):
         self.objects = {}
         self.uploads = []
 
     def url(self, key):
+        # only used in log and error messages
         return f"memory://{key}"
 
     def put(self, key, body):
+        """add a file to the bucket, to set up a test - unlike upload, it isn't recorded
+        in self.uploads. body can be text or bytes"""
         if isinstance(body, str):
             body = body.encode()
         self.objects[key] = body
 
     def read_csv(self, key):
+        """a csv in the bucket, as a DataFrame - for checking the change logs"""
         return pandas.read_csv(io.BytesIO(self.objects[key]))
 
     def upload(self, local_file, key):
@@ -60,11 +78,11 @@ class MemoryStore:
         self.uploads.append(key)
 
     def copy(self, key, new_key):
-        # published, like an upload
         self.objects[new_key] = self.objects[key]
         self.uploads.append(new_key)
 
     def download(self, key, local_file):
+        # a missing key fails the way the aws cli does
         if key not in self.objects:
             raise subprocess.CalledProcessError(1, f"aws s3 cp {key}")
         os.makedirs(os.path.dirname(local_file) or ".", exist_ok=True)
@@ -79,11 +97,20 @@ class MemoryStore:
 
 
 class FakeGit:
-    """stand-in for subprocess.check_output, answering the git commands the release code
-    runs - with COMMIT checked out, and self.status as the output of git status.
+    """A fake git command line.
 
-    Tags it's asked to create are kept in self.tags ({tag: commit}), and the refs it's
-    asked to push in self.pushed. Like check_output, it returns bytes.
+    The release code runs git through subprocess.check_output - the `git` fixture swaps
+    that function for a FakeGit, so each git command the code runs comes here instead, as
+    a list (eg ["git", "rev-parse", "HEAD"]). It answers the few commands the code uses,
+    and fails the test on any other.
+
+    Its state, which tests can set up or check:
+      - self.status: what `git status` prints - empty for a clean checkout
+      - self.tags: the tags that exist, as {tag: commit} - tags it's asked to create are
+        added
+      - self.pushed: the refs it's been asked to push, in order
+
+    The checked-out commit is always COMMIT. Like check_output, it returns bytes.
     """
 
     def __init__(self):
@@ -98,6 +125,7 @@ class FakeGit:
         if args == ["rev-parse", "HEAD"]:
             return COMMIT.encode()
         if args[:2] == ["tag", "--list"]:
+            # prints the tag if it exists, else nothing
             tag = args[2]
             return tag.encode() if tag in self.tags else b""
         if args[0] == "rev-parse":
@@ -116,19 +144,26 @@ class FakeGit:
 
 
 def fake_zip_files(out_zip, files):
-    """plain zip in place of sozip, which isn't needed to check what's archived"""
+    """Stands in for hr.zip_files (see the `store` fixture), using Python's zipfile
+    rather than GDAL's sozip - so the tests don't need GDAL installed. The archive's
+    contents are the same, which is all the tests check."""
     with zipfile.ZipFile(out_zip, "w") as z:
         for f in files:
             z.write(f, os.path.basename(f))
 
 
 def unzip(body):
-    """the files in a zip archive's contents, as {name: contents}, in archive order"""
+    """The files in a zip archive, as {name: contents} in the order they were added.
+    body is the archive itself, as bytes - eg store.objects[DRAFT_KEY]."""
     with zipfile.ZipFile(io.BytesIO(body)) as z:
         return {name: z.read(name) for name in z.namelist()}
 
 
-# one category per log, with a value in the previous release
+# --- test data ---
+
+# One row of each change log - the columns describing a category (see hr.LOGS), for a
+# single category. Used to build the logs, summaries and area totals below, with areas
+# added.
 LOG_ROWS = {
     "land_designations": {
         "land_designation_type_rank": 1,
@@ -145,12 +180,17 @@ LOG_ROWS = {
 
 
 def summary_body(log):
-    """the contents of a draft's <log>_summary.csv - just the columns release reads: the
-    category, its "current" area, and its area in the previous release (a column named
-    after that release, eg "v2026-02").
+    """The text of a published draft's <log>_summary.csv, for put_draft.
 
-    harvest_restrictions has a second class, dropped since the previous release, so it has
-    no current area.
+    publish_draft writes these summaries, comparing the draft's area totals to the previous
+    release's. publish_release reads them back: the "current" column gives the rows it
+    logs, and the column after it (named after the release compared to, eg "v2026-02")
+    tells it which release that was. Only those columns are written here.
+
+    The category in LOG_ROWS has a current area of 110 ha, and 100 ha in the previous
+    release. harvest_restrictions also has a second class, in the previous release but
+    dropped since - its current area is empty, so publish_release should leave it out of
+    the log.
     """
     rows = [{**LOG_ROWS[log], "current": 110.0, PREVIOUS_RELEASE: 100.0}]
     if log == "harvest_restrictions":
@@ -166,7 +206,12 @@ def summary_body(log):
 
 
 def put_release_log(store, release_tag, logs=hr.LOGS):
-    """append one release's rows to the change logs, as publish_release does"""
+    """Add a release's rows to the change logs in the bucket (logs/<log>.csv) - one row
+    per log, with 100 ha, appended after any rows already there, as publish_release does.
+
+    logs limits which logs get the rows - eg to fake a release that failed after writing
+    only some of them.
+    """
     for log in logs:
         rows = pandas.DataFrame(
             [{"release_tag": release_tag, **LOG_ROWS[log], "area_ha": 100.0}]
@@ -178,14 +223,24 @@ def put_release_log(store, release_tag, logs=hr.LOGS):
 
 
 def put_release(store, release_tag):
-    """a finished release - its change log rows, and its archive"""
+    """Add a finished release to the bucket: its change log rows, and its archive.
+
+    The archive's contents are a placeholder - the release code only checks that it
+    exists, as the sign that the release was finished.
+    """
     put_release_log(store, release_tag)
     store.put(hr.release_key(release_tag), f"archive {release_tag}")
 
 
 def put_draft(store, draft=DRAFT):
-    """publish a draft's archive, as publish_draft does - with its files in
-    ARCHIVED_FILES order"""
+    """Add a published draft to the bucket, as publish_draft would leave it: its archive,
+    drafts/harvest_restrictions_<draft>.zip.
+
+    The archive holds the files in hr.ARCHIVED_FILES, in that order. The geopackages and
+    sources.csv are placeholder text - the release code copies them without reading them.
+    overlay_run.json says the draft was run on COMMIT, and the summaries are from
+    summary_body.
+    """
     overlay_run = {"commit": COMMIT, "uncommitted_changes": [], "finished_at": "?"}
     out = io.BytesIO()
     with zipfile.ZipFile(out, "w") as z:
@@ -198,9 +253,19 @@ def put_draft(store, draft=DRAFT):
     store.put(hr.draft_key(draft), out.getvalue())
 
 
+# --- fixtures ---
+#
+# pytest passes a fixture to any test with an argument of the same name - eg a test
+# taking `store` gets the bucket made by store() below. Each test gets fresh ones, so a
+# test's changes don't carry over to the next. monkeypatch and tmp_path are pytest's own:
+# monkeypatch replaces a function for the length of one test, and tmp_path is a new empty
+# directory.
+
+
 @pytest.fixture
 def git(monkeypatch):
-    """a FakeGit, answering every git command run"""
+    """A FakeGit, which every git command run by the code under test goes to - for the
+    test to set up (eg git.status, git.tags) or check (eg git.pushed)."""
     git = FakeGit()
     monkeypatch.setattr(hr.subprocess, "check_output", git)
     return git
@@ -208,8 +273,11 @@ def git(monkeypatch):
 
 @pytest.fixture
 def store(monkeypatch, git):
-    """a bucket holding one previous release, plus a published draft of COMMIT, which is
-    checked out"""
+    """A MemoryStore - the fake bucket - as it is before a release: PREVIOUS_RELEASE
+    released, and DRAFT published, run on COMMIT.
+
+    Also sets up the fake git (COMMIT checked out, with no tags), and swaps sozip for plain
+    zip - so a test only needs to ask for `store`, and for `git` too if it checks git."""
     memory = MemoryStore()
     put_release(memory, PREVIOUS_RELEASE)
     put_draft(memory)
@@ -220,7 +288,11 @@ def store(monkeypatch, git):
 
 @pytest.fixture
 def draft_dir(tmp_path):
-    """a draft of COMMIT, as overlay writes it"""
+    """A local draft folder, as overlay leaves it - for publish_draft to publish.
+
+    Holds the files overlay writes: placeholder geopackages and sources.csv, each log's
+    area totals (<log>.csv, 120 ha for the category in LOG_ROWS), and overlay_run.json,
+    saying it was run on COMMIT with no uncommitted changes. Returns the folder's path."""
     draft_dir = tmp_path / "drafts"
     draft_dir.mkdir()
     (draft_dir / "harvest_restrictions.gpkg").write_text("gpkg")
@@ -235,7 +307,9 @@ def draft_dir(tmp_path):
 
 
 def assert_nothing_published(store, git):
-    """for a refused draft or release - nothing uploaded, and no tag pushed"""
+    """Check a refused draft or release did nothing: no file published to the bucket, and
+    no tag pushed. (Files added by put/put_draft/put_release in setup don't count - only
+    uploads do.)"""
     assert store.uploads == []
     assert git.pushed == []
 
