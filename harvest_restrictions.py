@@ -39,9 +39,11 @@ CACHE_PATH = (
     f"s3://{os.environ['BUCKET']}/{PREFIX}/cache" if os.environ.get("BUCKET") else None
 )
 
-# area summaries are logged per release
-# keys are the two queries in /sql and corresponding output csv files
-# lists are the columns included in each
+# the change logs, by log name - each log is the area_ha of each category, per release.
+# overlay writes each log's totals to <log>.csv with sql/<log>.sql, prerelease compares them
+# to the previous release's in <log>_summary.csv, and release adds them to
+# logs/<release_tag>/<log>.csv. The columns describe a category - the first is its key,
+# matching the totals across releases, the rest are labels
 LOGS = {
     "land_designations": [
         "land_designation_type_rank",
