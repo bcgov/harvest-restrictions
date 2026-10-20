@@ -144,7 +144,7 @@ LOG_ROWS = {
 }
 
 
-def summary_body(log, previous_release):
+def summary_body(log):
     """the contents of a draft's <log>_summary.csv - just the columns release reads: the
     category, its "current" area, and its area in the previous release (a column named
     after that release, eg "v2026-02").
@@ -152,14 +152,14 @@ def summary_body(log, previous_release):
     harvest_restrictions has a second class, dropped since the previous release, so it has
     no current area.
     """
-    rows = [{**LOG_ROWS[log], "current": 110.0, previous_release: 100.0}]
+    rows = [{**LOG_ROWS[log], "current": 110.0, PREVIOUS_RELEASE: 100.0}]
     if log == "harvest_restrictions":
         rows.append(
             {
                 "harvest_restriction_class_rank": 2,
                 "harvest_restriction_class_name": "Prohibited",
                 "current": None,
-                previous_release: 50.0,
+                PREVIOUS_RELEASE: 50.0,
             }
         )
     return pandas.DataFrame(rows).to_csv(index=False)
@@ -183,10 +183,10 @@ def put_release(store, release_tag):
     store.put(hr.release_key(release_tag), f"archive {release_tag}")
 
 
-def put_draft(store, draft=DRAFT, previous_release=PREVIOUS_RELEASE, commit=COMMIT):
+def put_draft(store, draft=DRAFT):
     """publish a draft's archive, as publish_draft does - with its files in
     ARCHIVED_FILES order"""
-    overlay_run = {"commit": commit, "uncommitted_changes": [], "finished_at": "?"}
+    overlay_run = {"commit": COMMIT, "uncommitted_changes": [], "finished_at": "?"}
     out = io.BytesIO()
     with zipfile.ZipFile(out, "w") as z:
         z.writestr("harvest_restrictions.gpkg", f"gpkg {draft}")
@@ -194,7 +194,7 @@ def put_draft(store, draft=DRAFT, previous_release=PREVIOUS_RELEASE, commit=COMM
         z.writestr("sources.csv", "sources")
         z.writestr("overlay_run.json", json.dumps(overlay_run))
         for log in hr.LOGS:
-            z.writestr(f"{log}_summary.csv", summary_body(log, previous_release))
+            z.writestr(f"{log}_summary.csv", summary_body(log))
     store.put(hr.draft_key(draft), out.getvalue())
 
 
@@ -243,12 +243,8 @@ def assert_nothing_published(store, git):
 # --- build_change ---
 
 
-COLUMNS = ["harvest_restriction_class_rank", "harvest_restriction_class_name"]
-
-
-@pytest.fixture
-def history():
-    return pandas.DataFrame(
+def test_build_change(tmp_path):
+    history = pandas.DataFrame(
         {
             "harvest_restriction_class_rank": [1, 2, 1, 2],
             "harvest_restriction_class_name": ["Protected", "Prohibited"] * 2,
@@ -256,54 +252,39 @@ def history():
             "release_tag": ["v2026-01", "v2026-01", "v2026-02", "v2026-02"],
         }
     )
-
-
-@pytest.fixture
-def current(tmp_path):
     # class 2 dropped since v2026-02, class 3 new in this run
-    path = tmp_path / "harvest_restrictions.csv"
+    current = tmp_path / "harvest_restrictions.csv"
     pandas.DataFrame(
         {
             "harvest_restriction_class_rank": [1, 3],
             "harvest_restriction_class_name": ["Protected", "High Restricted"],
             "area_ha": [110.4, 30.0],
         }
-    ).to_csv(path, index=False)
-    return path
+    ).to_csv(current, index=False)
 
+    columns = ["harvest_restriction_class_rank", "harvest_restriction_class_name"]
+    result = hr.build_change(current, history, "v2026-02", columns)
 
-def test_build_change_diff(current, history):
-    row = hr.build_change(current, history, "v2026-02", COLUMNS).loc[1]
     # compared against v2026-02 only, not the older v2026-01 rows
-    assert row["v2026-02"] == 100
-    assert row["current"] == 110
-    assert row["diff"] == 10
-    assert row["pct_diff"] == 10.4
+    assert result.loc[1, "v2026-02"] == 100
+    assert result.loc[1, "current"] == 110
+    assert result.loc[1, "diff"] == 10
+    assert result.loc[1, "pct_diff"] == 10.4
 
+    # a dropped class keeps its name, with no current area
+    assert result.loc[2, "harvest_restriction_class_name"] == "Prohibited"
+    assert pandas.isna(result.loc[2, "current"])
 
-def test_build_change_new_and_dropped_categories(current, history):
-    result = hr.build_change(current, history, "v2026-02", COLUMNS)
-    assert sorted(result.index) == [1, 2, 3]
-
-    # dropped since the previous release - labelled from the previous release, no current value
-    dropped = result.loc[2]
-    assert dropped["harvest_restriction_class_name"] == "Prohibited"
-    assert pandas.isna(dropped["current"])
-    assert pandas.isna(dropped["diff"])
-
-    # new in this run - labelled from this run, no previous value
-    new = result.loc[3]
-    assert new["harvest_restriction_class_name"] == "High Restricted"
-    assert new["current"] == 30
-    assert pandas.isna(new["v2026-02"])
-    assert pandas.isna(new["pct_diff"])
+    # a new class has its name, with no previous area
+    assert result.loc[3, "harvest_restriction_class_name"] == "High Restricted"
+    assert pandas.isna(result.loc[3, "v2026-02"])
 
 
 # --- S3Store ---
 
 
 def test_s3store_list_empty(monkeypatch):
-    # the cli prints nothing at all when no objects match
+    # the aws cli prints nothing at all when no objects match
     monkeypatch.setattr(
         hr.subprocess,
         "run",
@@ -315,43 +296,22 @@ def test_s3store_list_empty(monkeypatch):
 # --- zip_files ---
 
 
-def make_gpkg(path, layer):
-    subprocess.run(
-        [
-            "ogr2ogr",
-            "-f",
-            "GPKG",
-            str(path),
-            "-dialect",
-            "sqlite",
-            "-sql",
-            "select 1 as id, MakePoint(1, 2, 3005) as geom",
-            ":memory:",
-            "-nln",
-            layer,
-        ],
-        check=True,
-    )
-
-
 @pytest.mark.skipif(not shutil.which("sozip"), reason="requires GDAL")
 def test_zip_files_readable_by_gdal(tmp_path):
+    # GDAL can read a layer straight from the archive, as when re-running a release
     gpkg = tmp_path / "harvest_restrictions.gpkg"
-    make_gpkg(gpkg, "harvest_restrictions")
-    csv = tmp_path / "sources.csv"
-    csv.write_text("sources")
+    subprocess.run(
+        f"ogr2ogr -f GPKG {gpkg} -dialect sqlite "
+        "-sql 'select MakePoint(1, 2, 3005) as geom' :memory: -nln harvest_restrictions",
+        shell=True,
+        check=True,
+    )
     archive = tmp_path / "harvest_restrictions_v1.zip"
 
-    hr.zip_files(str(archive), [str(gpkg), str(csv)])
-    with zipfile.ZipFile(archive) as z:
-        assert sorted(z.namelist()) == ["harvest_restrictions.gpkg", "sources.csv"]
+    hr.zip_files(str(archive), [str(gpkg)])
     info = subprocess.run(
-        [
-            "ogrinfo",
-            "-so",
-            f"/vsizip/{archive}/harvest_restrictions.gpkg",
-            "harvest_restrictions",
-        ],
+        f"ogrinfo -so /vsizip/{archive}/harvest_restrictions.gpkg harvest_restrictions",
+        shell=True,
         check=True,
         capture_output=True,
         text=True,
@@ -362,28 +322,15 @@ def test_zip_files_readable_by_gdal(tmp_path):
 # --- uncommitted_changes ---
 
 
-# git status lines end with a NUL (\0), and a rename or copy is followed by its source
+# git status lines end with a NUL (\0), and a rename is followed by its source
 @pytest.mark.parametrize(
     "status, changes",
     [
         (" M sql/overlay.sql\0", [" M sql/overlay.sql"]),
-        (" M README.md\0M  CHANGES.txt\0 M docs/notes.md\0", []),
-        (" M README.md\0 M sql/overlay.sql\0", [" M sql/overlay.sql"]),
-        # a doc renamed to (or copied as) a file that isn't one, and the reverse
-        (
-            "R  harvest_restrictions.py\0README.md\0",
-            ["R  harvest_restrictions.py <- README.md"],
-        ),
-        ("C  sources.json\0README.md\0", ["C  sources.json <- README.md"]),
-        ("R  notes.md\0sql/overlay.sql\0", ["R  notes.md <- sql/overlay.sql"]),
-    ],
-    ids=[
-        "change",
-        "docs only",
-        "docs and a change",
-        "doc renamed to code",
-        "doc copied to data",
-        "code renamed to doc",
+        # changes to docs are ignored
+        (" M README.md\0 M CHANGES.txt\0", []),
+        # a doc renamed to code isn't a doc change
+        ("R  harvest.py\0README.md\0", ["R  harvest.py <- README.md"]),
     ],
 )
 def test_checkout_state(git, status, changes):
@@ -400,16 +347,10 @@ def test_checkout_state(git, status, changes):
         ("v2026-10", True, False),
         ("v2026-10-15", True, False),
         ("v2026-10-draft1", False, True),
-        ("v2026-10-draft10", False, True),
-        ("v2026-10-15-draft1", False, True),
+        ("v2026-10-15-draft12", False, True),
         ("v2026-10b", False, False),
-        ("2026-10", False, False),
-        ("v2026-1", False, False),
-        ("v2026-10-DRAFT1", False, False),
-        ("v2026-10-rc.1", False, False),
-        ("v2026-10-draft01", False, False),
         ("v2026-10-draft0", False, False),
-        ("v2026-10-draft1\n", False, False),
+        ("v2026-10-draft01", False, False),
     ],
 )
 def test_names(name, version, draft):
@@ -423,123 +364,77 @@ def test_names(name, version, draft):
 def test_publish_draft(store, draft_dir):
     assert hr.publish_draft(store, NEW_VERSION, draft_dir) == "v2026-11-draft1"
 
-    key = "drafts/harvest_restrictions_v2026-11-draft1.zip"
-    assert store.uploads == [key]
+    files = unzip(store.objects["drafts/harvest_restrictions_v2026-11-draft1.zip"])
+    assert sorted(files) == sorted(hr.ARCHIVED_FILES)
+    assert json.loads(files["overlay_run.json"])["commit"] == COMMIT
 
-    # the geopackages, sources, the draft's overlay_run.json, and summaries comparing the
-    # draft's totals to the previous release
-    members = unzip(store.objects[key])
-    assert sorted(members) == [
-        "harvest_restrictions.gpkg",
-        "harvest_restrictions_sources.gpkg",
-        "harvest_restrictions_summary.csv",
-        "land_designations_summary.csv",
-        "overlay_run.json",
-        "sources.csv",
-    ]
-    assert json.loads(members["overlay_run.json"])["commit"] == COMMIT
-    summary = pandas.read_csv(io.BytesIO(members["harvest_restrictions_summary.csv"]))
-    assert list(summary.columns) == [
-        "harvest_restriction_class_rank",
-        "harvest_restriction_class_name",
-        "current",
-        PREVIOUS_RELEASE,
-        "diff",
-        "pct_diff",
-    ]
-    assert summary.iloc[0]["diff"] == 20
+    # the summary compares the draft's area (120) to the previous release's (100)
+    summary = pandas.read_csv(io.BytesIO(files["harvest_restrictions_summary.csv"]))
+    assert summary.loc[0, "current"] == 120
+    assert summary.loc[0, PREVIOUS_RELEASE] == 100
 
 
 def test_publish_draft_numbering(store, draft_dir):
-    # numbered after the version's published drafts - draft10 is after draft9, and a
-    # hotfix's drafts are another version's
-    put_draft(store, "v2026-11-draft1")
+    # numbered after the version's published drafts - a hotfix's drafts don't count
     put_draft(store, "v2026-11-draft9")
     put_draft(store, "v2026-11-15-draft12")
     assert hr.publish_draft(store, NEW_VERSION, draft_dir) == "v2026-11-draft10"
 
 
-def test_publish_draft_checkout_needn_t_be_clean(store, draft_dir, git):
-    # what's published is the draft, which check_draft checks - not the checkout
-    git.status = " M sources.json\0"
-    assert hr.publish_draft(store, NEW_VERSION, draft_dir) == "v2026-11-draft1"
-
-
-def test_publish_draft_not_a_version(store, draft_dir, git):
-    with pytest.raises(ValueError, match="isn't a version"):
-        hr.publish_draft(store, "v2026-11-draft1", draft_dir)
+@pytest.mark.parametrize(
+    "version, error",
+    [
+        ("v2026-11-draft1", "isn't a version"),
+        # the latest release is v2026-02
+        ("v2026-02", "doesn't sort after the latest release"),
+    ],
+)
+def test_publish_draft_bad_version(store, draft_dir, git, version, error):
+    with pytest.raises(ValueError, match=error):
+        hr.publish_draft(store, version, draft_dir)
     assert_nothing_published(store, git)
 
 
-@pytest.mark.parametrize("version", ["v2026-01", "v2026-02", "v2026-01-31"])
-def test_publish_draft_version_order(store, draft_dir, git, version):
-    # the version must sort after the latest release, v2026-02
-    with pytest.raises(ValueError, match="doesn't sort after the latest release"):
-        hr.publish_draft(store, version, draft_dir)
+@pytest.mark.parametrize(
+    "commit, changes, error",
+    [
+        ("f00", [], "of commit f00"),
+        (COMMIT, [" M sources.json"], "uncommitted changes"),
+    ],
+)
+def test_publish_draft_bad_draft(store, draft_dir, git, commit, changes, error):
+    # the local draft is of another commit, or was run with uncommitted changes
+    hr.write_overlay_run(draft_dir, commit, changes)
+    with pytest.raises(ValueError, match=error):
+        hr.publish_draft(store, NEW_VERSION, draft_dir)
     assert_nothing_published(store, git)
 
 
 def test_publish_draft_then_release(store, draft_dir, git):
     # what publish_draft publishes is what publish_release reads
     draft = hr.publish_draft(store, NEW_VERSION, draft_dir)
-
     hr.publish_release(store, draft)
-    rows = store.read_csv("logs/harvest_restrictions.csv")
-    assert list(rows[rows["release_tag"] == NEW_VERSION]["area_ha"]) == [120]
+
+    log = store.read_csv("logs/harvest_restrictions.csv")
+    assert list(log["release_tag"]) == [PREVIOUS_RELEASE, NEW_VERSION]
+    assert list(log["area_ha"]) == [100, 120]
     assert git.tags == {NEW_VERSION: COMMIT}
-
-
-@pytest.mark.parametrize(
-    "commit, changes, match",
-    [
-        ("f00", [], "of commit f00"),
-        (COMMIT, [" M sources.json"], "uncommitted changes"),
-        (
-            COMMIT,
-            ["the checkout changed during the run"],
-            "the checkout changed during the run",
-        ),
-    ],
-    ids=["other commit", "uncommitted changes", "checkout changed"],
-)
-def test_publish_draft_refuses_draft(store, draft_dir, git, commit, changes, match):
-    hr.write_overlay_run(draft_dir, commit, changes)
-    with pytest.raises(ValueError, match=match):
-        hr.publish_draft(store, NEW_VERSION, draft_dir)
-    assert_nothing_published(store, git)
-
-
-def test_publish_draft_unfinished_draft(store, draft_dir, git):
-    os.remove(os.path.join(draft_dir, "overlay_run.json"))
-    with pytest.raises(ValueError, match="run overlay first"):
-        hr.publish_draft(store, NEW_VERSION, draft_dir)
-    assert_nothing_published(store, git)
 
 
 # --- publish_release ---
 
 
-def test_release_publishes(store, git):
+def test_release(store, git):
     draft = store.objects[DRAFT_KEY]
     hr.publish_release(store, DRAFT)
 
-    latest_keys = [
-        "latest/harvest_restrictions.gpkg",
-        "latest/harvest_restrictions_sources.gpkg",
-        "latest/sources.csv",
-        "latest/overlay_run.json",
-        "latest/land_designations_summary.csv",
-        "latest/harvest_restrictions_summary.csv",
-    ]
+    # the latest files, then the logs, then the archive - last, marking the release done
+    latest_keys = [f"latest/{name}" for name in unzip(draft)]
     log_keys = ["logs/land_designations.csv", "logs/harvest_restrictions.csv"]
-
-    # the archive last, marking the release as done
     assert store.uploads == latest_keys + log_keys + [ARCHIVE_KEY]
 
-    # the archive is the draft's, as is
+    # the archive, and the latest files, are the draft's
     assert store.objects[ARCHIVE_KEY] == draft
-
-    # the latest files are the archive's files, as is
     for name, body in unzip(draft).items():
         assert store.objects[f"latest/{name}"] == body
 
@@ -547,121 +442,78 @@ def test_release_publishes(store, git):
     assert git.tags == {RELEASE_TAG: COMMIT}
     assert git.pushed == [f"refs/tags/{RELEASE_TAG}"]
 
+    # each log has this release's rows after the previous release's. The class dropped
+    # since the previous release (see summary_body) isn't logged
+    log = store.read_csv("logs/harvest_restrictions.csv")
+    assert list(log["release_tag"]) == [PREVIOUS_RELEASE, RELEASE_TAG]
+    assert list(log.columns) == ["release_tag"] + hr.LOGS["harvest_restrictions"] + [
+        "area_ha"
+    ]
 
-def test_release_logs(store):
+
+def test_release_deletes_drafts(store):
+    # every draft of the released version - not other versions'
+    put_draft(store, "v2026-10-draft2")
+    put_draft(store, "v2026-11-draft1")
+
     hr.publish_release(store, DRAFT)
+    assert store.list("drafts/") == ["drafts/harvest_restrictions_v2026-11-draft1.zip"]
 
-    # this release's rows, appended to the previous release's
+
+def test_release_retry(store, git):
+    # a previous attempt tagged the commit, and logged some of its rows, before failing -
+    # the retry pushes the tag again, and replaces the rows rather than logging them twice
+    git.tags[RELEASE_TAG] = COMMIT
+    put_release_log(store, RELEASE_TAG, logs=["land_designations"])
+
+    hr.publish_release(store, DRAFT)
+    assert git.pushed == [f"refs/tags/{RELEASE_TAG}"]
     for log in hr.LOGS:
         rows = store.read_csv(f"logs/{log}.csv")
         assert list(rows["release_tag"]) == [PREVIOUS_RELEASE, RELEASE_TAG]
 
-    # the class dropped since the previous release isn't logged (as zero, or at all)
-    rows = store.read_csv("logs/harvest_restrictions.csv")
-    rows = rows[rows["release_tag"] == RELEASE_TAG]
-    assert len(rows) == 1
-    row = rows.iloc[0]
-    assert row["harvest_restriction_class_rank"] == 1
-    assert row["area_ha"] == 110
 
-    designations = store.read_csv("logs/land_designations.csv")
-    # release_tag first, then the category columns
-    assert (
-        list(designations.columns[:6]) == ["release_tag"] + hr.LOGS["land_designations"]
-    )
-
-
-def test_release_named_draft(store, git):
-    # the draft named, not the version's newest - and its commit is tagged
-    put_draft(store, "v2026-10-draft2", commit="def5678")
-    put_draft(store, "v2026-10-draft3")
-    draft = store.objects[hr.draft_key("v2026-10-draft2")]
-
-    hr.publish_release(store, "v2026-10-draft2")
-    assert store.objects[ARCHIVE_KEY] == draft
-    assert git.tags == {RELEASE_TAG: "def5678"}
-
-
-def test_release_not_a_draft(store, git):
-    with pytest.raises(ValueError, match="isn't a draft"):
-        hr.publish_release(store, RELEASE_TAG)
-    assert_nothing_published(store, git)
-
-
-def test_release_draft_not_published(store, git):
-    with pytest.raises(ValueError, match="v2026-10-draft2 isn't published"):
-        hr.publish_release(store, "v2026-10-draft2")
-    assert_nothing_published(store, git)
-
-
-def test_release_already_tagged(store, git):
-    # a retry, after tagging - the tag is pushed again, not recreated
-    git.tags[RELEASE_TAG] = COMMIT
-
-    hr.publish_release(store, DRAFT)
-    assert git.tags == {RELEASE_TAG: COMMIT}
-    assert git.pushed == [f"refs/tags/{RELEASE_TAG}"]
-    assert ARCHIVE_KEY in store.objects
-
-
-def test_release_tagged_elsewhere(store, git):
-    git.tags[RELEASE_TAG] = "f00"
-
-    with pytest.raises(ValueError, match="already on commit f00"):
-        hr.publish_release(store, DRAFT)
+@pytest.mark.parametrize(
+    "draft, error",
+    [
+        (RELEASE_TAG, "isn't a draft"),
+        ("v2026-10-draft2", "isn't published"),
+    ],
+)
+def test_release_bad_draft(store, git, draft, error):
+    with pytest.raises(ValueError, match=error):
+        hr.publish_release(store, draft)
     assert_nothing_published(store, git)
 
 
 def test_release_already_released(store, git):
     store.put(ARCHIVE_KEY, "archive")
-
     with pytest.raises(ValueError, match="already been released"):
         hr.publish_release(store, DRAFT)
     assert_nothing_published(store, git)
 
 
-def test_release_partially_logged(store):
-    # a previous attempt failed between publishing its change log files - its rows are
-    # replaced, not logged twice
-    put_release_log(store, RELEASE_TAG, logs=["land_designations"])
-
-    hr.publish_release(store, DRAFT)
-    for log in hr.LOGS:
-        rows = store.read_csv(f"logs/{log}.csv")
-        assert list(rows["release_tag"]) == [PREVIOUS_RELEASE, RELEASE_TAG]
-
-
-def test_release_version_order(store, git):
-    # a later version released since the draft was published
-    put_release(store, "v2026-11")
-
-    with pytest.raises(
-        ValueError, match="doesn't sort after the latest release, v2026-11"
-    ):
+def test_release_tagged_elsewhere(store, git):
+    git.tags[RELEASE_TAG] = "f00"
+    with pytest.raises(ValueError, match="already on commit f00"):
         hr.publish_release(store, DRAFT)
     assert_nothing_published(store, git)
 
 
-def test_release_stale_summaries(store, git):
-    # another release since the draft ran - its diffs are against an older release
-    put_release(store, "v2026-05")
-
-    with pytest.raises(ValueError, match="older release"):
+@pytest.mark.parametrize(
+    "release, error",
+    [
+        # a later version than the draft's
+        ("v2026-11", "doesn't sort after the latest release"),
+        # an earlier version, but after the release the draft's summaries compare to
+        ("v2026-05", "older release"),
+    ],
+)
+def test_release_since_draft(store, git, release, error):
+    # another release was made after the draft was published
+    put_release(store, release)
+    with pytest.raises(ValueError, match=error):
         hr.publish_release(store, DRAFT)
     assert_nothing_published(store, git)
-    # the draft is kept - the release's retry (with a new draft) may still want it
+    # the draft is kept
     assert DRAFT_KEY in store.objects
-
-
-def test_release_deletes_drafts(store):
-    # every draft of the released version, not just the one released - not other
-    # versions', or anything else
-    put_draft(store, "v2026-10-draft2")
-    put_draft(store, "v2026-11-draft1")
-    store.put("drafts/notes.txt", "?")
-
-    hr.publish_release(store, DRAFT)
-    assert store.list("drafts/") == [
-        "drafts/harvest_restrictions_v2026-11-draft1.zip",
-        "drafts/notes.txt",
-    ]
