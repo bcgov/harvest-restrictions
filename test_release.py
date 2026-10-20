@@ -523,7 +523,7 @@ def draft_dir(tmp_path):
     draft_dir.mkdir()
     (draft_dir / hr.OVERLAY_GPKG).write_text("gpkg")
     (draft_dir / hr.SOURCES_GPKG).write_text("designations gpkg")
-    (draft_dir / hr.SOURCES_CSV).write_text(SOURCES_CSV_BODY)
+    (draft_dir / "sources.csv").write_text(SOURCES_CSV_BODY)
     for log, row in LOG_ROWS.items():
         pandas.DataFrame([{**row, "area_ha": 120.0}]).to_csv(
             draft_dir / f"{log}.csv", index=False
@@ -569,7 +569,7 @@ def test_publish_prerelease(store, draft_dir, tmp_path):
     # aren't written to it
     assert os.listdir(tmp_path) == ["drafts"]
     assert sorted(os.listdir(draft_dir)) == sorted(
-        [hr.OVERLAY_RUN_JSON, hr.SOURCES_CSV, hr.OVERLAY_GPKG, hr.SOURCES_GPKG]
+        [hr.OVERLAY_RUN_JSON, "sources.csv", hr.OVERLAY_GPKG, hr.SOURCES_GPKG]
         + [f"{log}.csv" for log in hr.LOGS]
     )
 

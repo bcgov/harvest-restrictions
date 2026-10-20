@@ -49,7 +49,6 @@ PREFIX = "harvest_restrictions"
 # layer)
 OVERLAY_GPKG = "harvest_restrictions.gpkg"
 SOURCES_GPKG = "harvest_restrictions_sources.gpkg"
-SOURCES_CSV = "sources.csv"
 
 # the area totals compared to the previous release and logged with each release, by log name -
 # each log's columns, the first being its key. overlay builds each log's totals with
@@ -67,11 +66,6 @@ LOGS = {
         "harvest_restriction_class_name",
     ],
 }
-AREA = "area_ha"
-
-# files whose changes can't affect the outputs - every other tracked file must be committed
-# for a run to be the commit's output
-DOCS = ["*.md", "CHANGES.txt", "LICENSE"]
 
 # a release candidate's tag: <version>-rc.<n>
 RC_TAG = re.compile(r"^(?P<version>.+)-rc\.(?P<n>[0-9]+)$")
@@ -84,7 +78,7 @@ def summary(log):
 # each release candidate's and release's archive, holding these files - which are also each
 # release's latest/ files
 ARCHIVE = "harvest_restrictions_{tag}.zip"
-ARCHIVED_FILES = [OVERLAY_GPKG, SOURCES_GPKG, SOURCES_CSV] + [
+ARCHIVED_FILES = [OVERLAY_GPKG, SOURCES_GPKG, "sources.csv"] + [
     summary(log) for log in LOGS
 ]
 
@@ -498,11 +492,14 @@ def git(*args):
 
 
 def uncommitted_changes():
-    """git status lines of the uncommitted changes to tracked files, other than DOCS
+    """git status lines of the uncommitted changes to tracked files, other than to docs
 
     Untracked files are ignored: the analysis can only use one if a tracked file refers to
     it, and that change would itself be uncommitted.
     """
+    # files whose changes can't affect the outputs - every other tracked file must be
+    # committed for a run to be the commit's output
+    docs = ["*.md", "CHANGES.txt", "LICENSE"]
     # -z: entries NUL-separated, paths unquoted - a rename or copy is followed by its source
     entries = iter(
         subprocess.check_output(
@@ -518,13 +515,13 @@ def uncommitted_changes():
         status, paths = entry[:2], [entry[3:]]
         if "R" in status or "C" in status:
             paths.append(next(entries))
-        if not all(any(fnmatch.fnmatch(p, doc) for doc in DOCS) for p in paths):
+        if not all(any(fnmatch.fnmatch(p, doc) for doc in docs) for p in paths):
             changes.append(f"{status} {' <- '.join(paths)}")
     return changes
 
 
 def committed_head():
-    """the checked-out commit, refusing if it has uncommitted changes (other than to DOCS)
+    """the checked-out commit, refusing if it has uncommitted changes (other than to docs)
 
     A candidate is published as the commit's output, so it must be exactly what the commit
     produces.
@@ -539,7 +536,7 @@ def committed_head():
 
 
 def checkout_state():
-    """(HEAD, uncommitted changes other than to DOCS) of the checkout"""
+    """(HEAD, uncommitted changes other than to docs) of the checkout"""
     return git("rev-parse", "HEAD"), uncommitted_changes()
 
 
@@ -655,10 +652,10 @@ def build_change(current_file, history, previous_release, columns):
     key, *descriptive = columns
 
     previous = history[history["release_tag"] == previous_release][
-        columns + [AREA]
-    ].rename(columns={AREA: previous_release})
-    current = pandas.read_csv(current_file)[columns + [AREA]].rename(
-        columns={AREA: "current"}
+        columns + ["area_ha"]
+    ].rename(columns={"area_ha": previous_release})
+    current = pandas.read_csv(current_file)[columns + ["area_ha"]].rename(
+        columns={"area_ha": "current"}
     )
 
     merged = previous.merge(current, how="outer", on=key, suffixes=("_previous", ""))
@@ -701,7 +698,7 @@ def release_candidate(store):
 def publish_prerelease(store, rc_tag, commit, draft_dir="drafts"):
     """publish the draft as a release candidate's archive in drafts/ in the bucket
 
-    draft_dir holds overlay's outputs: OVERLAY_GPKG, SOURCES_GPKG, SOURCES_CSV, the area
+    draft_dir holds overlay's outputs: OVERLAY_GPKG, SOURCES_GPKG, sources.csv, the area
     totals (<log>.csv), and OVERLAY_RUN_JSON. Refuses unless the draft is commit's, with no
     uncommitted changes. The summaries comparing the totals to the most recent release are
     built here, and archived with the rest - the draft itself is left as is. The archive is
@@ -851,8 +848,8 @@ def publish_release(store):
         for log, columns in LOGS.items():
             rows = (
                 pandas.read_csv(local(f"latest/{summary(log)}"))[columns + ["current"]]
-                .rename(columns={"current": AREA})
-                .dropna(subset=[AREA])
+                .rename(columns={"current": "area_ha"})
+                .dropna(subset=["area_ha"])
             )
             rows["release_tag"] = release_tag
             rows["release_date"] = release_date
@@ -1190,7 +1187,7 @@ def overlay(db_url, designations_table, verbose, quiet, draft_dir="drafts"):
         run(f"{psql} -f sql/{log}.sql --csv > {draft(log + '.csv')}")
 
     # flatten sources.json to a csv, for review alongside the rest of the outputs
-    write_sources_csv("sources.json", draft(SOURCES_CSV))
+    write_sources_csv("sources.json", draft("sources.csv"))
 
     # a checkout changed during the run (a commit, another checkout, an edit) means the
     # results are no commit's in particular
