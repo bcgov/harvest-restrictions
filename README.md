@@ -18,10 +18,10 @@ Each source land designation / restriction is defined as a 'layer' in [`sources.
 | `layer`      | For sources of type `FILE`, the layer to use within the file (optional) |
 | `query`      | Query to subset data in source/layer - ECQL for BCGW sources, OGR SQL for files (optional) |
 | `primary_key`| The column holding primary key for the given source          |
-| `field map`  | Mapping of source column names to new column names   |
+| `field_mapper`| Mapping of source column names to new column names   |
 | `data`       | Additional data to add to all records of the source, as key(column):value pair |
 
-The `harvest_restriction` key in the `data` field defines the level of restriction a the given source, where restrictions are:
+The `harvest_restriction` key in the `data` field defines the level of restriction of the given source, where restrictions are:
 
 | `harvest_restriction` | description |
 |-----------------------|-------------|
@@ -67,7 +67,7 @@ Output `harvest_restrictions.gpkg` (layer `harvest_restrictions`) has the follow
 | `all_land_desig_type_ranks`       | String  | All designations ranks that apply to the given polygon           |   
 | `all_land_desig_type_codes`       | String  | All designations types that apply to the given polygon           |   
 | `all_land_desig_type_names`       | String  | All designations type names that apply to the given polygon      |   
-| `all_land_desig_primary_keys`     | String  | Primary key values for all designations that apply to the given polyon |   
+| `all_land_desig_primary_keys`     | String  | Primary key values for all designations that apply to the given polygon |   
 | `all_harv_restrict_class_ranks`   | String  | All harvest restriction class ranks that apply to the given polygon |   
 | `all_harv_restrict_class_names`   | String  | All harvest restriction class names that apply to the given polygon |
 | `map_tile_250k`                   | String  | NTS 1:250,000 tile name                                          |   
@@ -81,7 +81,7 @@ Each release also includes `harvest_restrictions_sources.gpkg` (layer `designati
 ## Development and testing setup
 
     git clone git@github.com:bcgov/harvest-restrictions.git
-    cd harvest_restrictions
+    cd harvest-restrictions
     docker compose build
     docker compose up -d
 
