@@ -1,0 +1,2 @@
+# the local database, mounted into the db container - not needed to build either image
+postgres-data

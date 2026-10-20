@@ -1,4 +1,3 @@
--- create class lookup
 CREATE EXTENSION postgis;
 
 -- restriction type lookup
