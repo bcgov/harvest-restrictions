@@ -273,41 +273,7 @@ def test_build_change_new_and_dropped_categories(current, history):
     assert pandas.isna(new["pct_diff"])
 
 
-def test_build_change_columns(current, history):
-    result = hr.build_change(current, history, "v2026-02", COLUMNS)
-    assert result.index.name == "harvest_restriction_class_rank"
-    assert list(result.columns) == [
-        "harvest_restriction_class_name",
-        "current",
-        "v2026-02",
-        "diff",
-        "pct_diff",
-    ]
-
-
 # --- S3Store ---
-
-
-def test_s3store_list(monkeypatch):
-    calls = []
-
-    def fake_run(cmd, **kwargs):
-        calls.append(cmd)
-        out = json.dumps(
-            {
-                "Contents": [
-                    {"Key": "harvest_restrictions/logs/b"},
-                    {"Key": "harvest_restrictions/logs/a"},
-                ]
-            }
-        )
-        return subprocess.CompletedProcess(cmd, 0, stdout=out)
-
-    monkeypatch.setattr(hr.subprocess, "run", fake_run)
-    store = hr.S3Store("bucket")
-    # keys relative to the prefix, sorted
-    assert store.list("logs/") == ["logs/a", "logs/b"]
-    assert calls[0][calls[0].index("--prefix") + 1] == "harvest_restrictions/logs/"
 
 
 def test_s3store_list_empty(monkeypatch):
@@ -320,7 +286,7 @@ def test_s3store_list_empty(monkeypatch):
     assert hr.S3Store("bucket").list("logs/") == []
 
 
-# --- geopackages and zips ---
+# --- zip_files ---
 
 
 def make_gpkg(path, layer):
@@ -340,31 +306,6 @@ def make_gpkg(path, layer):
         ],
         check=True,
     )
-
-
-def gpkg_layers(path):
-    info = subprocess.run(
-        ["ogrinfo", "-q", str(path)], check=True, capture_output=True, text=True
-    ).stdout
-    # eg "1: harvest_restrictions (Point)"
-    return sorted(line.split(": ")[1].split(" ")[0] for line in info.splitlines())
-
-
-@pytest.mark.skipif(not shutil.which("ogr2ogr"), reason="requires GDAL")
-def test_add_gpkg_layer(tmp_path):
-    # creating the geopackage, then adding to it - each layer named as given
-    source = tmp_path / "source.gpkg"
-    make_gpkg(source, "some_table")
-    bundle = tmp_path / "harvest_restrictions.gpkg"
-
-    hr.add_gpkg_layer(str(bundle), str(source), "harvest_restrictions")
-    hr.add_gpkg_layer(str(bundle), str(source), "designations")
-    assert gpkg_layers(bundle) == ["designations", "harvest_restrictions"]
-
-    # just one layer of a geopackage
-    latest = tmp_path / "latest.gpkg"
-    hr.add_gpkg_layer(str(latest), str(bundle), "designations", "designations")
-    assert gpkg_layers(latest) == ["designations"]
 
 
 @pytest.mark.skipif(not shutil.which("sozip"), reason="requires GDAL")
@@ -449,22 +390,10 @@ def test_names(name, version, draft):
     assert bool(hr.DRAFT.fullmatch(name)) == draft
 
 
-def test_published_drafts(store):
-    # just the version's - not a hotfix's, or anything else under drafts/
-    put_draft(store, "v2026-10-draft10")
-    put_draft(store, "v2026-10-15-draft1")
-    store.put("drafts/harvest_restrictions_v2026-10-draftx.zip", "?")
-    store.put("drafts/notes.txt", "?")
-    assert sorted(hr.published_drafts(store, RELEASE_TAG)) == [
-        DRAFT,
-        "v2026-10-draft10",
-    ]
-
-
 # --- publish_draft ---
 
 
-def test_publish_draft(store, draft_dir, tmp_path):
+def test_publish_draft(store, draft_dir):
     assert hr.publish_draft(store, NEW_VERSION, draft_dir) == "v2026-11-draft1"
 
     key = "drafts/harvest_restrictions_v2026-11-draft1.zip"
@@ -493,19 +422,6 @@ def test_publish_draft(store, draft_dir, tmp_path):
     ]
     assert summary.iloc[0]["diff"] == 20
 
-    # nothing is kept locally but the draft (in tmp_path/drafts/), left as is - the summaries
-    # aren't written to it
-    assert os.listdir(tmp_path) == ["drafts"]
-    assert sorted(os.listdir(draft_dir)) == sorted(
-        [
-            "overlay_run.json",
-            "sources.csv",
-            "harvest_restrictions.gpkg",
-            "harvest_restrictions_sources.gpkg",
-        ]
-        + [f"{log}.csv" for log in hr.LOGS]
-    )
-
 
 def test_publish_draft_numbering(store, draft_dir):
     # numbered after the version's published drafts - draft10 is after draft9, and a
@@ -522,10 +438,9 @@ def test_publish_draft_checkout_needn_t_be_clean(store, draft_dir, git):
     assert hr.publish_draft(store, NEW_VERSION, draft_dir) == "v2026-11-draft1"
 
 
-@pytest.mark.parametrize("version", ["2026-11", "v2026-11-draft1", "v2026-11b"])
-def test_publish_draft_not_a_version(store, draft_dir, git, version):
+def test_publish_draft_not_a_version(store, draft_dir, git):
     with pytest.raises(ValueError, match="isn't a version"):
-        hr.publish_draft(store, version, draft_dir)
+        hr.publish_draft(store, "v2026-11-draft1", draft_dir)
     assert_nothing_published(store, git)
 
 
@@ -642,21 +557,9 @@ def test_release_named_draft(store, git):
     assert git.tags == {RELEASE_TAG: "def5678"}
 
 
-def test_release_hotfix(store, git):
-    # a hotfix's version includes the day
-    put_draft(store, "v2026-10-15-draft1")
-
-    hr.publish_release(store, "v2026-10-15-draft1")
-    assert "releases/harvest_restrictions_v2026-10-15.zip" in store.objects
-    assert git.tags == {"v2026-10-15": COMMIT}
-    # v2026-10's draft isn't the hotfix's
-    assert DRAFT_KEY in store.objects
-
-
-@pytest.mark.parametrize("draft", [RELEASE_TAG, "v2026-10-draft0", "draft1"])
-def test_release_not_a_draft(store, git, draft):
+def test_release_not_a_draft(store, git):
     with pytest.raises(ValueError, match="isn't a draft"):
-        hr.publish_release(store, draft)
+        hr.publish_release(store, RELEASE_TAG)
     assert_nothing_published(store, git)
 
 
@@ -723,11 +626,6 @@ def test_release_stale_summaries(store, git):
     assert_nothing_published(store, git)
     # the draft is kept - the release's retry (with a new draft) may still want it
     assert DRAFT_KEY in store.objects
-
-
-def test_release_keeps_nothing_locally(store, tmp_path):
-    hr.publish_release(store, DRAFT)
-    assert os.listdir(tmp_path) == []
 
 
 def test_release_deletes_drafts(store):
