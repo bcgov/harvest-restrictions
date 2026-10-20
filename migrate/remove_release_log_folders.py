@@ -27,12 +27,12 @@ for log in hr.LOGS:
     for k in folder_keys:
         store.download(k, f"release_logs_backup/{k}")
         frames.append(pandas.read_csv(f"release_logs_backup/{k}"))
-    # in release order - the release tags (vYYYY-MM) sort by date. run_id was never filled
-    # in by the backfill, and released_at isn't needed to order the releases - neither is
-    # written by release
+    # in release order - the release tags (vYYYY-MM) sort by date. Only the columns release
+    # writes are kept: run_id was never filled in by the backfill, the tag gives the release's
+    # date, and the commit identifies what was released
     rows = (
         pandas.concat(frames, ignore_index=True)
-        .drop(columns=["run_id", "released_at"], errors="ignore")
+        .drop(columns=["run_id", "released_at", "release_date"], errors="ignore")
         .sort_values("release_tag", kind="stable")
     )
     # first, for sorting and filtering the logs by eye

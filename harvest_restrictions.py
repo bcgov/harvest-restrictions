@@ -664,7 +664,6 @@ def publish_release(store):
     The candidates are left in place - prune-prereleases deletes them.
     """
     commit = git("rev-parse", "HEAD")
-    release_date = git("log", "-1", "--format=%aI", commit)
     release_tags, rc_tags = head_tags()
     if len(release_tags) != 1:
         raise ValueError(
@@ -749,7 +748,6 @@ def publish_release(store):
             )
             # first, for sorting and filtering the logs by eye
             rows.insert(0, "release_tag", release_tag)
-            rows["release_date"] = release_date
             rows["commit"] = commit[:7]
 
             if histories[log] is not None:

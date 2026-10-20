@@ -15,7 +15,6 @@ import harvest_restrictions as hr
 COMMIT = "abc1234def5678"
 RELEASE_TAG = "v2026-10"
 RC_TAG = "v2026-10-rc.1"
-RELEASE_DATE = "2026-10-01T10:00:00-07:00"
 PREVIOUS_RELEASE = "v2026-02"
 RC_KEY = f"drafts/harvest_restrictions_{RC_TAG}.zip"
 ARCHIVE_KEY = f"releases/harvest_restrictions_{RELEASE_TAG}.zip"
@@ -251,8 +250,6 @@ def fake_git(tags=(RELEASE_TAG, RC_TAG), status="", head=COMMIT):
             return status.encode()
         if cmd[:2] == ["git", "tag"]:
             return "\n".join(tags).encode()
-        if cmd[:2] == ["git", "log"]:
-            return RELEASE_DATE.encode()
         if cmd == ["git", "rev-parse", "HEAD"]:
             return head.encode()
         raise AssertionError(f"unexpected command {cmd}")
@@ -324,7 +321,6 @@ def put_release_log(store, release_tag, logs=None):
                     "release_tag": release_tag,
                     **row,
                     "area_ha": 100.0,
-                    "release_date": "2026-01-01",
                     "commit": "0000000",
                 }
             ]
@@ -647,7 +643,6 @@ def test_release_logs(store):
     assert row["harvest_restriction_class_rank"] == 1
     assert row["area_ha"] == 110
     assert row["release_tag"] == RELEASE_TAG
-    assert row["release_date"] == RELEASE_DATE
     assert row["commit"] == COMMIT[:7]
     assert "prerelease" not in rows.columns
 

@@ -207,7 +207,7 @@ s3://$BUCKET/harvest_restrictions/
 - `land_designations_summary.csv`, `harvest_restrictions_summary.csv` - comparing the *most recent release* against the candidate with `current`/`diff`/`pct_diff` columns. Retains every category present in either side - a category new to this run or dropped since the previous release still gets its labels, with `diff`/`pct_diff` left as `NaN` rather than misleadingly implying zero area. This is what you review in step 9 above, and what `release` reads (via the `current` column) to append the release's totals to the change log - and, from the previous release's column name, to refuse a candidate compared against an older release than the latest
 - `sources.csv` - a flattened `sources.json` as it stood for this run
 
-**`logs/land_designations.csv` / `logs/harvest_restrictions.csv`** - the change logs, written only by `release`, which appends each release's rows. One row per category per release (`release_tag`, category columns, `area_ha`, `release_date`, `commit`), in release order - each release appends its rows. `release_date` is the released commit's author date, which needn't follow release order. Older releases also have a `prerelease` column (the promoted release candidate). `prerelease` reads the logs to find the previous release to compare against. If a release fails partway through publishing, its retry replaces any of its rows already logged.
+**`logs/land_designations.csv` / `logs/harvest_restrictions.csv`** - the change logs, written only by `release`, which appends each release's rows. One row per category per release (`release_tag`, category columns, `area_ha`, `commit`), in release order - each release appends its rows. Older releases also have a `prerelease` column (the promoted release candidate). `prerelease` reads the logs to find the previous release to compare against. If a release fails partway through publishing, its retry replaces any of its rows already logged.
 
 **`latest/`** - `harvest_restrictions.gpkg`, `harvest_restrictions_sources.gpkg`, `land_designations_summary.csv`, `harvest_restrictions_summary.csv` and `sources.csv`: the latest release's files, written only by `release`, at fixed plain-named keys (no suffix), overwritten on every release. The latest release archive's files, unzipped, for scripts/mapping applications that just want the current release without tracking release tags - point at these instead of the `releases/` archive. Fully redundant with the latest release's archive.
 
@@ -221,7 +221,7 @@ Every release candidate is a published draft, and every release a published rele
 
 ### Change log history
 
-The logs were backfilled from pre-existing wide-format records. `v2024-08`, `v2025-04`, `v2025-08`, and `v2026-02` carry real `commit`/`release_date` values from their matching git tags (the latter two were originally recorded under the old `-DRAFT` tag naming convention, since renamed). `v2023-07` and `v2024-04` have no corresponding git tag at all - for those two, `release_date` is approximated as the first of the tag's named month and `commit` is left blank.
+The logs were backfilled from pre-existing wide-format records. `v2024-08`, `v2025-04`, `v2025-08`, and `v2026-02` carry real `commit` values from their matching git tags (the latter two were originally recorded under the old `-DRAFT` tag naming convention, since renamed). `v2023-07` and `v2024-04` have no corresponding git tag at all - for those two, `commit` is left blank.
 
 
 ## designatedlands
