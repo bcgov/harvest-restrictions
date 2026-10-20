@@ -236,13 +236,14 @@ def validate_bcgw(source):
             f"Validation error: {source['alias']} - {table} does not exist in BCGW or is not available via WFS"
         )
 
-    # get columns present in source from data catalogue
+    # get columns present in source from data catalogue - lowercased, as the downloaded
+    # data's columns are
     table_def = bcdata.get_table_definition(table)
-    columns = [c["column_name"] for c in table_def["schema"]]
+    columns = [c["column_name"].lower() for c in table_def["schema"]]
 
     # is primary key present and not null?
     if source.get("primary_key"):
-        if source["primary_key"].upper() not in columns:
+        if source["primary_key"].lower() not in columns:
             raise ValueError(
                 f"Validation error: {source['alias']} - Primary key - {source['primary_key']} is not present in {table}"
             )
@@ -250,7 +251,7 @@ def validate_bcgw(source):
     # required columns in field mapping present?
     for column in source["field_mapper"].values():
         if column:  # allow null source columns (adds the new column, but with no values from source)
-            if column.upper() not in columns:
+            if column.lower() not in columns:
                 raise ValueError(
                     f"Validation error: {source['alias']} - column {column} is not present in {table}, modify config 'field_mapper'"
                 )
@@ -301,7 +302,8 @@ def download_source(source):
             as_gdf=True,
             lowercase=True,
         )
-        # if primary key is not provided in config, default to the pk noted in bcdata (if any)
+        # if primary key is not provided in config, default to the pk noted in bcdata (if any),
+        # which lists its tables by lowercase name
         if not source.get("primary_key"):
             source["primary_key"] = bcdata.primary_keys.get(source["source"].lower())
 
