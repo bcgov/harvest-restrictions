@@ -354,7 +354,7 @@ def put_prerelease(store, rc_tag=RC_TAG, previous_release=PREVIOUS_RELEASE):
         z.writestr("harvest_restrictions_sources.gpkg", "designations gpkg")
         z.writestr("sources.csv", SOURCES_CSV_BODY)
         for log in hr.LOGS:
-            z.writestr(hr.summary(log), summary_body(log, previous_release))
+            z.writestr(f"{log}_summary.csv", summary_body(log, previous_release))
     tags = {
         "commit": COMMIT,
         "prerelease": rc_tag,
@@ -571,7 +571,7 @@ def test_publish_prerelease(store, draft_dir, tmp_path):
     # aren't written to it
     assert os.listdir(tmp_path) == ["drafts"]
     assert sorted(os.listdir(draft_dir)) == sorted(
-        [hr.OVERLAY_RUN_JSON, "sources.csv", hr.OVERLAY_GPKG, hr.SOURCES_GPKG]
+        ["overlay_run.json", "sources.csv", hr.OVERLAY_GPKG, hr.SOURCES_GPKG]
         + [f"{log}.csv" for log in hr.LOGS]
     )
 
@@ -615,7 +615,7 @@ def test_publish_prerelease_refuses_draft(store, draft_dir, commit, changes, mat
 
 
 def test_publish_prerelease_unfinished_draft(store, draft_dir):
-    os.remove(os.path.join(draft_dir, hr.OVERLAY_RUN_JSON))
+    os.remove(os.path.join(draft_dir, "overlay_run.json"))
     with pytest.raises(ValueError, match="run overlay first"):
         hr.publish_prerelease(store, NEW_RC, COMMIT, draft_dir)
     assert store.uploads == []

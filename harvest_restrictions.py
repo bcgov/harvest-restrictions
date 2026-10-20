@@ -664,7 +664,7 @@ def publish_prerelease(store, rc_tag, commit, draft_dir="drafts"):
     """publish the draft as a release candidate's archive in drafts/ in the bucket
 
     draft_dir holds overlay's outputs: OVERLAY_GPKG, SOURCES_GPKG, sources.csv, the area
-    totals (<log>.csv), and OVERLAY_RUN_JSON. Refuses unless the draft is commit's, with no
+    totals (<log>.csv), and overlay_run.json. Refuses unless the draft is commit's, with no
     uncommitted changes. The summaries comparing the totals to the most recent release are
     built here, and archived with the rest - the draft itself is left as is. The archive is
     built in a temporary directory, removed once it's published - the draft is the local copy.
