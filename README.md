@@ -223,14 +223,19 @@ The logs were backfilled from pre-existing wide-format records. `v2024-08`, `v20
 As of `v2026-08` any release can be exactly recreated using the same data and tools. Starting from scratch with a hypothetical `v2026-10` release:
 
     git clone git@github.com:bcgov/harvest-restrictions.git
-    cd harvest_restrictions
+    cd harvest-restrictions
     # check out the release code
     git checkout v2026-10
-    docker compose build
+    # use the release's images, built by the release workflow - tagged with the names docker
+    # compose gives the images it builds, so it uses these rather than building its own
+    for image in db runner; do
+      docker pull ghcr.io/bcgov/harvest-restrictions-$image:v2026-10
+      docker tag ghcr.io/bcgov/harvest-restrictions-$image:v2026-10 harvest-restrictions-$image
+    done
     docker compose up -d
     # load data from the release archive
     docker compose run -it --rm runner sh -c 'ogr2ogr -f PostgreSQL "PG:$DATABASE_URL" -append -nln designations /vsizip//vsis3/$BUCKET/harvest_restrictions/releases/harvest_restrictions_v2026-10.zip/harvest_restrictions_sources.gpkg designations'
-    # run the overlays, writing output to local /drafts folder
+    # run the overlays, writing output to the local draft folder, drafts/
     docker compose run -it --rm runner python harvest_restrictions.py overlay -v
 
 ## designatedlands
