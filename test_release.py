@@ -228,6 +228,11 @@ class MemoryStore:
             self.put(key, f.read())
         self.uploads.append(key)
 
+    def copy(self, key, new_key):
+        # published, like an upload
+        self.objects[new_key] = self.objects[key]
+        self.uploads.append(new_key)
+
     def download(self, key, local_file):
         if key not in self.objects:
             raise subprocess.CalledProcessError(1, f"aws s3 cp {key}")
@@ -455,36 +460,11 @@ def test_release_candidate_uncommitted_changes(store, monkeypatch):
 
 def test_overlay_run_json(tmp_path):
     hr.write_overlay_run(str(tmp_path), COMMIT, [" M sql/overlay.sql"])
-    draft = hr.read_overlay_run(str(tmp_path))
+    with open(tmp_path / "overlay_run.json") as f:
+        draft = json.load(f)
     assert draft["commit"] == COMMIT
     assert draft["uncommitted_changes"] == [" M sql/overlay.sql"]
     assert pandas.notna(pandas.to_datetime(draft["finished_at"]))
-
-
-def test_read_overlay_run_unfinished(tmp_path):
-    # no overlay_run.json - the overlay didn't finish (or hasn't run)
-    assert hr.read_overlay_run(str(tmp_path)) is None
-
-
-def test_check_draft():
-    hr.check_draft({"commit": COMMIT, "uncommitted_changes": []}, COMMIT)
-
-
-@pytest.mark.parametrize(
-    "draft, match",
-    [
-        (None, "run overlay first"),
-        ({"commit": "f00", "uncommitted_changes": []}, "of commit f00"),
-        (
-            {"commit": COMMIT, "uncommitted_changes": [" M sql/overlay.sql"]},
-            "uncommitted changes",
-        ),
-    ],
-    ids=["no draft", "other commit", "uncommitted changes"],
-)
-def test_check_draft_refuses(draft, match):
-    with pytest.raises(ValueError, match=match):
-        hr.check_draft(draft, COMMIT)
 
 
 # --- publish_prerelease ---

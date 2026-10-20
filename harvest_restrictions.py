@@ -411,6 +411,12 @@ class S3Store:
     def upload(self, local_file, key):
         subprocess.run(["aws", "s3", "cp", local_file, self.url(key)], check=True)
 
+    def copy(self, key, new_key):
+        """copy within the bucket - nothing is downloaded"""
+        subprocess.run(
+            ["aws", "s3", "cp", self.url(key), self.url(new_key)], check=True
+        )
+
     def download(self, key, local_file):
         """download to local_file, creating its directory if needed"""
         os.makedirs(os.path.dirname(local_file) or ".", exist_ok=True)
@@ -476,20 +482,15 @@ def write_overlay_run(draft_dir, commit, changes):
         json.dump(draft, f, indent=2)
 
 
-def read_overlay_run(draft_dir):
-    """the draft's record, as a dict - or None if there's no finished draft (the draft is
-    removed when an overlay starts, and its record written when it finishes)"""
+def check_draft(draft_dir, commit):
+    """refuse unless draft_dir holds a finished draft of commit, run without uncommitted
+    changes - from its overlay_run.json (the draft is removed when an overlay starts, and
+    its record written when it finishes)"""
     path = os.path.join(draft_dir, "overlay_run.json")
     if not os.path.exists(path):
-        return None
-    with open(path) as f:
-        return json.load(f)
-
-
-def check_draft(draft, commit):
-    """refuse unless the draft is commit's, run without uncommitted changes"""
-    if not draft:
         raise ValueError("No finished overlay draft - run overlay first")
+    with open(path) as f:
+        draft = json.load(f)
     if draft["commit"] != commit:
         raise ValueError(
             f"The draft is of commit {draft['commit']}, not {commit} - run overlay on this "
@@ -615,23 +616,18 @@ def publish_prerelease(store, rc_tag, commit, draft_dir="drafts"):
     with the rest - the draft itself is left as is. The archive is built in a temporary
     directory, removed once it's published - the draft is the local copy.
     """
-    check_draft(read_overlay_run(draft_dir), commit)
+    check_draft(draft_dir, commit)
 
-    with tempfile.TemporaryDirectory() as logs_dir:
-        histories = read_release_logs(store, logs_dir)
-    check_version_order(
-        RC_TAG.fullmatch(rc_tag)["version"],
-        next(iter(histories.values()))["release_tag"].iloc[-1],
-    )
     key = prerelease_key(rc_tag)
     summaries = [f"{log}_summary.csv" for log in LOGS]
     with tempfile.TemporaryDirectory() as tmp_dir:
+        histories = read_release_logs(store, tmp_dir)
+        previous_release = next(iter(histories.values()))["release_tag"].iloc[-1]
+        check_version_order(RC_TAG.fullmatch(rc_tag)["version"], previous_release)
         for log, columns in LOGS.items():
-            history = histories[log]
-            previous_release = history["release_tag"].iloc[-1]
             build_change(
                 os.path.join(draft_dir, f"{log}.csv"),
-                history,
+                histories[log],
                 previous_release,
                 columns,
             ).to_csv(os.path.join(tmp_dir, f"{log}_summary.csv"))
@@ -657,7 +653,8 @@ def publish_release(store):
 
     Everything is downloaded and built in a temporary directory before anything is
     published, each file at the path of its key in the bucket, and removed once published -
-    nothing is kept locally. The release archive is published last: it marks the release as
+    nothing is kept locally. The release archive is copied from the candidate's in the
+    bucket. The release archive is published last: it marks the release as
     done, so a failure partway through publishing can be retried, and the retry overwrites
     whatever had been published so far.
 
@@ -712,12 +709,9 @@ def publish_release(store):
             )
         LOG.info(f"Releasing {release_tag}: {rc_tag}, commit={commit}")
 
-        # the release archive is the candidate's, as is - only its name differs
+        # the candidate's archive - its files are the latest files, as is, and its summaries
+        # give the release's change log rows
         store.download(rc_key, local(rc_key))
-        os.makedirs(os.path.dirname(local(archive_key)))
-        shutil.copy(local(rc_key), local(archive_key))
-
-        # the latest files - the archive's, as is
         with zipfile.ZipFile(local(rc_key)) as z:
             z.extractall(local("latest"))
         latest_keys = [f"latest/{name}" for name in ARCHIVED_FILES]
@@ -754,11 +748,14 @@ def publish_release(store):
             rows.to_csv(local(f"logs/{log}.csv"), index=False)
             log_keys.append(f"logs/{log}.csv")
 
-        # everything is built - publish. The latest files and change logs, then the archive,
-        # never overwritten once released, marking the release as done
-        for key in latest_keys + log_keys + [archive_key]:
+        # everything is built - publish. The latest files and change logs, then the archive -
+        # the candidate's, as is, copied in the bucket - never overwritten once released,
+        # marking the release as done
+        for key in latest_keys + log_keys:
             store.upload(local(key), key)
             LOG.info(f"{local(key)} published to {store.url(key)}")
+        store.copy(rc_key, archive_key)
+        LOG.info(f"{store.url(rc_key)} copied to {store.url(archive_key)}")
     LOG.info(f"Released {release_tag}")
 
     # the version's candidates (drafts/harvest_restrictions_<version>-rc.*) - after the
