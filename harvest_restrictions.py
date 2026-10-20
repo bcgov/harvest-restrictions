@@ -39,12 +39,6 @@ CACHE_PATH = (
     f"s3://{os.environ['BUCKET']}/{PREFIX}/cache" if os.environ.get("BUCKET") else None
 )
 
-# output harvest restrictions gpkg
-OVERLAY_GPKG = "harvest_restrictions.gpkg"
-
-# sources gpkg, with "designations" layer
-SOURCES_GPKG = "harvest_restrictions_sources.gpkg"
-
 # area summaries are logged per release
 # keys are the two queries in /sql and corresponding output csv files
 # lists are the columns included in each
@@ -65,9 +59,11 @@ LOGS = {
 # each release candidate's and release's archive, holding these files - which are also each
 # release's latest/ files
 ARCHIVE = "harvest_restrictions_{tag}.zip"
-ARCHIVED_FILES = [OVERLAY_GPKG, SOURCES_GPKG, "sources.csv"] + [
-    f"{log}_summary.csv" for log in LOGS
-]
+ARCHIVED_FILES = [
+    "harvest_restrictions.gpkg",
+    "harvest_restrictions_sources.gpkg",
+    "sources.csv",
+] + [f"{log}_summary.csv" for log in LOGS]
 
 # a release candidate's tag: <version>-rc.<n>
 RC_TAG = re.compile(r"^(?P<version>.+)-rc\.(?P<n>[0-9]+)$")
@@ -663,9 +659,9 @@ def release_candidate(store):
 def publish_prerelease(store, rc_tag, commit, draft_dir="drafts"):
     """publish the draft as a release candidate's archive in drafts/ in the bucket
 
-    draft_dir holds overlay's outputs: OVERLAY_GPKG, SOURCES_GPKG, sources.csv, the area
-    totals (<log>.csv), and overlay_run.json. Refuses unless the draft is commit's, with no
-    uncommitted changes. The summaries comparing the totals to the most recent release are
+    draft_dir holds overlay's outputs: harvest_restrictions.gpkg,
+    harvest_restrictions_sources.gpkg, sources.csv, the area totals (<log>.csv), and
+    overlay_run.json. Refuses unless the draft is commit's, with no uncommitted changes. The summaries comparing the totals to the most recent release are
     built here, and archived with the rest - the draft itself is left as is. The archive is
     built in a temporary directory, removed once it's published - the draft is the local copy.
     """
@@ -1135,9 +1131,9 @@ def overlay(db_url, designations_table, verbose, quiet, draft_dir="drafts"):
 
     os.makedirs(draft_dir)
 
-    # the result, and the source designations
+    # the result (harvest_restrictions layer), and the source designations (designations layer)
     add_gpkg_layer(
-        draft(OVERLAY_GPKG),
+        draft("harvest_restrictions.gpkg"),
         f"PG:{db_url}",
         "harvest_restrictions",
         "-nlt",
@@ -1167,7 +1163,10 @@ def overlay(db_url, designations_table, verbose, quiet, draft_dir="drafts"):
         all_harv_restrict_class_ranks != ARRAY[6]""",
     )
     add_gpkg_layer(
-        draft(SOURCES_GPKG), f"PG:{db_url}", "designations", designations_table
+        draft("harvest_restrictions_sources.gpkg"),
+        f"PG:{db_url}",
+        "designations",
+        designations_table,
     )
 
     # area totals, compared to the previous release in the summaries prerelease builds

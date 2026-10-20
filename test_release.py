@@ -523,8 +523,8 @@ def draft_dir(tmp_path):
     """a draft of COMMIT, as overlay writes it"""
     draft_dir = tmp_path / "drafts"
     draft_dir.mkdir()
-    (draft_dir / hr.OVERLAY_GPKG).write_text("gpkg")
-    (draft_dir / hr.SOURCES_GPKG).write_text("designations gpkg")
+    (draft_dir / "harvest_restrictions.gpkg").write_text("gpkg")
+    (draft_dir / "harvest_restrictions_sources.gpkg").write_text("designations gpkg")
     (draft_dir / "sources.csv").write_text(SOURCES_CSV_BODY)
     for log, row in LOG_ROWS.items():
         pandas.DataFrame([{**row, "area_ha": 120.0}]).to_csv(
@@ -571,7 +571,12 @@ def test_publish_prerelease(store, draft_dir, tmp_path):
     # aren't written to it
     assert os.listdir(tmp_path) == ["drafts"]
     assert sorted(os.listdir(draft_dir)) == sorted(
-        ["overlay_run.json", "sources.csv", hr.OVERLAY_GPKG, hr.SOURCES_GPKG]
+        [
+            "overlay_run.json",
+            "sources.csv",
+            "harvest_restrictions.gpkg",
+            "harvest_restrictions_sources.gpkg",
+        ]
         + [f"{log}.csv" for log in hr.LOGS]
     )
 
