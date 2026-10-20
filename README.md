@@ -159,6 +159,14 @@ The database is set up by `sql/setup.sql` when its container is first created. A
         docker compose run -it --rm runner python harvest_restrictions.py release v2026-10-draft2 -v
 
 
+## Re-running a past release
+
+Check out the release's tag (eg `git checkout v2026-10`), load its sources - the `designations` layer of the release archive's `harvest_restrictions_sources.gpkg` - into the empty `designations` table, and run `overlay`:
+
+    docker compose run -it --rm runner sh -c 'ogr2ogr -f PostgreSQL "PG:$DATABASE_URL" -append -nln designations /vsizip//vsis3/$BUCKET/harvest_restrictions/releases/harvest_restrictions_v2026-10.zip/harvest_restrictions_sources.gpkg designations'
+    docker compose run -it --rm runner python harvest_restrictions.py overlay -v
+
+
 ## Object storage layout
 
 
