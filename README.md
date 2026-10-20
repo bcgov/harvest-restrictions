@@ -103,7 +103,7 @@ The database is set up by `sql/setup.sql` when its container is first created. A
     
         docker compose run -it --rm runner python harvest_restrictions.py cache --dry_run -v
 
-5. Download all restriction sources listed in `sources.json`, saving to standard schema in geoparquet format. Defaults to writing to object storage `/harvest_restrictions/cache` if `$BUCKET` is set, pass `--out_path` to write elsewhere):
+5. Download all restriction sources listed in `sources.json`, saving to standard schema in geoparquet format. Defaults to writing to object storage `/harvest_restrictions/cache` if `$BUCKET` is set, pass `--out_path` to write elsewhere:
 
         docker compose run -it --rm runner python harvest_restrictions.py cache -v
 
@@ -119,7 +119,7 @@ The database is set up by `sql/setup.sql` when its container is first created. A
 
         docker compose run -it --rm runner python harvest_restrictions.py overlay -v
 
-    Each run overwrites the contents of `/drafts`:
+    Each run overwrites the contents of `drafts/`:
 
     - `harvest_restrictions.gpkg` - output harvest restrictions layer
     - `harvest_restrictions_sources.gpkg` - source data combined into a single layer
@@ -136,7 +136,7 @@ The database is set up by `sql/setup.sql` when its container is first created. A
 
       `uncommitted_changes` lists the `git status` lines of changed tracked files (other than documentation). If there are uncommitted changes noted, the next step `publish-draft` will fail - commit changes and re-run the overlay until results are satisfactory.
 
-8. Once outputs in `/drafts` are satisfactory, compare the load above noted local draft files into a single archive and publish to object storage `/drafts` for review, assigning the draft a tag in format `vYYYY-MM` or, if necessary `vYYYY-MM-DD`:
+8. Once outputs in `drafts/` are satisfactory, combine the local draft files noted above into a single archive and publish to object storage `harvest_restrictions/drafts` for review, assigning the draft a tag in format `vYYYY-MM` or, if necessary `vYYYY-MM-DD`:
 
         docker compose run -it --rm runner python harvest_restrictions.py publish-draft v2026-10 -v
 
@@ -157,7 +157,7 @@ The database is set up by `sql/setup.sql` when its container is first created. A
 
         docker compose run -it --rm runner python harvest_restrictions.py release v2026-10-draft2 -v
 
-    This can also be run on Github by triggering the [Release workflow](https://github.com/bcgov/harvest-restrictions/actions/workflows/release.yaml) and entering the draft tag to release when prompted. The release writes the archive to `harvest_restrictions/releases/harvest_restrictions_<release_tag>.zip` and also writes the various files to `/latest` and logs the area totals in `/logs/*.csv`
+    This can also be run on GitHub by triggering the [Release workflow](https://github.com/bcgov/harvest-restrictions/actions/workflows/release.yaml) and entering the draft tag to release when prompted. The release writes the archive to `harvest_restrictions/releases/harvest_restrictions_<release_tag>.zip` and also writes the various files to `/latest` and logs the area totals in `/logs/*.csv`
 
 ## Object storage layout
 
@@ -199,7 +199,7 @@ Note that the logs were backfilled from pre-existing summaries. `v2024-08`, `v20
 
 ## Re-running a past release
 
-As of `v2026-08` all releases are retained and release can be recreated using exactly the same data and tools. Starting from scratch with a hypothetical `v2026-10` release:
+As of `v2026-08` all releases are retained and a release can be recreated using exactly the same data and tools. Starting from scratch with a hypothetical `v2026-10` release:
 
     git clone git@github.com:bcgov/harvest-restrictions.git
     cd harvest-restrictions
