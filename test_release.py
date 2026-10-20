@@ -1,5 +1,16 @@
 # --- WARNING - this file is 100% unreviewed AI slop
 
+# Tests of publishing drafts and releases.
+#
+# The real publish_draft/publish_release code runs, but against fakes:
+#   - MemoryStore stands in for the s3 bucket - a dict of {key: file contents}
+#   - FakeGit stands in for the git command line - it records tags and pushes
+#
+# Most tests start from the `store` fixture: a bucket holding one previous release
+# (v2026-02), and a published draft (v2026-10-draft1) of the checked-out commit. A test
+# changes that starting point, runs publish_draft or publish_release, then checks what
+# ended up in the bucket and in git.
+
 import io
 import json
 import os
@@ -22,12 +33,11 @@ ARCHIVE_KEY = f"releases/harvest_restrictions_{RELEASE_TAG}.zip"
 
 
 # --- fakes ---
-#
-# drafts and releases are run against an in-memory store, with git and sozip stubbed out
 
 
 class MemoryStore:
-    """in-memory stand-in for S3Store"""
+    """in-memory stand-in for S3Store - objects holds each key's contents, and uploads
+    the keys published, in order"""
 
     def __init__(self):
         self.objects = {}
@@ -69,30 +79,39 @@ class MemoryStore:
 
 
 class FakeGit:
-    """git, with COMMIT checked out and status as its git status - the tags it's asked to
-    create are kept in tags ({tag: commit}), and the refs it's asked to push in pushed"""
+    """stand-in for subprocess.check_output, answering the git commands the release code
+    runs - with COMMIT checked out, and self.status as the output of git status.
+
+    Tags it's asked to create are kept in self.tags ({tag: commit}), and the refs it's
+    asked to push in self.pushed. Like check_output, it returns bytes.
+    """
 
     def __init__(self):
         self.status = ""
         self.tags = {}
         self.pushed = []
 
-    def __call__(self, cmd, *args, **kwargs):
-        match cmd:
-            case ["git", "status", *_]:
-                return self.status.encode()
-            case ["git", "rev-parse", "HEAD"]:
-                return COMMIT.encode()
-            case ["git", "tag", "--list", tag]:
-                return (tag if tag in self.tags else "").encode()
-            case ["git", "rev-parse", ref] if ref.endswith("^{commit}"):
-                return self.tags[ref.removesuffix("^{commit}")].encode()
-            case ["git", "tag", "-a", tag, "-m", _, commit]:
-                self.tags[tag] = commit
-                return b""
-            case ["git", "push", "origin", ref]:
-                self.pushed.append(ref)
-                return b""
+    def __call__(self, cmd, **kwargs):
+        args = cmd[1:]  # without the leading "git"
+        if args[0] == "status":
+            return self.status.encode()
+        if args == ["rev-parse", "HEAD"]:
+            return COMMIT.encode()
+        if args[:2] == ["tag", "--list"]:
+            tag = args[2]
+            return tag.encode() if tag in self.tags else b""
+        if args[0] == "rev-parse":
+            # the commit a tag is on, asked for as <tag>^{commit}
+            tag = args[1].removesuffix("^{commit}")
+            return self.tags[tag].encode()
+        if args[:2] == ["tag", "-a"]:
+            # git tag -a <tag> -m <message> <commit>
+            tag, commit = args[2], args[-1]
+            self.tags[tag] = commit
+            return b""
+        if args[0] == "push":
+            self.pushed.append(args[-1])
+            return b""
         raise AssertionError(f"unexpected command {cmd}")
 
 
@@ -103,7 +122,8 @@ def fake_zip_files(out_zip, files):
             z.write(f, os.path.basename(f))
 
 
-def zip_members(body):
+def unzip(body):
+    """the files in a zip archive's contents, as {name: contents}, in archive order"""
     with zipfile.ZipFile(io.BytesIO(body)) as z:
         return {name: z.read(name) for name in z.namelist()}
 
@@ -125,8 +145,13 @@ LOG_ROWS = {
 
 
 def summary_body(log, previous_release):
-    """a summary's columns that release reads - harvest_restrictions has a second class,
-    dropped since the previous release, so it has no current value"""
+    """the contents of a draft's <log>_summary.csv - just the columns release reads: the
+    category, its "current" area, and its area in the previous release (a column named
+    after that release, eg "v2026-02").
+
+    harvest_restrictions has a second class, dropped since the previous release, so it has
+    no current area.
+    """
     rows = [{**LOG_ROWS[log], "current": 110.0, previous_release: 100.0}]
     if log == "harvest_restrictions":
         rows.append(
@@ -159,7 +184,7 @@ def put_release(store, release_tag):
 
 
 def put_draft(store, draft=DRAFT, previous_release=PREVIOUS_RELEASE, commit=COMMIT):
-    """publish a draft's archive, as publish_draft does - its files in
+    """publish a draft's archive, as publish_draft does - with its files in
     ARCHIVED_FILES order"""
     overlay_run = {"commit": commit, "uncommitted_changes": [], "finished_at": "?"}
     out = io.BytesIO()
@@ -175,20 +200,20 @@ def put_draft(store, draft=DRAFT, previous_release=PREVIOUS_RELEASE, commit=COMM
 
 @pytest.fixture
 def git(monkeypatch):
+    """a FakeGit, answering every git command run"""
     git = FakeGit()
     monkeypatch.setattr(hr.subprocess, "check_output", git)
     return git
 
 
 @pytest.fixture
-def store(tmp_path, monkeypatch, git):
-    """a store holding one previous release, plus a published draft of COMMIT, which is
+def store(monkeypatch, git):
+    """a bucket holding one previous release, plus a published draft of COMMIT, which is
     checked out"""
     memory = MemoryStore()
     put_release(memory, PREVIOUS_RELEASE)
     put_draft(memory)
 
-    monkeypatch.chdir(tmp_path)
     monkeypatch.setattr(hr, "zip_files", fake_zip_files)
     return memory
 
@@ -210,6 +235,7 @@ def draft_dir(tmp_path):
 
 
 def assert_nothing_published(store, git):
+    """for a refused draft or release - nothing uploaded, and no tag pushed"""
     assert store.uploads == []
     assert git.pushed == []
 
@@ -336,6 +362,7 @@ def test_zip_files_readable_by_gdal(tmp_path):
 # --- uncommitted_changes ---
 
 
+# git status lines end with a NUL (\0), and a rename or copy is followed by its source
 @pytest.mark.parametrize(
     "status, changes",
     [
@@ -401,7 +428,7 @@ def test_publish_draft(store, draft_dir):
 
     # the geopackages, sources, the draft's overlay_run.json, and summaries comparing the
     # draft's totals to the previous release
-    members = zip_members(store.objects[key])
+    members = unzip(store.objects[key])
     assert sorted(members) == [
         "harvest_restrictions.gpkg",
         "harvest_restrictions_sources.gpkg",
@@ -512,10 +539,8 @@ def test_release_publishes(store, git):
     # the archive is the draft's, as is
     assert store.objects[ARCHIVE_KEY] == draft
 
-    # the latest files are the archive's, as is
-    members = zip_members(draft)
-    assert latest_keys == [f"latest/{name}" for name in members]
-    for name, body in members.items():
+    # the latest files are the archive's files, as is
+    for name, body in unzip(draft).items():
         assert store.objects[f"latest/{name}"] == body
 
     # the draft's commit is tagged with the version, and the tag pushed
