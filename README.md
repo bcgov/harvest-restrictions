@@ -133,7 +133,7 @@ The database is set up by `sql/setup.sql` when its container is first created. A
 
       `uncommitted_changes` lists the `git status` lines of changed tracked files other than documentation - empty for a clean checkout, and starting with `the checkout changed during the run` if it did
 
-8. To publish the results for review, commit any changes and tag the commit as a release candidate of the version - `<version>-rc.<n>`, numbering candidates of a version from 1 - then publish the draft as the release candidate's archive, `drafts/harvest_restrictions_<version>-rc.<n>.zip` in the bucket, with summaries comparing its area totals to the most recent release:
+8. To publish the results for review, commit any changes and tag the commit as a release candidate of the version - `<version>-rc.<n>`, numbering candidates of a version from 1. A version is `vYYYY-MM`, or `vYYYY-MM-DD` for a hotfix - other tags are ignored. Then publish the draft as the release candidate's archive, `drafts/harvest_restrictions_<version>-rc.<n>.zip` in the bucket, with summaries comparing its area totals to the most recent release:
 
         git tag v2026-10-rc.1
         git push origin v2026-10-rc.1

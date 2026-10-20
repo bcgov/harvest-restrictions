@@ -67,8 +67,11 @@ ARCHIVED_FILES = [
     "sources.csv",
 ] + [f"{log}_summary.csv" for log in LOGS]
 
-# a release candidate's tag: <version>-rc.<n>
-RC_TAG = re.compile(r"^(?P<version>.+)-rc\.(?P<n>[0-9]+)$")
+# a release's tag, its version: vYYYY-MM, or vYYYY-MM-DD for a hotfix - either sorts by date
+VERSION = re.compile(r"v\d{4}-\d{2}(-\d{2})?")
+
+# a release candidate's tag: <version>-rc.<n>, numbered from 1
+RC_TAG = re.compile(rf"(?P<version>{VERSION.pattern})-rc\.(?P<n>[1-9][0-9]*)")
 
 verbose_opt = click.option("--verbose", "-v", count=True, help="Increase verbosity.")
 quiet_opt = click.option("--quiet", "-q", count=True, help="Decrease verbosity.")
@@ -501,13 +504,13 @@ def check_draft(draft, commit):
 
 def head_tags():
     """(release tags, release candidate tags) of the checked-out commit - candidates sorted
-    oldest (lowest rc number) to newest"""
+    oldest (lowest rc number) to newest. Tags matching neither are ignored"""
     tags = git("tag", "--points-at", "HEAD").split()
     rc_tags = sorted(
-        (t for t in tags if RC_TAG.match(t)),
-        key=lambda t: int(RC_TAG.match(t)["n"]),
+        (t for t in tags if RC_TAG.fullmatch(t)),
+        key=lambda t: int(RC_TAG.fullmatch(t)["n"]),
     )
-    return [t for t in tags if not RC_TAG.match(t)], rc_tags
+    return [t for t in tags if VERSION.fullmatch(t)], rc_tags
 
 
 def add_gpkg_layer(out_file, source, layer_name, *args):
@@ -572,6 +575,16 @@ def build_change(current_file, history, previous_release, columns):
     )
 
 
+def check_version_order(version, latest_release):
+    """refuse unless version sorts after the latest release - versions sort by date, and the
+    change logs are in release order, so a version can't be released after a later one"""
+    if version <= latest_release:
+        raise ValueError(
+            f"{version} doesn't sort after the latest release, {latest_release} - tag a "
+            "later version (vYYYY-MM, or vYYYY-MM-DD for a hotfix)"
+        )
+
+
 def release_candidate(store):
     """(rc tag, commit) to publish as the checked-out commit's newest release candidate -
     refusing if it has no candidate tag, or its newest is already published. The checkout
@@ -606,6 +619,10 @@ def publish_prerelease(store, rc_tag, commit, draft_dir="drafts"):
 
     with tempfile.TemporaryDirectory() as logs_dir:
         histories = read_release_logs(store, logs_dir)
+    check_version_order(
+        RC_TAG.fullmatch(rc_tag)["version"],
+        next(iter(histories.values()))["release_tag"].iloc[-1],
+    )
     key = prerelease_key(rc_tag)
     summaries = [f"{log}_summary.csv" for log in LOGS]
     with tempfile.TemporaryDirectory() as tmp_dir:
@@ -651,11 +668,11 @@ def publish_release(store):
     release_tags, rc_tags = head_tags()
     if len(release_tags) != 1:
         raise ValueError(
-            f"The checked-out commit must have exactly one release tag, it has "
-            f"{release_tags or 'none'}"
+            f"The checked-out commit must have exactly one release tag (vYYYY-MM, or "
+            f"vYYYY-MM-DD for a hotfix), it has {release_tags or 'none'}"
         )
     release_tag = release_tags[0]
-    rc_tags = [t for t in rc_tags if RC_TAG.match(t)["version"] == release_tag]
+    rc_tags = [t for t in rc_tags if RC_TAG.fullmatch(t)["version"] == release_tag]
     if not rc_tags:
         raise ValueError(
             f"No release candidate of {release_tag} on this commit - release the commit of "
@@ -684,6 +701,8 @@ def publish_release(store):
                     f"Release {release_tag} is partially logged (in {log}) - re-publishing it"
                 )
                 histories[log] = history[history["release_tag"] != release_tag]
+        previous_release = next(iter(histories.values()))["release_tag"].iloc[-1]
+        check_version_order(release_tag, previous_release)
 
         rc_key = prerelease_key(rc_tag)
         if rc_key not in store.list("drafts/"):
@@ -706,7 +725,6 @@ def publish_release(store):
         # the candidate's summaries compare against whichever release was latest when it
         # ran - the summaries' column after "current", named for that release. If another
         # release has happened since, their diffs are against an older release
-        previous_release = next(iter(histories.values()))["release_tag"].iloc[-1]
         columns = list(pandas.read_csv(local(f"latest/{next(iter(LOGS))}_summary.csv")))
         rc_previous = columns[columns.index("current") + 1]
         if rc_previous != previous_release:

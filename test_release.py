@@ -550,6 +550,16 @@ def test_publish_prerelease(store, draft_dir, tmp_path):
     )
 
 
+@pytest.mark.parametrize(
+    "rc_tag", ["v2026-01-rc.1", "v2026-02-rc.1", "v2026-01-31-rc.1"]
+)
+def test_publish_prerelease_version_order(store, draft_dir, rc_tag):
+    # the version must sort after the latest release, v2026-02
+    with pytest.raises(ValueError, match="doesn't sort after the latest release"):
+        hr.publish_prerelease(store, rc_tag, COMMIT, draft_dir)
+    assert store.uploads == []
+
+
 def test_publish_prerelease_then_release(store, draft_dir, monkeypatch):
     # what publish_prerelease publishes is what publish_release reads
     hr.publish_prerelease(store, NEW_RC, COMMIT, draft_dir)
@@ -660,12 +670,47 @@ def test_release_no_candidate_on_commit(store, monkeypatch):
     assert store.uploads == []
 
 
-@pytest.mark.parametrize("tags", [[RC_TAG], [RELEASE_TAG, "v2026-10b", RC_TAG]])
+@pytest.mark.parametrize("tags", [[RC_TAG], [RELEASE_TAG, "v2026-10-15", RC_TAG]])
 def test_release_needs_one_release_tag(store, monkeypatch, tags):
     checkout(monkeypatch, tags=tags)
     with pytest.raises(ValueError, match="exactly one release tag"):
         run_release(store)
     assert store.uploads == []
+
+
+def test_release_hotfix(store, monkeypatch):
+    # a hotfix's version includes the day
+    put_prerelease(store, "v2026-10-15-rc.1")
+    checkout(monkeypatch, tags=["v2026-10-15", "v2026-10-15-rc.1"])
+
+    run_release(store)
+    assert "releases/harvest_restrictions_v2026-10-15.zip" in store.objects
+    # v2026-10's candidate isn't the hotfix's
+    assert RC_KEY in store.objects
+
+
+# --- head_tags ---
+
+
+def test_head_tags(store, monkeypatch):
+    # tags in neither format are ignored - not counted as release tags
+    tags = [
+        "v2026-10-15",
+        "v2026-10-rc.10",
+        "v2026-10-rc.9",
+        "v2026-10",
+        "v2026-10b",
+        "latest",
+        "v2026-10-RC.1",
+        "v2026-10-rc.01",
+        "v2026-10-rc.0",
+        "v2026-1-rc.1",
+    ]
+    checkout(monkeypatch, tags=tags)
+    assert hr.head_tags() == (
+        ["v2026-10-15", "v2026-10"],
+        ["v2026-10-rc.9", "v2026-10-rc.10"],
+    )
 
 
 def test_release_candidate_not_published(store, monkeypatch):
@@ -692,6 +737,17 @@ def test_release_partially_logged(store):
     for log in hr.LOGS:
         rows = store.read_csv(f"logs/{log}.csv")
         assert list(rows["release_tag"]) == [PREVIOUS_RELEASE, RELEASE_TAG]
+
+
+def test_release_version_order(store):
+    # a later version released since the candidate was published
+    put_release(store, "v2026-11")
+
+    with pytest.raises(
+        ValueError, match="doesn't sort after the latest release, v2026-11"
+    ):
+        run_release(store)
+    assert store.uploads == []
 
 
 def test_release_stale_summaries(store):
