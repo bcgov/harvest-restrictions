@@ -1,19 +1,16 @@
 FROM ghcr.io/osgeo/gdal:ubuntu-full-3.13.1
 
 RUN apt-get update && apt-get --assume-yes upgrade \
-    && apt-get -qq install -y --no-install-recommends postgresql-common \
-    && apt-get -qq install -y --no-install-recommends yes \
-    && apt-get -qq install -y --no-install-recommends gnupg \
+    && apt-get -qq install -y --no-install-recommends postgresql-common gnupg \
     && yes '' | sh /usr/share/postgresql-common/pgdg/apt.postgresql.org.sh \
-    && apt-get -qq install -y --no-install-recommends postgresql-client-16 \
-    && apt-get -qq install -y --no-install-recommends git \
-    && apt-get -qq install -y --no-install-recommends zip \
-    && apt-get -qq install -y --no-install-recommends unzip \
-    && apt-get -qq install -y --no-install-recommends curl \
-    && apt-get -qq install -y --no-install-recommends parallel \
-    && apt-get -qq install -y --no-install-recommends python3-pip \
-    && apt-get -qq install -y --no-install-recommends python3-venv \
-    && apt-get -qq install -y --no-install-recommends pipx \
+    && apt-get -qq install -y --no-install-recommends \
+        postgresql-client-16 \
+        git \
+        unzip \
+        curl \
+        parallel \
+        python3-pip \
+        python3-venv \
     && rm -rf /var/lib/apt/lists/*
 
 RUN ARCH=$(uname -m) \
