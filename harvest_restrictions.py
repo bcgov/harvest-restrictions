@@ -38,11 +38,8 @@ CACHE_PATH = (
     else None
 )
 
-# overlay's outputs, replaced by each run - prerelease publishes them as a release candidate
-DRAFT_DIR = "drafts"
-
 # release candidates are published drafts - in the bucket under the local draft folder's name
-PRERELEASES = f"{DRAFT_DIR}/"
+PRERELEASES = "drafts/"
 
 # the draft's record of what it was run on: commit, uncommitted_changes, finished_at - written
 # last, so a draft without it is unfinished
@@ -572,9 +569,7 @@ def read_overlay_run(draft_dir):
 def check_draft(draft, commit):
     """refuse unless the draft is commit's, run without uncommitted changes"""
     if not draft:
-        raise ValueError(
-            f"No finished overlay draft in {DRAFT_DIR} - run overlay first"
-        )
+        raise ValueError("No finished overlay draft - run overlay first")
     if draft["commit"] != commit:
         raise ValueError(
             f"The draft is of commit {draft['commit']}, not {commit} - run overlay on this "
@@ -705,7 +700,7 @@ def release_candidate(store):
     return rc_tag, commit
 
 
-def publish_prerelease(store, rc_tag, commit, draft_dir=DRAFT_DIR):
+def publish_prerelease(store, rc_tag, commit, draft_dir="drafts"):
     """publish the draft as a release candidate's archive in drafts/ in the bucket
 
     draft_dir holds overlay's outputs: OVERLAY_GPKG, SOURCES_GPKG, SOURCES_CSV, the area
@@ -1139,7 +1134,7 @@ def load_db(
 )
 @verbose_opt
 @quiet_opt
-def overlay(db_url, designations_table, verbose, quiet):
+def overlay(db_url, designations_table, verbose, quiet, draft_dir="drafts"):
     """Run per-tile overlay, writing the results to the database and the draft in drafts/
 
     Runs at any commit. The commit, and any uncommitted changes, are recorded in the draft's
@@ -1155,7 +1150,7 @@ def overlay(db_url, designations_table, verbose, quiet):
 
     # remove the previous draft - the results are about to be replaced
     commit, changes = checkout_state()
-    shutil.rmtree(DRAFT_DIR, ignore_errors=True)
+    shutil.rmtree(draft_dir, ignore_errors=True)
 
     psql = f"psql {db_url} -v ON_ERROR_STOP=1"
 
@@ -1174,9 +1169,9 @@ def overlay(db_url, designations_table, verbose, quiet):
     )
 
     def draft(name):
-        return os.path.join(DRAFT_DIR, name)
+        return os.path.join(draft_dir, name)
 
-    os.makedirs(DRAFT_DIR)
+    os.makedirs(draft_dir)
 
     # the result, and the source designations
     add_gpkg_layer(
@@ -1203,9 +1198,9 @@ def overlay(db_url, designations_table, verbose, quiet):
     # results are no commit's in particular
     if checkout_state() != (commit, changes):
         changes = ["the checkout changed during the run"] + changes
-    write_overlay_run(DRAFT_DIR, commit, changes)
+    write_overlay_run(draft_dir, commit, changes)
     LOG.info(
-        f"Overlay of commit {commit} written to {DRAFT_DIR}"
+        f"Overlay of commit {commit} written to {draft_dir}"
         + (", with uncommitted changes:\n" + "\n".join(changes) if changes else "")
     )
 
