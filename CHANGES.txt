@@ -28,34 +28,5 @@ v2026-08
   - output `_all_*` columns are now JSON arrays instead of ; separated strings
     (this supports ';' in the source's name, and retains all values rather than dropping nulls)
 
-- object storage files reorganized, new structure is:
-
-  s3://$BUCKET/harvest_restrictions/
-  ├── cache/                                    # per-source geoparquet cache, written by `cache`
-  │   ├── hr_01_park_national.parquet
-  │   ├── hr_02_park_er.parquet
-  │   └── ...
-  ├── sources/                                  # sources not available for download elsewhere,
-  │   ├── CRD.gdb.zip                           #   in their native format - referenced by sources.json
-  │   └── ...
-  ├── drafts/                                   # published drafts, written by `publish-draft`
-  │   └── harvest_restrictions_<version>-draft<n>.zip   # as releases/, never overwritten
-  ├── latest/                                   # the latest release's files, written by `release`
-  │   ├── harvest_restrictions.gpkg
-  │   ├── harvest_restrictions_sources.gpkg
-  │   ├── land_designations_summary.csv
-  │   ├── harvest_restrictions_summary.csv
-  │   ├── sources.csv
-  │   └── overlay_run.json
-  ├── logs/                                     # change logs, appended to by `release`
-  │   ├── land_designations.csv
-  │   └── harvest_restrictions.csv
-  └── releases/                                 # permanent per-release archives, written by `release`
-      └── harvest_restrictions_<release_tag>.zip
-          ├── harvest_restrictions.gpkg         (harvest_restrictions layer)
-          ├── harvest_restrictions_sources.gpkg (designations layer)
-          ├── land_designations_summary.csv
-          ├── harvest_restrictions_summary.csv
-          ├── sources.csv
-          └── overlay_run.json
+- object storage files reorganized - see README, Object storage layout
 
