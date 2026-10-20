@@ -91,7 +91,7 @@ The database is set up by `sql/setup.sql` when its container is first created. A
 
 ## Usage
 
-1. Identify any file based sources for which download cannot be scripted, manually upload file to object storage.
+1. Identify any file based sources for which download cannot be scripted, manually upload file to object storage with the `/harvest_restrictions/sources` prefix.
 
 2. If making changes to `harvest_restrictions.py`, test the changes:
 
@@ -103,27 +103,30 @@ The database is set up by `sql/setup.sql` when its container is first created. A
     
         docker compose run -it --rm runner python harvest_restrictions.py cache --dry_run -v
 
-5. Download all restriction sources listed in `sources.json`, saving to geoparquet in `s3://$BUCKET/harvest_restrictions/cache` (pass `--out_path` to write elsewhere):
+5. Download all restriction sources listed in `sources.json`, saving to standard schema in geoparquet format. Defaults to writing to object storage `/harvest_restrictions/cache` if `$BUCKET` is set, pass `--out_path` to write elsewhere):
 
         docker compose run -it --rm runner python harvest_restrictions.py cache -v
 
-    Optionally, clear the cache first - `cache` overwrites the files for sources it downloads, but doesn't remove anything for sources since removed or renamed, so `clear-cache` is useful for tidying those up. `clear-cache` only ever removes the `hr_*.parquet` files `cache` itself writes, so it's safe to point at a shared prefix:
+    Optionally, clear the cache first. While `cache` overwrites the files for sources it downloads, it does not remove anything for sources since removed or renamed. These should generally be cleaned up, `clear-cache` makes it simple, removing just the `hr_*.parquet` files written by `cache` itself:
 
         docker compose run -it --rm runner python harvest_restrictions.py clear-cache -v
 
-6. Load restrictions layers from the cached geoparquet to postgresql (pass `--in_path` to read from elsewhere). `--out_table` appends, so pass `--truncate` when re-running against a table already loaded (e.g. re-running this step after a partial failure) to avoid duplicating rows:
+6. Load restrictions layers from the cached geoparquet to postgresql. `--out_table` appends, so pass `--truncate` when re-running against a table already loaded (e.g. re-running this step after a partial failure) to avoid duplicating rows:
 
         docker compose run -it --rm runner python harvest_restrictions.py load-db -v --out_table designations --truncate
 
-7. Run overlays, writing the results to the database and the local draft to `drafts/`. `overlay` runs at any commit (eg to test changes), recording the commit and any uncommitted changes in the draft's `overlay_run.json`:
+7. Run overlays in postgres and dump results to `drafts/`:
 
         docker compose run -it --rm runner python harvest_restrictions.py overlay -v
 
-    Each run replaces the local draft, which can be reviewed before publishing it:
+    Each run overwrites the contents of `/drafts`:
 
-    - `harvest_restrictions.gpkg`, `harvest_restrictions_sources.gpkg`, `sources.csv` - as archived in a release, along with `overlay_run.json`
-    - `land_designations.csv`, `harvest_restrictions.csv` - the area totals, which `publish-draft` compares to the most recent release
-    - `overlay_run.json` - what the draft was run on, written when `overlay` finishes (a draft without it is unfinished):
+    - `harvest_restrictions.gpkg` - output harvest restrictions layer
+    - `harvest_restrictions_sources.gpkg` - source data combined into a single layer
+    - `sources.csv` - `sources.json` translated to csv
+    - `land_designations.csv` - area totals for source designations
+    - `harvest_restrictions.csv` - area totals for output harvest restrictions after overlaps removed
+    - `overlay_run.json` - logs what code the draft was run on, written when `overlay` finishes:
 
             {
               "commit": "f439b88c2d1e7a4b9f0c3e5a6b8d2f1e4c7a9b03",
@@ -131,17 +134,15 @@ The database is set up by `sql/setup.sql` when its container is first created. A
               "finished_at": "2026-10-19T21:02:11+00:00"
             }
 
-      `uncommitted_changes` lists the `git status` lines of changed tracked files other than documentation - empty for a clean checkout, and starting with `the checkout changed during the run` if it did
+      `uncommitted_changes` lists the `git status` lines of changed tracked files (other than documentation). If there are uncommitted changes noted, the next step `publish-draft` will fail - commit changes and re-run the overlay until results are satisfactory.
 
-8. To publish the results for review, commit any changes (re-running `overlay` if the local draft was run with uncommitted changes), push the commit, and publish the local draft as the next draft of the version - a version is `vYYYY-MM`, or `vYYYY-MM-DD` for a hotfix, and must sort after the most recent release:
+8. Once outputs in `/drafts` are satisfactory, compare the load above noted local draft files into a single archive and publish to object storage `/drafts` for review, assigning the draft a tag in format `vYYYY-MM` or, if necessary `vYYYY-MM-DD`:
 
         docker compose run -it --rm runner python harvest_restrictions.py publish-draft v2026-10 -v
 
-    `publish-draft` numbers the version's drafts from 1 - the first is published as `drafts/harvest_restrictions_v2026-10-draft1.zip` in the bucket, with summaries comparing its area totals to the most recent release. It refuses unless the local draft is of an `overlay` run on the checked-out commit with no uncommitted changes - a published draft is exactly that commit's output. Uncommitted changes to documentation (`*.md`, `CHANGES.txt`, `LICENSE`) are allowed in the local draft, changes to any other tracked file are not.
+    `publish-draft` numbers the version's drafts from 1 - the first is published as `drafts/harvest_restrictions_v2026-10-draft1.zip` in the bucket, with summaries comparing its area totals to the most recent release.
 
-    To run the [harvest-restrictions workflow](https://github.com/bcgov/harvest-restrictions/actions/workflows/harvest-restrictions.yaml) instead, give it the version - it publishes a draft when given one.
-
-9. Review the published draft's archive - it's exactly what the release will be:
+9. Provide the published draft's archive to reviewers - it's exactly what the release will be:
 
     - `harvest_restrictions.gpkg`
     - `harvest_restrictions_sources.gpkg`
@@ -150,14 +151,13 @@ The database is set up by `sql/setup.sql` when its container is first created. A
     - `sources.csv`
     - `overlay_run.json` - the commit the draft was run on
 
-    If results are not correct, address the issue, commit the fix, re-run from step 3 (presuming the issue is with sources/data), and publish the next draft (`publish-draft v2026-10` again publishes `v2026-10-draft2`). Re-publishing the same commit (eg after source data changes) is just another `publish-draft`.
+    If results are not correct, address the issue, commit the fix, re-run from step 3 (presuming the issue is with the sources), and publish a new draft with the same command and tag (the script auto increments the draft numbers).
 
-10. Once a draft is approved, run the [Release workflow](https://github.com/bcgov/harvest-restrictions/actions/workflows/release.yaml) with the draft (eg `v2026-10-draft2`). Once approved, it tags the draft's commit as the release (`v2026-10`), pushes the tag, and publishes the draft: its files under `latest/`, its area totals added to the change logs, and its archive copied to `releases/`. Nothing is re-run or rebuilt. Once the release is published, `release` deletes the version's drafts, and the workflow builds the release's Docker images.
-
-    `release` can also be run locally - it needs permission to push tags to the repository, and has none of the workflow's approval, or its guard against two releases at once:
+10. Once a draft is approved, release it:
 
         docker compose run -it --rm runner python harvest_restrictions.py release v2026-10-draft2 -v
 
+    This can also be run on Github by triggering the [Release workflow](https://github.com/bcgov/harvest-restrictions/actions/workflows/release.yaml) and entering the draft tag to release when prompted. The release writes the archive to `harvest_restrictions/releases/harvest_restrictions_<release_tag>.zip` and also writes the various files to `/latest` and logs the area totals in `/logs/*.csv`
 
 ## Object storage layout
 
@@ -193,34 +193,13 @@ s3://$BUCKET/harvest_restrictions/
         └── overlay_run.json
 ```
 
-**`cache/`** - written by `cache`, untagged, one geoparquet per source (`hr_<NN>_<alias>.parquet`), overwritten on the next `cache` run for that source. `clear-cache` removes these directly by filename pattern, safe to point at a shared prefix since it only ever touches its own `hr_*.parquet` files.
+## Change log history
 
-**`drafts/harvest_restrictions_<version>-draft<n>.zip`** - written by `publish-draft`, one archive per published draft, never overwritten, laid out as a release archive (see `releases/` below). Transient by design - `release` deletes a version's drafts once it's released. The archive holds:
-
-- `harvest_restrictions.gpkg`, `harvest_restrictions_sources.gpkg` - the overlay result (`harvest_restrictions` layer) and its source designations (`designations` layer)
-- `land_designations_summary.csv`, `harvest_restrictions_summary.csv` - comparing the *most recent release* against the draft with `current`/`diff`/`pct_diff` columns. Retains every category present in either side - a category new to this run or dropped since the previous release still gets its labels, with `diff`/`pct_diff` left as `NaN` rather than misleadingly implying zero area. This is what you review in step 9 above, and what `release` reads (via the `current` column) to append the release's totals to the change log - and, from the previous release's column name, to refuse a draft compared against an older release than the latest
-- `sources.csv` - a flattened `sources.json` as it stood for this run
-- `overlay_run.json` - the draft's record of the commit it was run on (see step 7 above) - `release` tags this commit as the release
-
-**`logs/land_designations.csv` / `logs/harvest_restrictions.csv`** - the change logs, written only by `release`, which appends each release's rows. One row per category per release (`release_tag`, category columns, `area_ha`), in release order - each release appends its rows. The released commit is the release tag's, in git. `publish-draft` reads the logs to find the previous release to compare against. If a release fails partway through publishing, its retry replaces any of its rows already logged.
-
-**`latest/`** - `harvest_restrictions.gpkg`, `harvest_restrictions_sources.gpkg`, `land_designations_summary.csv`, `harvest_restrictions_summary.csv`, `sources.csv` and `overlay_run.json`: the latest release's files, written only by `release`, at fixed plain-named keys (no suffix), overwritten on every release. The latest release archive's files, unzipped, for scripts/mapping applications that just want the current release without tracking release tags - point at these instead of the `releases/` archive. Fully redundant with the latest release's archive.
-
-**`releases/harvest_restrictions_<release_tag>.zip`** - written only by `release`, never overwritten, so every past release stays retrievable by tag. Published last, so a version is released once its archive is here - `release` refuses to release it again. A copy of the promoted draft's archive. A single download holding the release - only the archive's name carries the release tag: the same files as `latest/`, ie the two geopackages, the summaries comparing it to the previous release, the run's `sources.csv`, and its `overlay_run.json`. The zip is seek-optimized (`sozip`), so the geopackages can be read in place without downloading or unzipping, e.g. `ogrinfo /vsizip//vsis3/$BUCKET/harvest_restrictions/releases/harvest_restrictions_<release_tag>.zip/harvest_restrictions.gpkg`.
-
-### Local outputs
-
-The only generated files kept locally are the draft, in `drafts/` (git-ignored) - the latest `overlay` run's outputs and `overlay_run.json` (see step 7 above), replaced by each run.
-
-Every published draft is a copy of a local draft, and every release a copy of a published draft, so no other local copies are kept. `publish-draft` builds the archive from the local draft, and `release` downloads the published draft and builds the release, in a temporary directory (`$TMPDIR`) removed once published - set `TMPDIR` if the default temp location is too small for the archive.
-
-### Change log history
-
-The logs were backfilled from pre-existing wide-format records. `v2024-08`, `v2025-04`, `v2025-08`, and `v2026-02` have matching git tags (the latter two were originally recorded under the old `-DRAFT` tag naming convention, since renamed). `v2023-07` and `v2024-04` have no corresponding git tag at all.
+Note that the logs were backfilled from pre-existing summaries. `v2024-08`, `v2025-04`, `v2025-08`, and `v2026-02` have git tags but older releases `v2023-07` and `v2024-04` have no corresponding tag in the git repository.
 
 ## Re-running a past release
 
-As of `v2026-08` any release can be exactly recreated using the same data and tools. Starting from scratch with a hypothetical `v2026-10` release:
+As of `v2026-08` all releases are retained and release can be recreated using exactly the same data and tools. Starting from scratch with a hypothetical `v2026-10` release:
 
     git clone git@github.com:bcgov/harvest-restrictions.git
     cd harvest-restrictions
