@@ -30,20 +30,14 @@ from sqlalchemy import create_engine, inspect, text
 LOG_FORMAT = "%(asctime)s:%(levelname)s:%(name)s: %(message)s"
 LOG = logging.getLogger(__name__)
 
-# cache of sources transformed to the standard column layout.
-# written by cache() and read by load-db()
-CACHE_PATH = (
-    f"s3://{os.environ['BUCKET']}/harvest_restrictions/cache"
-    if os.environ.get("BUCKET")
-    else None
-)
-
-# the draft's record of what it was run on: commit, uncommitted_changes, finished_at - written
-# last, so a draft without it is unfinished
-OVERLAY_RUN_JSON = "overlay_run.json"
-
 # everything published is under this prefix in the bucket
 PREFIX = "harvest_restrictions"
+
+# $BUCKET is not required for download/cache/overlay
+# But if $BUCKET set, cache source data to s3
+CACHE_PATH = (
+    f"s3://{os.environ['BUCKET']}/{PREFIX}/cache" if os.environ.get("BUCKET") else None
+)
 
 # the overlay result (harvest_restrictions layer), and its source designations (designations
 # layer)
@@ -92,31 +86,6 @@ SOURCES_CSV_COLUMNS = [
     "query",
     "name_field",
 ]
-
-# query for dumping from db overlay resultant to file.
-# note that the all_* lists are exported as JSON arrays to retain nulls and keep the arrays aligned
-DUMP_SQL = """select
-  harvest_restrictions_id,
-  land_designation_name,
-  land_designation_type_rank,
-  land_designation_type_code,
-  land_designation_type_name,
-  land_designation_primary_key,
-  harvest_restriction_class_rank,
-  harvest_restriction_class_name,
-  array_to_json(trim_array(all_land_desig_names, 1)) as all_land_desig_names,
-  array_to_json(trim_array(all_land_desig_type_ranks, 1)) as all_land_desig_type_ranks,
-  array_to_json(trim_array(all_land_desig_type_codes, 1)) as all_land_desig_type_codes,
-  array_to_json(trim_array(all_land_desig_type_names, 1)) as all_land_desig_type_names,
-  array_to_json(trim_array(all_land_desig_primary_keys, 1)) as all_land_desig_primary_keys,
-  array_to_json(trim_array(all_harv_restrict_class_ranks, 1)) as all_harv_restrict_class_ranks,
-  array_to_json(trim_array(all_harv_restrict_class_names, 1)) as all_harv_restrict_class_names,
-  map_tile_250k,
-  geom
-from harvest_restrictions
-where
-all_harv_restrict_class_ranks @> ARRAY[6] and
-all_harv_restrict_class_ranks != ARRAY[6]"""
 
 
 verbose_opt = click.option("--verbose", "-v", count=True, help="Increase verbosity.")
@@ -547,14 +516,14 @@ def write_overlay_run(draft_dir, commit, changes):
         "uncommitted_changes": changes,
         "finished_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
     }
-    with open(os.path.join(draft_dir, OVERLAY_RUN_JSON), "w") as f:
+    with open(os.path.join(draft_dir, "overlay_run.json"), "w") as f:
         json.dump(draft, f, indent=2)
 
 
 def read_overlay_run(draft_dir):
     """the draft's record, as a dict - or None if there's no finished draft (the draft is
     removed when an overlay starts, and its record written when it finishes)"""
-    path = os.path.join(draft_dir, OVERLAY_RUN_JSON)
+    path = os.path.join(draft_dir, "overlay_run.json")
     if not os.path.exists(path):
         return None
     with open(path) as f:
@@ -1176,7 +1145,28 @@ def overlay(db_url, designations_table, verbose, quiet, draft_dir="drafts"):
         "-nlt",
         "MULTIPOLYGON",
         "-sql",
-        DUMP_SQL,
+        """select
+          harvest_restrictions_id,
+          land_designation_name,
+          land_designation_type_rank,
+          land_designation_type_code,
+          land_designation_type_name,
+          land_designation_primary_key,
+          harvest_restriction_class_rank,
+          harvest_restriction_class_name,
+          array_to_json(trim_array(all_land_desig_names, 1)) as all_land_desig_names,
+          array_to_json(trim_array(all_land_desig_type_ranks, 1)) as all_land_desig_type_ranks,
+          array_to_json(trim_array(all_land_desig_type_codes, 1)) as all_land_desig_type_codes,
+          array_to_json(trim_array(all_land_desig_type_names, 1)) as all_land_desig_type_names,
+          array_to_json(trim_array(all_land_desig_primary_keys, 1)) as all_land_desig_primary_keys,
+          array_to_json(trim_array(all_harv_restrict_class_ranks, 1)) as all_harv_restrict_class_ranks,
+          array_to_json(trim_array(all_harv_restrict_class_names, 1)) as all_harv_restrict_class_names,
+          map_tile_250k,
+          geom
+        from harvest_restrictions
+        where
+        all_harv_restrict_class_ranks @> ARRAY[6] and
+        all_harv_restrict_class_ranks != ARRAY[6]""",
     )
     add_gpkg_layer(
         draft(SOURCES_GPKG), f"PG:{db_url}", "designations", designations_table
