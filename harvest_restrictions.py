@@ -41,9 +41,6 @@ CACHE_PATH = (
 # overlay's outputs, replaced by each run - prerelease publishes them as a release candidate
 DRAFT_DIR = "drafts"
 
-# each release is built here, in <release_tag>/, laid out as in the bucket
-RELEASES_DIR = "releases"
-
 # the draft's record of what it was run on: commit, uncommitted_changes, finished_at - written
 # last, so a draft without it is unfinished
 OVERLAY_RUN_JSON = "overlay_run.json"
@@ -757,16 +754,17 @@ def publish_prerelease(store, rc_tag, commit, draft_dir=DRAFT_DIR):
     LOG.info(f"{rc_tag} published to {store.url(key)}")
 
 
-def publish_release(store, releases_dir=RELEASES_DIR):
+def publish_release(store):
     """release the checked-out commit's newest candidate of the version it's tagged with
 
     Refuses (before publishing anything) if the version is already released, or if the
     candidate's summaries compare against an older release than the latest.
 
-    Everything is downloaded and built in releases_dir/<release_tag>/ before anything is
-    published, each file at the path of its key in the bucket. The release's change log rows
-    are published last: they mark the release as done, so a failure partway through
-    publishing can be retried, and the retry overwrites whatever had been published so far.
+    Everything is downloaded and built in a temporary directory before anything is
+    published, each file at the path of its key in the bucket, and removed once published -
+    nothing is kept locally. The release's change log rows are published last: they mark the
+    release as done, so a failure partway through publishing can be retried, and the retry
+    overwrites whatever had been published so far.
 
     The candidates are left in place - prune-prereleases deletes them.
     """
@@ -787,101 +785,103 @@ def publish_release(store, releases_dir=RELEASES_DIR):
         )
     rc_tag = rc_tags[-1]
 
-    # cleared at the start of every run, so leftovers from a failed attempt are never reused
-    work_dir = os.path.join(releases_dir, release_tag)
-    shutil.rmtree(work_dir, ignore_errors=True)
-    os.makedirs(work_dir)
+    with tempfile.TemporaryDirectory() as work_dir:
 
-    def local(key):
-        return os.path.join(work_dir, key)
+        def local(key):
+            return os.path.join(work_dir, key)
 
-    # refuse to release a tag that's already logged. Each log's rows are published as a
-    # separate file - if only some made it (a failure between the uploads), the release didn't
-    # finish, so its partial rows are dropped here and the retry publishes them again
-    histories = read_release_logs(store, work_dir)
-    logged_in = [
-        log
-        for log, history in histories.items()
-        if history is not None and release_tag in history["release_tag"].values
-    ]
-    if len(logged_in) == len(LOGS):
-        raise ValueError(
-            f"Release {release_tag} is already in {store.url(f'logs/{release_tag}')}/ "
-            "- it has already been released"
-        )
-    for log in logged_in:
-        LOG.warning(
-            f"Release {release_tag} is only partially logged (in {log}) - re-publishing it"
-        )
-        history = histories[log]
-        histories[log] = history[history["release_tag"] != release_tag]
+        # refuse to release a tag that's already logged. Each log's rows are published as a
+        # separate file - if only some made it (a failure between the uploads), the release
+        # didn't finish, so its partial rows are dropped here and the retry publishes them
+        # again
+        histories = read_release_logs(store, work_dir)
+        logged_in = [
+            log
+            for log, history in histories.items()
+            if history is not None and release_tag in history["release_tag"].values
+        ]
+        if len(logged_in) == len(LOGS):
+            raise ValueError(
+                f"Release {release_tag} is already in {store.url(f'logs/{release_tag}')}/ "
+                "- it has already been released"
+            )
+        for log in logged_in:
+            LOG.warning(
+                f"Release {release_tag} is only partially logged (in {log}) - "
+                "re-publishing it"
+            )
+            history = histories[log]
+            histories[log] = history[history["release_tag"] != release_tag]
 
-    rc_key = prerelease_key(rc_tag)
-    if rc_key not in store.list("prereleases/"):
-        raise ValueError(
-            f"{rc_tag} isn't published at {store.url(rc_key)} - run overlay and "
-            "prerelease on it first"
-        )
-    LOG.info(f"Releasing {release_tag}: {rc_tag}, commit={commit}")
+        rc_key = prerelease_key(rc_tag)
+        if rc_key not in store.list("prereleases/"):
+            raise ValueError(
+                f"{rc_tag} isn't published at {store.url(rc_key)} - run overlay and "
+                "prerelease on it first"
+            )
+        LOG.info(f"Releasing {release_tag}: {rc_tag}, commit={commit}")
 
-    # the candidate's summaries compare against whichever release was latest when it ran. If
-    # another release has happened since, their diffs are against an older release
-    previous_release = latest_release(next(iter(histories.values())))
-    rc_previous = store.tags(rc_key).get("previous_release")
-    if rc_previous != previous_release:
-        raise ValueError(
-            f"{rc_tag}'s summaries compare against {rc_previous}, but the latest release is "
-            f"now {previous_release} - their diffs are against an older release. Tag and run "
-            f"a new release candidate to compare against {previous_release}"
-        )
+        # the candidate's summaries compare against whichever release was latest when it
+        # ran. If another release has happened since, their diffs are against an older
+        # release
+        previous_release = latest_release(next(iter(histories.values())))
+        rc_previous = store.tags(rc_key).get("previous_release")
+        if rc_previous != previous_release:
+            raise ValueError(
+                f"{rc_tag}'s summaries compare against {rc_previous}, but the latest "
+                f"release is now {previous_release} - their diffs are against an older "
+                f"release. Tag and run a new release candidate to compare against "
+                f"{previous_release}"
+            )
 
-    # the release archive is the candidate's, as is - only its name differs
-    store.download(rc_key, local(rc_key))
-    archive_key = release_key(release_tag)
-    os.makedirs(os.path.dirname(local(archive_key)))
-    shutil.copy(local(rc_key), local(archive_key))
+        # the release archive is the candidate's, as is - only its name differs
+        store.download(rc_key, local(rc_key))
+        archive_key = release_key(release_tag)
+        os.makedirs(os.path.dirname(local(archive_key)))
+        shutil.copy(local(rc_key), local(archive_key))
 
-    # the latest files - the archive's, as is
-    with zipfile.ZipFile(local(rc_key)) as z:
-        z.extractall(local("latest"))
-    latest_keys = [f"latest/{name}" for name in ARCHIVED_FILES]
+        # the latest files - the archive's, as is
+        with zipfile.ZipFile(local(rc_key)) as z:
+            z.extractall(local("latest"))
+        latest_keys = [f"latest/{name}" for name in ARCHIVED_FILES]
 
-    # this release's change log rows, from each summary's "current" column - a category with no
-    # current value existed in the previous release but not this run, and is excluded rather
-    # than logged as zero. released_at (when this release was made) orders the releases when
-    # the logs are combined
-    released_at = datetime.now(timezone.utc).isoformat(timespec="seconds")
-    release_logs = []
-    combined_logs = []
-    for log, columns in LOGS.items():
-        rows = (
-            pandas.read_csv(local(f"latest/{summary(log)}"))[columns + ["current"]]
-            .rename(columns={"current": AREA})
-            .dropna(subset=[AREA])
-        )
-        rows["release_tag"] = release_tag
-        rows["release_date"] = release_date
-        rows["commit"] = commit[:7]
-        rows["released_at"] = released_at
+        # this release's change log rows, from each summary's "current" column - a category
+        # with no current value existed in the previous release but not this run, and is
+        # excluded rather than logged as zero. released_at (when this release was made)
+        # orders the releases when the logs are combined
+        released_at = datetime.now(timezone.utc).isoformat(timespec="seconds")
+        release_logs = []
+        combined_logs = []
+        for log, columns in LOGS.items():
+            rows = (
+                pandas.read_csv(local(f"latest/{summary(log)}"))[columns + ["current"]]
+                .rename(columns={"current": AREA})
+                .dropna(subset=[AREA])
+            )
+            rows["release_tag"] = release_tag
+            rows["release_date"] = release_date
+            rows["commit"] = commit[:7]
+            rows["released_at"] = released_at
 
-        release_log = release_log_key(release_tag, log)
-        os.makedirs(os.path.dirname(local(release_log)), exist_ok=True)
-        rows.to_csv(local(release_log), index=False)
-        release_logs.append(release_log)
+            release_log = release_log_key(release_tag, log)
+            os.makedirs(os.path.dirname(local(release_log)), exist_ok=True)
+            rows.to_csv(local(release_log), index=False)
+            release_logs.append(release_log)
 
-        # the combined log, rebuilt from every release's rows (fetched above) plus this one's
-        if histories[log] is not None:
-            rows = pandas.concat([histories[log], rows], ignore_index=True)
-        rows.to_csv(local(combined_log_key(log)), index=False)
-        combined_logs.append(combined_log_key(log))
+            # the combined log, rebuilt from every release's rows (fetched above) plus this
+            # one's
+            if histories[log] is not None:
+                rows = pandas.concat([histories[log], rows], ignore_index=True)
+            rows.to_csv(local(combined_log_key(log)), index=False)
+            combined_logs.append(combined_log_key(log))
 
-    # everything is built - publish. First the archive, never overwritten once released, then
-    # the latest files and combined change logs, and finally this release's change log rows,
-    # marking the release as done
-    tags = {"commit": commit, "release": release_tag, "prerelease": rc_tag}
-    for key in [archive_key] + latest_keys + combined_logs + release_logs:
-        store.upload(local(key), key, tags)
-        LOG.info(f"{local(key)} published to {store.url(key)}")
+        # everything is built - publish. First the archive, never overwritten once released,
+        # then the latest files and combined change logs, and finally this release's change
+        # log rows, marking the release as done
+        tags = {"commit": commit, "release": release_tag, "prerelease": rc_tag}
+        for key in [archive_key] + latest_keys + combined_logs + release_logs:
+            store.upload(local(key), key, tags)
+            LOG.info(f"{local(key)} published to {store.url(key)}")
     LOG.info(f"Released {release_tag}")
 
 
@@ -1251,8 +1251,8 @@ def release(bucket, verbose, quiet):
 
     Promotes the commit's newest release candidate of the version: publishes its archive under
     releases/, the fixed-name latest files under latest/, and the release's change log rows
-    under logs/<release_tag>/ - see publish_release(). The release is built locally first, in
-    releases/<release_tag>/
+    under logs/<release_tag>/ - see publish_release(). The release is built in a temporary
+    directory first
     """
     configure_logging((verbose - quiet))
 

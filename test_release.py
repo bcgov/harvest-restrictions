@@ -748,23 +748,9 @@ def test_release_stale_summaries(store):
     assert store.uploads == []
 
 
-def test_release_clears_leftover_files(store, tmp_path):
-    # a latest file from a failed release attempt
-    leftover = tmp_path / "releases" / RELEASE_TAG / "latest"
-    leftover.mkdir(parents=True)
-    (leftover / "harvest_restrictions.gpkg").write_text("stale\n")
-
+def test_release_keeps_nothing_locally(store, tmp_path):
     run_release(store)
-    assert b"stale" not in store.objects["latest/harvest_restrictions.gpkg"]["body"]
-
-
-def test_release_builds_locally_by_key(store, tmp_path):
-    run_release(store)
-
-    # each published file is built at its key, under releases/<release_tag>/
-    release_dir = tmp_path / "releases" / RELEASE_TAG
-    for key in store.uploads:
-        assert (release_dir / key).read_bytes() == store.objects[key]["body"]
+    assert os.listdir(tmp_path) == []
 
 
 # --- read_release_logs ---
