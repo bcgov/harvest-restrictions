@@ -1006,14 +1006,11 @@ def overlay(db_url, designations_table, verbose, quiet, draft_dir="drafts"):
         f"| parallel --tag {psql} -f sql/overlay.sql -v tile={{1}}"
     )
 
-    def draft(name):
-        return os.path.join(draft_dir, name)
-
     os.makedirs(draft_dir)
 
     # the result (harvest_restrictions layer), and the source designations (designations layer)
     add_gpkg_layer(
-        draft("harvest_restrictions.gpkg"),
+        os.path.join(draft_dir, "harvest_restrictions.gpkg"),
         f"PG:{db_url}",
         "harvest_restrictions",
         "-nlt",
@@ -1043,7 +1040,7 @@ def overlay(db_url, designations_table, verbose, quiet, draft_dir="drafts"):
         all_harv_restrict_class_ranks != ARRAY[6]""",
     )
     add_gpkg_layer(
-        draft("harvest_restrictions_sources.gpkg"),
+        os.path.join(draft_dir, "harvest_restrictions_sources.gpkg"),
         f"PG:{db_url}",
         "designations",
         designations_table,
@@ -1051,10 +1048,10 @@ def overlay(db_url, designations_table, verbose, quiet, draft_dir="drafts"):
 
     # area totals, compared to the previous release in the summaries prerelease builds
     for log in LOGS:
-        run(f"{psql} -f sql/{log}.sql --csv > {draft(log + '.csv')}")
+        run(f"{psql} -f sql/{log}.sql --csv > {os.path.join(draft_dir, log + '.csv')}")
 
     # flatten sources.json to a csv, for review alongside the rest of the outputs
-    write_sources_csv("sources.json", draft("sources.csv"))
+    write_sources_csv("sources.json", os.path.join(draft_dir, "sources.csv"))
 
     # a checkout changed during the run (a commit, another checkout, an edit) means the
     # results are no commit's in particular
