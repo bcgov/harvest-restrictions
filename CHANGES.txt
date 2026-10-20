@@ -7,18 +7,19 @@ v2026-08
   cache              Download sources defined in provided sources.json file
   clear-cache        Delete cached parquet files written by cache (hr_*.parquet)
   load-db            Load source layers from parquet cache to the postgresql db
-  overlay            Run per-tile overlay, writing the results to the database
-  prerelease         Publish the overlay results in the database as a release candidate
-  prune-prereleases  Delete the release candidates of released versions
-  release            Release the checked-out commit's release candidate
+  overlay            Run per-tile overlay, writing the results to the database and drafts/
+  publish-draft      Publish the local draft in drafts/ as VERSION's next draft
+  release            Release DRAFT, a published draft
 
 - releases are made in two steps:
-  - release candidate: tag a commit <version>-rc.<n>, run `overlay` on it, then `prerelease`
-    publishes the results for review (only if the overlay was run on the tagged commit, with
-    no uncommitted changes other than to documentation)
-  - release: tag the approved candidate's commit <version> and push the tag - the release
-    workflow (requiring approval) promotes the candidate as is, then deletes the version's
-    release candidates
+  - draft: run `overlay` on a commit (writing the local draft to drafts/, with
+    overlay_run.json recording the commit and any uncommitted changes), then
+    `publish-draft <version>` publishes it for review as the version's next draft,
+    <version>-draft<n> (only if it was run on the checked-out commit, with no uncommitted
+    changes other than to documentation). A version is vYYYY-MM, or vYYYY-MM-DD for a hotfix
+  - release: run the release workflow (requiring approval) with the approved draft - it tags
+    the draft's commit <version>, pushes the tag, promotes the draft as is, then deletes the
+    version's drafts
 
 - in support of change tracking/reporting:
   - overlapping data are always sorted by index, primary_key, name
@@ -27,35 +28,5 @@ v2026-08
   - output `_all_*` columns are now JSON arrays instead of ; separated strings
     (this supports ';' in the source's name, and retains all values rather than dropping nulls)
 
-- object storage files reorganized, new structure is:
-
-  s3://$BUCKET/harvest_restrictions/
-  ├── cache/                                    # per-source geoparquet cache, written by `cache`
-  │   ├── hr_01_park_national.parquet
-  │   ├── hr_02_park_er.parquet
-  │   └── ...
-  ├── sources/                                  # sources not available for download elsewhere,
-  │   ├── CRD.gdb.zip                           #   in their native format - referenced by sources.json
-  │   └── ...
-  ├── prereleases/                              # release candidates, written by `prerelease`
-  │   └── harvest_restrictions_<version>-rc.<n>.zip   # as releases/, never overwritten
-  ├── latest/                                   # the latest release's files, written by `release`
-  │   ├── harvest_restrictions.gpkg
-  │   ├── harvest_restrictions_sources.gpkg
-  │   ├── land_designations_summary.csv
-  │   ├── harvest_restrictions_summary.csv
-  │   └── sources.csv
-  ├── logs/                                     # change logs, written by `release`
-  │   ├── land_designations.csv                 # combined, rebuilt on every release
-  │   ├── harvest_restrictions.csv
-  │   └── <release_tag>/                        # each release's rows
-  │       ├── land_designations.csv
-  │       └── harvest_restrictions.csv
-  └── releases/                                 # permanent per-release archives, written by `release`
-      └── harvest_restrictions_<release_tag>.zip
-          ├── harvest_restrictions.gpkg         (harvest_restrictions layer)
-          ├── harvest_restrictions_sources.gpkg (designations layer)
-          ├── land_designations_summary.csv
-          ├── harvest_restrictions_summary.csv
-          └── sources.csv
+- object storage files reorganized - see README, Object storage layout
 

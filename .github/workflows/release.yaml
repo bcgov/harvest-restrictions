@@ -1,16 +1,18 @@
 name: Release
+run-name: Release ${{ inputs.draft }}
 on:
-  push:
-    tags:
-      - 'v*'
-      # release candidates are published by overlay, not released
-      - '!v*-rc.*'
+  workflow_dispatch:
+    inputs:
+      draft:
+        description: "The approved draft to release, eg v2026-10-draft2"
+        required: true
 permissions:
-  contents: read
+  # release tags the draft's commit, and pushes the tag
+  contents: write
 # release read-modify-writes the change logs in object storage - run one release at a time
-# so concurrent tag pushes can't drop each other's log rows. A running release is never
-# cancelled; note GitHub keeps only one *pending* run per group, so if a third tag is pushed
-# while one runs and one waits, the waiting one is cancelled and must be re-run
+# so concurrent releases can't drop each other's log rows. A running release is never
+# cancelled; note GitHub keeps only one *pending* run per group, so if a third release is
+# started while one runs and one waits, the waiting one is cancelled and must be re-run
 concurrency:
   group: release
   cancel-in-progress: false
@@ -31,16 +33,32 @@ jobs:
     container: ghcr.io/bcgov/harvest-restrictions-runner:main
     # requires a reviewer's approval before anything is published
     environment: release
+    outputs:
+      version: ${{ steps.release.outputs.version }}
     steps:
       - name: Check out repository code
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
         with:
             fetch-tags: true
             fetch-depth: 0
       - name: Publish release
+        id: release
+        env:
+          DRAFT: ${{ inputs.draft }}
         run: |
           git config --global --add safe.directory /__w/harvest-restrictions/harvest-restrictions
-          python harvest_restrictions.py release -v
-      - name: Prune release candidates
-        # only candidates of released versions (including this one) - others are left alone
-        run: python harvest_restrictions.py prune-prereleases -v
+          git config --global user.name "github-actions[bot]"
+          git config --global user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          python harvest_restrictions.py release "$DRAFT" -v
+          # the version - the draft's name, without its -draft<n>
+          echo "version=${DRAFT%-draft*}" >> "$GITHUB_OUTPUT"
+  docker-image:
+    # the release's images - its tag is pushed with the workflow's token, which doesn't
+    # trigger build-docker-image's tag push
+    needs: release
+    uses: ./.github/workflows/build-docker-image.yml
+    with:
+      version: ${{ needs.release.outputs.version }}
+    permissions:
+      contents: read
+      packages: write

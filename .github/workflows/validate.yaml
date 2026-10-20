@@ -33,7 +33,7 @@ jobs:
     env:
         DEBIAN_FRONTEND: noninteractive
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - name: Validate sources.json
         run: |
           python harvest_restrictions.py cache sources.json --dry_run -v

@@ -1,7 +1,15 @@
 name: Process
 on:
   workflow_dispatch:
+    inputs:
+      version:
+        description: "Publish the results as a draft of this version (vYYYY-MM, or vYYYY-MM-DD for a hotfix) - leave empty to only run the overlays"
+        required: false
   workflow_call:
+    inputs:
+      version:
+        type: string
+        required: false
 permissions:
   contents: read
 env:
@@ -37,10 +45,7 @@ jobs:
         DEBIAN_FRONTEND: noninteractive
     steps:
       - name: Check out repository code
-        uses: actions/checkout@v4
-        with:
-            fetch-tags: true
-            fetch-depth: 0
+        uses: actions/checkout@v5
       - name: Load sources to database
         run: |
           python harvest_restrictions.py load-db sources.json -v --out_table designations
@@ -48,7 +53,9 @@ jobs:
         run: |
           git config --global --add safe.directory /__w/harvest-restrictions/harvest-restrictions
           python harvest_restrictions.py overlay -v
-      - name: Publish release candidate
-        # only when run on a release candidate tag
-        if: startsWith(github.ref, 'refs/tags/') && contains(github.ref_name, '-rc.')
-        run: python harvest_restrictions.py prerelease -v
+      - name: Publish draft
+        # only when given a version
+        if: inputs.version != ''
+        env:
+          VERSION: ${{ inputs.version }}
+        run: python harvest_restrictions.py publish-draft "$VERSION" -v

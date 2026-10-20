@@ -25,7 +25,7 @@ jobs:
     env:
         DEBIAN_FRONTEND: noninteractive
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - name: Download sources to S3
         run: |
           python harvest_restrictions.py cache sources.json -v
