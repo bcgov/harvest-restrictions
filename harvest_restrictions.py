@@ -748,7 +748,6 @@ def publish_release(store):
             )
             # first, for sorting and filtering the logs by eye
             rows.insert(0, "release_tag", release_tag)
-            rows["commit"] = commit[:7]
 
             if histories[log] is not None:
                 rows = pandas.concat([histories[log], rows], ignore_index=True)

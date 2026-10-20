@@ -28,11 +28,13 @@ for log in hr.LOGS:
         store.download(k, f"release_logs_backup/{k}")
         frames.append(pandas.read_csv(f"release_logs_backup/{k}"))
     # in release order - the release tags (vYYYY-MM) sort by date. Only the columns release
-    # writes are kept: run_id was never filled in by the backfill, the tag gives the release's
-    # date, and the commit identifies what was released
+    # writes are kept: run_id was never filled in by the backfill, and the release tag gives
+    # the release's date and (as a git tag) its commit
     rows = (
         pandas.concat(frames, ignore_index=True)
-        .drop(columns=["run_id", "released_at", "release_date"], errors="ignore")
+        .drop(
+            columns=["run_id", "released_at", "release_date", "commit"], errors="ignore"
+        )
         .sort_values("release_tag", kind="stable")
     )
     # first, for sorting and filtering the logs by eye
