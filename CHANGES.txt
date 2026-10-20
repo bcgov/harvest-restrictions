@@ -46,12 +46,9 @@ v2026-08
   │   ├── land_designations_summary.csv
   │   ├── harvest_restrictions_summary.csv
   │   └── sources.csv
-  ├── logs/                                     # change logs, written by `release`
-  │   ├── land_designations.csv                 # combined, rebuilt on every release
-  │   ├── harvest_restrictions.csv
-  │   └── <release_tag>/                        # each release's rows
-  │       ├── land_designations.csv
-  │       └── harvest_restrictions.csv
+  ├── logs/                                     # change logs, appended to by `release`
+  │   ├── land_designations.csv
+  │   └── harvest_restrictions.csv
   └── releases/                                 # permanent per-release archives, written by `release`
       └── harvest_restrictions_<release_tag>.zip
           ├── harvest_restrictions.gpkg         (harvest_restrictions layer)

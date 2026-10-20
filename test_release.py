@@ -128,16 +128,6 @@ def test_s3store_list_empty(monkeypatch):
     assert hr.S3Store("bucket").list("logs/") == []
 
 
-def test_s3store_tags(monkeypatch):
-    out = json.dumps({"TagSet": [{"Key": "previous_release", "Value": "v2026-02"}]})
-    monkeypatch.setattr(
-        hr.subprocess,
-        "run",
-        lambda cmd, **kwargs: subprocess.CompletedProcess(cmd, 0, stdout=out),
-    )
-    assert hr.S3Store("bucket").tags(RC_KEY) == {"previous_release": "v2026-02"}
-
-
 # --- geopackages and zips ---
 
 
@@ -226,28 +216,25 @@ class MemoryStore:
     def url(self, key):
         return f"memory://{key}"
 
-    def put(self, key, body, tags=None):
+    def put(self, key, body):
         if isinstance(body, str):
             body = body.encode()
-        self.objects[key] = {"body": body, "tags": dict(tags or {})}
+        self.objects[key] = body
 
     def read_csv(self, key):
-        return pandas.read_csv(io.BytesIO(self.objects[key]["body"]))
+        return pandas.read_csv(io.BytesIO(self.objects[key]))
 
-    def upload(self, local_file, key, tags):
+    def upload(self, local_file, key):
         with open(local_file, "rb") as f:
-            self.put(key, f.read(), tags)
+            self.put(key, f.read())
         self.uploads.append(key)
-
-    def tags(self, key):
-        return self.objects[key]["tags"]
 
     def download(self, key, local_file):
         if key not in self.objects:
             raise subprocess.CalledProcessError(1, f"aws s3 cp {key}")
         os.makedirs(os.path.dirname(local_file) or ".", exist_ok=True)
         with open(local_file, "wb") as f:
-            f.write(self.objects[key]["body"])
+            f.write(self.objects[key])
 
     def list(self, prefix):
         return sorted(k for k in self.objects if k.startswith(prefix))
@@ -326,8 +313,8 @@ def summary_body(log, previous_release=PREVIOUS_RELEASE):
     return df.to_csv(index=False)
 
 
-def put_release_log(store, release_tag, released_at, logs=None):
-    """publish one release's change log rows, as publish_release does"""
+def put_release_log(store, release_tag, logs=None):
+    """append one release's rows to the change logs, as publish_release does"""
     for log, row in LOG_ROWS.items():
         if logs and log not in logs:
             continue
@@ -339,11 +326,20 @@ def put_release_log(store, release_tag, released_at, logs=None):
                     "release_tag": release_tag,
                     "release_date": "2026-01-01",
                     "commit": "0000000",
-                    "released_at": released_at,
+                    "released_at": "2026-01-02T00:00:00+00:00",
                 }
             ]
         )
-        store.put(hr.release_log_key(release_tag, log), rows.to_csv(index=False))
+        key = f"logs/{log}.csv"
+        if key in store.objects:
+            rows = pandas.concat([store.read_csv(key), rows], ignore_index=True)
+        store.put(key, rows.to_csv(index=False))
+
+
+def put_release(store, release_tag):
+    """a finished release - its change log rows, and its archive"""
+    put_release_log(store, release_tag)
+    store.put(hr.release_key(release_tag), f"archive {release_tag}")
 
 
 def put_prerelease(store, rc_tag=RC_TAG, previous_release=PREVIOUS_RELEASE):
@@ -355,12 +351,7 @@ def put_prerelease(store, rc_tag=RC_TAG, previous_release=PREVIOUS_RELEASE):
         z.writestr("sources.csv", SOURCES_CSV_BODY)
         for log in hr.LOGS:
             z.writestr(f"{log}_summary.csv", summary_body(log, previous_release))
-    tags = {
-        "commit": COMMIT,
-        "prerelease": rc_tag,
-        "previous_release": previous_release,
-    }
-    store.put(hr.prerelease_key(rc_tag), out.getvalue(), tags)
+    store.put(hr.prerelease_key(rc_tag), out.getvalue())
 
 
 @pytest.fixture
@@ -368,7 +359,7 @@ def store(tmp_path, monkeypatch):
     """a store holding one previous release, plus a release candidate of COMMIT, which is
     checked out and tagged with the candidate and the release"""
     memory = MemoryStore()
-    put_release_log(memory, PREVIOUS_RELEASE, "2026-02-10T15:34:35-08:00")
+    put_release(memory, PREVIOUS_RELEASE)
     put_prerelease(memory)
 
     monkeypatch.chdir(tmp_path)
@@ -386,22 +377,15 @@ def run_release(store):
     hr.publish_release(store)
 
 
-# --- committed_head ---
+# --- uncommitted_changes ---
 
 
-def test_committed_head(store):
-    assert hr.committed_head() == COMMIT
+def test_uncommitted_changes(store, monkeypatch):
+    checkout(monkeypatch, status=" M sql/overlay.sql\0")
+    assert hr.uncommitted_changes() == [" M sql/overlay.sql"]
 
 
-def test_committed_head_uncommitted_changes(store, monkeypatch):
-    checkout(monkeypatch, status=" M sql/overlay.sql")
-    with pytest.raises(ValueError, match="uncommitted changes") as e:
-        hr.committed_head()
-    # the changed files are listed
-    assert "sql/overlay.sql" in str(e.value)
-
-
-def test_committed_head_ignores_untracked_files(store, monkeypatch):
+def test_uncommitted_changes_ignores_untracked_files(store, monkeypatch):
     # git is asked to leave untracked files out
     calls = []
     git = fake_git()
@@ -411,21 +395,18 @@ def test_committed_head_ignores_untracked_files(store, monkeypatch):
         return git(cmd)
 
     monkeypatch.setattr(hr.subprocess, "check_output", fake)
-    hr.committed_head()
+    hr.uncommitted_changes()
     assert ["git", "status", "--porcelain", "-z", "--untracked-files=no"] in calls
 
 
-def test_committed_head_allows_docs(store, monkeypatch):
+def test_uncommitted_changes_ignores_docs(store, monkeypatch):
     checkout(monkeypatch, status=" M README.md\0M  CHANGES.txt\0 M docs/notes.md\0")
-    assert hr.committed_head() == COMMIT
+    assert hr.uncommitted_changes() == []
 
 
-def test_committed_head_lists_only_non_docs(store, monkeypatch):
+def test_uncommitted_changes_lists_only_non_docs(store, monkeypatch):
     checkout(monkeypatch, status=" M README.md\0 M sql/overlay.sql\0")
-    with pytest.raises(ValueError, match="uncommitted changes") as e:
-        hr.committed_head()
-    assert "sql/overlay.sql" in str(e.value)
-    assert "README.md" not in str(e.value)
+    assert hr.uncommitted_changes() == [" M sql/overlay.sql"]
 
 
 @pytest.mark.parametrize(
@@ -438,10 +419,9 @@ def test_committed_head_lists_only_non_docs(store, monkeypatch):
     ],
     ids=["doc renamed to code", "doc copied to data", "code renamed to doc"],
 )
-def test_committed_head_renames(store, monkeypatch, status):
+def test_uncommitted_changes_renames(store, monkeypatch, status):
     checkout(monkeypatch, status=status)
-    with pytest.raises(ValueError, match="uncommitted changes"):
-        hr.committed_head()
+    assert len(hr.uncommitted_changes()) == 1
 
 
 def test_checkout_state_ignores_docs(store, monkeypatch):
@@ -471,9 +451,9 @@ def test_release_candidate_already_published(store, monkeypatch):
 
 
 def test_release_candidate_uncommitted_changes(store, monkeypatch):
+    # the checkout needn't be clean - the draft is what's published, and check_draft checks it
     checkout(monkeypatch, tags=["v2026-11-rc.1"], status=" M sources.json")
-    with pytest.raises(ValueError, match="uncommitted changes"):
-        hr.release_candidate(store)
+    assert hr.release_candidate(store) == ("v2026-11-rc.1", COMMIT)
 
 
 # --- draft ---
@@ -540,15 +520,10 @@ def test_publish_prerelease(store, draft_dir, tmp_path):
     key = hr.prerelease_key(NEW_RC)
     assert store.uploads == [key]
     assert key == "drafts/harvest_restrictions_v2026-11-rc.1.zip"
-    assert store.tags(key) == {
-        "commit": COMMIT,
-        "prerelease": NEW_RC,
-        "previous_release": PREVIOUS_RELEASE,
-    }
 
     # the geopackages, sources and summaries comparing the draft's totals to the previous
     # release - not overlay_run.json
-    members = zip_members(store.objects[key]["body"])
+    members = zip_members(store.objects[key])
     assert sorted(members) == [
         "harvest_restrictions.gpkg",
         "harvest_restrictions_sources.gpkg",
@@ -587,8 +562,8 @@ def test_publish_prerelease_then_release(store, draft_dir, monkeypatch):
 
     checkout(monkeypatch, tags=["v2026-11", NEW_RC])
     run_release(store)
-    rows = store.read_csv(hr.release_log_key("v2026-11", "harvest_restrictions"))
-    assert list(rows["area_ha"]) == [120]
+    rows = store.read_csv("logs/harvest_restrictions.csv")
+    assert list(rows[rows["release_tag"] == "v2026-11"]["area_ha"]) == [120]
 
 
 def test_publish_prerelease_no_release_yet(store, draft_dir):
@@ -639,30 +614,19 @@ def test_release_publishes(store):
         "latest/land_designations_summary.csv",
         "latest/harvest_restrictions_summary.csv",
     ]
-    combined_log_keys = ["logs/land_designations.csv", "logs/harvest_restrictions.csv"]
-    release_log_keys = [
-        f"logs/{RELEASE_TAG}/land_designations.csv",
-        f"logs/{RELEASE_TAG}/harvest_restrictions.csv",
-    ]
+    log_keys = ["logs/land_designations.csv", "logs/harvest_restrictions.csv"]
 
-    # the archive first, this release's change log rows last
-    assert (
-        store.uploads
-        == [ARCHIVE_KEY] + latest_keys + combined_log_keys + release_log_keys
-    )
-
-    tags = {"commit": COMMIT, "release": RELEASE_TAG, "prerelease": RC_TAG}
-    for key in store.uploads:
-        assert store.tags(key) == tags
+    # the archive last, marking the release as done
+    assert store.uploads == latest_keys + log_keys + [ARCHIVE_KEY]
 
     # the archive is the candidate's, as is
-    assert store.objects[ARCHIVE_KEY]["body"] == store.objects[RC_KEY]["body"]
+    assert store.objects[ARCHIVE_KEY] == store.objects[RC_KEY]
 
     # the latest files are the archive's, as is
-    members = zip_members(store.objects[RC_KEY]["body"])
+    members = zip_members(store.objects[RC_KEY])
     assert latest_keys == [f"latest/{name}" for name in members]
     for name, body in members.items():
-        assert store.objects[f"latest/{name}"]["body"] == body
+        assert store.objects[f"latest/{name}"] == body
 
     # the candidate is left for prune-prereleases
     assert RC_KEY in store.objects
@@ -671,9 +635,14 @@ def test_release_publishes(store):
 def test_release_logs(store):
     run_release(store)
 
-    # this release's own rows - the class dropped since the previous release isn't logged
-    # (as zero, or at all)
-    rows = store.read_csv(hr.release_log_key(RELEASE_TAG, "harvest_restrictions"))
+    # this release's rows, appended to the previous release's
+    for log in hr.LOGS:
+        rows = store.read_csv(f"logs/{log}.csv")
+        assert list(rows["release_tag"]) == [PREVIOUS_RELEASE, RELEASE_TAG]
+
+    # the class dropped since the previous release isn't logged (as zero, or at all)
+    rows = store.read_csv("logs/harvest_restrictions.csv")
+    rows = rows[rows["release_tag"] == RELEASE_TAG]
     assert len(rows) == 1
     row = rows.iloc[0]
     assert row["harvest_restriction_class_rank"] == 1
@@ -684,13 +653,8 @@ def test_release_logs(store):
     assert "prerelease" not in rows.columns
     assert pandas.notna(row["released_at"])
 
-    designations = store.read_csv(hr.release_log_key(RELEASE_TAG, "land_designations"))
+    designations = store.read_csv("logs/land_designations.csv")
     assert list(designations.columns[:5]) == hr.LOGS["land_designations"]
-
-    # the combined logs, rebuilt from every release's rows
-    for log in hr.LOGS:
-        combined = store.read_csv(hr.combined_log_key(log))
-        assert list(combined["release_tag"]) == [PREVIOUS_RELEASE, RELEASE_TAG]
 
 
 def test_release_newest_candidate(store, monkeypatch):
@@ -700,7 +664,9 @@ def test_release_newest_candidate(store, monkeypatch):
     checkout(monkeypatch, tags=[RELEASE_TAG, RC_TAG, "v2026-10-rc.2", "v2026-11-rc.3"])
 
     run_release(store)
-    assert store.tags(ARCHIVE_KEY)["prerelease"] == "v2026-10-rc.2"
+    assert (
+        store.objects[ARCHIVE_KEY] == store.objects[hr.prerelease_key("v2026-10-rc.2")]
+    )
 
 
 def test_release_no_candidate_on_commit(store, monkeypatch):
@@ -727,7 +693,7 @@ def test_release_candidate_not_published(store, monkeypatch):
 
 
 def test_release_already_released(store):
-    put_release_log(store, RELEASE_TAG, "2026-10-02T00:00:00+00:00")
+    store.put(ARCHIVE_KEY, "archive")
 
     with pytest.raises(ValueError, match="already been released"):
         run_release(store)
@@ -735,20 +701,19 @@ def test_release_already_released(store):
 
 
 def test_release_partially_logged(store):
-    # a previous attempt failed between publishing its change log files
-    put_release_log(
-        store, RELEASE_TAG, "2026-10-02T00:00:00+00:00", logs=["land_designations"]
-    )
+    # a previous attempt failed between publishing its change log files - its rows are
+    # replaced, not logged twice
+    put_release_log(store, RELEASE_TAG, logs=["land_designations"])
 
     run_release(store)
     for log in hr.LOGS:
-        combined = store.read_csv(hr.combined_log_key(log))
-        assert list(combined["release_tag"]) == [PREVIOUS_RELEASE, RELEASE_TAG]
+        rows = store.read_csv(f"logs/{log}.csv")
+        assert list(rows["release_tag"]) == [PREVIOUS_RELEASE, RELEASE_TAG]
 
 
 def test_release_stale_summaries(store):
     # another release since the candidate ran - its diffs are against an older release
-    put_release_log(store, "v2026-05", "2026-05-01T00:00:00+00:00")
+    put_release(store, "v2026-05")
 
     with pytest.raises(ValueError, match="older release"):
         run_release(store)
@@ -763,47 +728,31 @@ def test_release_keeps_nothing_locally(store, tmp_path):
 # --- read_release_logs ---
 
 
-def test_read_release_logs_after_release(store, tmp_path):
-    # the combined logs a release publishes (every release's rows) sit next to the per-release
-    # folders under logs/ - reading the logs back mustn't count their rows again
-    run_release(store)
-
-    histories = hr.read_release_logs(store, str(tmp_path / "read"))
-    for history in histories.values():
-        assert list(history["release_tag"]) == [PREVIOUS_RELEASE, RELEASE_TAG]
-
-
-def test_read_release_logs_ordered_by_released_at(store, tmp_path):
-    # tag names (and so the order keys are listed in) needn't follow release order - here
-    # v2025-08 was released after v2026-02. Mixed timestamp formats, as in backfilled logs
-    put_release_log(store, "v2025-08", "2026-08-20T09:00:00-07:00")
-    put_release_log(store, "v2024-04", "2024-04-01")
+def test_read_release_logs(store, tmp_path):
+    # the logs in release order, as appended - tag names needn't follow it
+    put_release(store, "v2025-08")
 
     histories = hr.read_release_logs(store, str(tmp_path))
     for history in histories.values():
-        assert list(history["release_tag"]) == [
-            "v2024-04",
-            PREVIOUS_RELEASE,
-            "v2025-08",
-        ]
+        assert list(history["release_tag"]) == [PREVIOUS_RELEASE, "v2025-08"]
     assert hr.latest_release(histories["harvest_restrictions"]) == "v2025-08"
 
 
 def test_read_release_logs_ignores_other_keys(store, tmp_path):
-    # other files under logs/, and log rows in other layouts, aren't read
-    store.put(f"logs/{RELEASE_TAG}/notes.txt", "notes")
-    # (real log rows, so they'd show up if read)
-    key = hr.release_log_key(PREVIOUS_RELEASE, "harvest_restrictions")
-    rows = store.objects[key]["body"]
+    # other files under logs/, eg the per-release folders of earlier releases, aren't read
+    rows = store.objects["logs/harvest_restrictions.csv"]
     store.put(
-        "logs/log/v2026-05/harvest_restrictions.csv",
-        rows.replace(b"v2026-02", b"v2026-05"),
+        "logs/v2026-05/harvest_restrictions.csv", rows.replace(b"v2026-02", b"v2026-05")
     )
-    # the combined log
-    store.put("logs/harvest_restrictions.csv", rows.replace(b"v2026-02", b"v2026-06"))
+    store.put("logs/notes.txt", "notes")
 
     histories = hr.read_release_logs(store, str(tmp_path))
     assert list(histories["harvest_restrictions"]["release_tag"]) == [PREVIOUS_RELEASE]
+
+
+def test_read_release_logs_none_yet(tmp_path):
+    histories = hr.read_release_logs(MemoryStore(), str(tmp_path))
+    assert histories == {log: None for log in hr.LOGS}
 
 
 # --- delete_prereleases ---
@@ -830,11 +779,9 @@ def test_prune_after_release(store):
 
 
 def test_prune_keeps_partially_released_version(store):
-    # a release that failed between publishing its change log files - its retry still
-    # needs the candidate
-    put_release_log(
-        store, RELEASE_TAG, "2026-10-02T00:00:00+00:00", logs=["land_designations"]
-    )
+    # a release that failed before publishing its archive - its retry still needs the
+    # candidate
+    put_release_log(store, RELEASE_TAG)
 
     hr.delete_prereleases(store)
     assert candidates(store) == [f"harvest_restrictions_{RC_TAG}.zip"]
