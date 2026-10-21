@@ -32,12 +32,15 @@ jobs:
     environment: production
     services:
       postgres:
-        image: postgis/postgis:17-3.5
+        # the repo's db image, as docker compose uses locally - sql/setup.sql creates the
+        # tables and lookups the overlay needs when the database is first created
+        image: ghcr.io/bcgov/harvest-restrictions-db:main
         env:
           POSTGRES_PASSWORD: postgres
-        # Set health checks to wait until postgres has started
+        # Set health checks to wait until postgres has started - over tcp, which postgres
+        # only listens on once setup.sql has run
         options: >-
-          --health-cmd pg_isready
+          --health-cmd "pg_isready -h localhost"
           --health-interval 10s
           --health-timeout 5s
           --health-retries 5

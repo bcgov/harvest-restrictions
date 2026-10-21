@@ -1,5 +1,4 @@
 bcdata == 0.17.1
-psycopg[binary]
 jsonschema
 pyarrow
 python-slugify

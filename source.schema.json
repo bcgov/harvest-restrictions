@@ -36,7 +36,7 @@
                 "description": "The source column holding the primary key",
                 "type": ["string", "null"]
             },
-            "field mapper": {
+            "field_mapper": {
                 "description": "Mapping of source column names to new column names",
                 "type": "object"
             },
