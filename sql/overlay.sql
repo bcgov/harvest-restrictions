@@ -72,8 +72,9 @@ flattened AS
   GROUP BY map_tile
 ),
 
--- get the attributes of every designation covering each polygon (polygons inside none -
--- holes - are dropped)
+-- join each polygon to every designation covering it - one row per polygon and designation.
+-- Polygonizing the noded boundaries also creates polygons outside the land base that no
+-- designation covers (eg ocean) - having no match, they aren't output
 attributed AS
 (
   SELECT
