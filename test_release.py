@@ -1,4 +1,4 @@
-# --- WARNING - this file is 100% unreviewed AI slop
+# --- WARNING - while it has had some basic human review and should work fine, this file is 100% AI slop.
 
 # Tests of publishing drafts and releases.
 #
