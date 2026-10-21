@@ -54,6 +54,7 @@ class MemoryStore:
     """
 
     def __init__(self):
+        self.bucket = "memory"
         self.objects = {}
         self.uploads = []
 
@@ -237,16 +238,22 @@ def put_draft(store, draft=DRAFT):
     drafts/harvest_restrictions_<draft>.zip.
 
     The archive holds the files in hr.ARCHIVED_FILES, in that order. The geopackages and
-    sources.csv are placeholder text - the release code copies them without reading them.
-    overlay_run.json says the draft was run on COMMIT, and the summaries are from
-    summary_body.
+    sources.csv and harvest_restrictions_changes.csv are placeholder text - the release
+    code copies them without reading them. overlay_run.json says the draft was run on
+    COMMIT, compared to PREVIOUS_RELEASE, and the summaries are from summary_body.
     """
-    overlay_run = {"commit": COMMIT, "uncommitted_changes": [], "finished_at": "?"}
+    overlay_run = {
+        "commit": COMMIT,
+        "uncommitted_changes": [],
+        "previous_release": PREVIOUS_RELEASE,
+        "finished_at": "?",
+    }
     out = io.BytesIO()
     with zipfile.ZipFile(out, "w") as z:
         z.writestr("harvest_restrictions.gpkg", f"gpkg {draft}")
         z.writestr("harvest_restrictions_sources.gpkg", "designations gpkg")
         z.writestr("sources.csv", "sources")
+        z.writestr("harvest_restrictions_changes.csv", "changes")
         z.writestr("overlay_run.json", json.dumps(overlay_run))
         for log in hr.LOGS:
             z.writestr(f"{log}_summary.csv", summary_body(log))
@@ -290,19 +297,21 @@ def store(monkeypatch, git):
 def draft_dir(tmp_path):
     """A local draft folder, as overlay leaves it - for publish_draft to publish.
 
-    Holds the files overlay writes: placeholder geopackages and sources.csv, each log's
-    area totals (<log>.csv, 120 ha for the category in LOG_ROWS), and overlay_run.json,
-    saying it was run on COMMIT with no uncommitted changes. Returns the folder's path."""
+    Holds the files overlay writes: placeholder geopackages, sources.csv and
+    harvest_restrictions_changes.csv, each log's area totals (<log>.csv, 120 ha for the
+    category in LOG_ROWS), and overlay_run.json, saying it was run on COMMIT with no
+    uncommitted changes, compared to PREVIOUS_RELEASE. Returns the folder's path."""
     draft_dir = tmp_path / "drafts"
     draft_dir.mkdir()
     (draft_dir / "harvest_restrictions.gpkg").write_text("gpkg")
     (draft_dir / "harvest_restrictions_sources.gpkg").write_text("designations gpkg")
     (draft_dir / "sources.csv").write_text("sources")
+    (draft_dir / "harvest_restrictions_changes.csv").write_text("changes")
     for log, row in LOG_ROWS.items():
         pandas.DataFrame([{**row, "area_ha": 120.0}]).to_csv(
             draft_dir / f"{log}.csv", index=False
         )
-    hr.write_overlay_run(str(draft_dir), COMMIT, [])
+    hr.write_overlay_run(str(draft_dir), COMMIT, [], PREVIOUS_RELEASE)
     return str(draft_dir)
 
 
@@ -432,6 +441,30 @@ def test_names(name, version, draft):
     assert bool(hr.DRAFT.fullmatch(name)) == draft
 
 
+# --- load_previous_release ---
+
+
+def test_load_previous_release(store, monkeypatch):
+    # the latest release's harvest_restrictions layer is loaded from its archive
+    commands = []
+    monkeypatch.setattr(hr, "run", commands.append)
+    assert hr.load_previous_release(store, "postgresql://db") == PREVIOUS_RELEASE
+    assert len(commands) == 1
+    assert "-nln harvest_restrictions_previous" in commands[0]
+    assert f"/vsis3/memory/harvest_restrictions/{hr.release_key(PREVIOUS_RELEASE)}/" in (
+        commands[0]
+    )
+
+
+def test_load_previous_release_no_archive(store, monkeypatch):
+    # a release from before releases were kept has nothing to load
+    put_release_log(store, "v2026-05")
+    commands = []
+    monkeypatch.setattr(hr, "run", commands.append)
+    assert hr.load_previous_release(store, "postgresql://db") is None
+    assert commands == []
+
+
 # --- publish_draft ---
 
 
@@ -478,8 +511,17 @@ def test_publish_draft_bad_version(store, draft_dir, git, version, error):
 )
 def test_publish_draft_bad_draft(store, draft_dir, git, commit, changes, error):
     # the local draft is of another commit, or was run with uncommitted changes
-    hr.write_overlay_run(draft_dir, commit, changes)
+    hr.write_overlay_run(draft_dir, commit, changes, PREVIOUS_RELEASE)
     with pytest.raises(ValueError, match=error):
+        hr.publish_draft(store, NEW_VERSION, draft_dir)
+    assert_nothing_published(store, git)
+
+
+@pytest.mark.parametrize("previous_release", [None, "v2025-08"])
+def test_publish_draft_not_compared_to_latest(store, draft_dir, git, previous_release):
+    # the local draft's changes weren't compared to a release, or not to the latest
+    hr.write_overlay_run(draft_dir, COMMIT, [], previous_release)
+    with pytest.raises(ValueError, match="latest release is v2026-02"):
         hr.publish_draft(store, NEW_VERSION, draft_dir)
     assert_nothing_published(store, git)
 

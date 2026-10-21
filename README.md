@@ -77,6 +77,8 @@ The nth entry of each describes the same designation, and a missing value is `nu
 
 Each release also includes `harvest_restrictions_sources.gpkg` (layer `designations`) - every source designation as loaded for the overlay.
 
+And `harvest_restrictions_changes.csv` - where the top designation differs from the previous release's, the area (ha) of each change, from the previous release's designation (`from_*` columns) to the release's (`to_*`). Land designated in only one of the two has empty `from_*` (newly designated) or `to_*` (no longer designated) columns. Changes rounding to 0 ha are left out.
+
 
 ## Development and testing setup
 
@@ -119,6 +121,8 @@ The database is set up by `sql/setup.sql` when its container is first created. A
 
         docker compose run -it --rm runner python harvest_restrictions.py overlay -v
 
+    With `$BUCKET` set, the results are compared to the latest release (if it has an archive in `releases/` - releases before `v2026-02` don't). Without `$BUCKET`, or for a release without an archive, a warning is logged and the comparison skipped - and the draft can't be published.
+
     Each run overwrites the contents of `drafts/`:
 
     - `harvest_restrictions.gpkg` - output harvest restrictions layer
@@ -126,15 +130,18 @@ The database is set up by `sql/setup.sql` when its container is first created. A
     - `sources.csv` - `sources.json` translated to csv
     - `land_designations.csv` - area totals for source designations
     - `harvest_restrictions.csv` - area totals for output harvest restrictions after overlaps removed
-    - `overlay_run.json` - logs what code the draft was run on, written when `overlay` finishes:
+    - `harvest_restrictions_changes.csv` - area of each change in top designation from the latest release
+    - `harvest_restrictions_transitions.gpkg` - the geometries of those changes (layer `transitions`), for review - not published
+    - `overlay_run.json` - logs what code the draft was run on, and the release it was compared to, written when `overlay` finishes:
 
             {
               "commit": "f439b88c2d1e7a4b9f0c3e5a6b8d2f1e4c7a9b03",
               "uncommitted_changes": [" M sql/overlay.sql"],
+              "previous_release": "v2026-02",
               "finished_at": "2026-10-19T21:02:11+00:00"
             }
 
-      `uncommitted_changes` lists the `git status` lines of changed tracked files (other than documentation). If there are uncommitted changes noted, the next step `publish-draft` will fail - commit changes and re-run the overlay until results are satisfactory.
+      `uncommitted_changes` lists the `git status` lines of changed tracked files (other than documentation). If there are uncommitted changes noted, the next step `publish-draft` will fail - commit changes and re-run the overlay until results are satisfactory. `publish-draft` also fails if `previous_release` isn't the latest release (eg a release was made since the overlay ran, or it wasn't compared) - re-run the overlay.
 
 8. Once outputs in `drafts/` are satisfactory, combine the local draft files noted above into a single archive and publish to object storage `harvest_restrictions/drafts` for review, assigning the draft a tag in format `vYYYY-MM` or, if necessary `vYYYY-MM-DD`:
 
@@ -148,8 +155,9 @@ The database is set up by `sql/setup.sql` when its container is first created. A
     - `harvest_restrictions_sources.gpkg`
     - `land_designations_summary.csv`
     - `harvest_restrictions_summary.csv`
+    - `harvest_restrictions_changes.csv`
     - `sources.csv`
-    - `overlay_run.json` - the commit the draft was run on
+    - `overlay_run.json` - the commit the draft was run on, and the release it was compared to
 
     If results are not correct, address the issue, commit the fix, re-run from step 3 (presuming the issue is with the sources), and publish a new draft with the same command and tag (the script auto increments the draft numbers).
 
@@ -178,6 +186,7 @@ s3://$BUCKET/harvest_restrictions/
 │   ├── harvest_restrictions_sources.gpkg
 │   ├── land_designations_summary.csv
 │   ├── harvest_restrictions_summary.csv
+│   ├── harvest_restrictions_changes.csv
 │   ├── sources.csv
 │   └── overlay_run.json
 ├── logs/                                     # change logs, appended to by `release`
@@ -189,6 +198,7 @@ s3://$BUCKET/harvest_restrictions/
         ├── harvest_restrictions_sources.gpkg (designations layer)
         ├── land_designations_summary.csv
         ├── harvest_restrictions_summary.csv
+        ├── harvest_restrictions_changes.csv
         ├── sources.csv
         └── overlay_run.json
 ```

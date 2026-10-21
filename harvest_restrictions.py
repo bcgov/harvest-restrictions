@@ -59,12 +59,14 @@ LOGS = {
 }
 
 # each published draft's and release's archive, holding these files - which are also each
-# release's latest/ files. overlay_run.json records the commit the draft was run on
+# release's latest/ files. overlay_run.json records the commit the draft was run on, and the
+# release harvest_restrictions_changes.csv compares it to
 ARCHIVE = "harvest_restrictions_{tag}.zip"
 ARCHIVED_FILES = [
     "harvest_restrictions.gpkg",
     "harvest_restrictions_sources.gpkg",
     "sources.csv",
+    "harvest_restrictions_changes.csv",
     "overlay_run.json",
 ] + [f"{log}_summary.csv" for log in LOGS]
 
@@ -497,11 +499,13 @@ def checkout_state():
     return git("rev-parse", "HEAD"), uncommitted_changes()
 
 
-def write_overlay_run(draft_dir, commit, changes):
-    """record what the draft in draft_dir was run on - written last, marking it finished"""
+def write_overlay_run(draft_dir, commit, changes, previous_release):
+    """record what the draft in draft_dir was run on, and the release its changes compare
+    to (None if not compared) - written last, marking it finished"""
     draft = {
         "commit": commit,
         "uncommitted_changes": changes,
+        "previous_release": previous_release,
         "finished_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
     }
     with open(os.path.join(draft_dir, "overlay_run.json"), "w") as f:
@@ -511,7 +515,7 @@ def write_overlay_run(draft_dir, commit, changes):
 def check_draft(draft_dir, commit):
     """refuse unless draft_dir holds a finished draft of commit, run without uncommitted
     changes - from its overlay_run.json (the draft is removed when an overlay starts, and
-    its record written when it finishes)"""
+    its record written when it finishes). Returns the record"""
     path = os.path.join(draft_dir, "overlay_run.json")
     if not os.path.exists(path):
         raise ValueError("No finished overlay draft - run overlay first")
@@ -527,6 +531,7 @@ def check_draft(draft_dir, commit):
             "The draft was run with uncommitted changes - run overlay on a clean checkout "
             "first:\n" + "\n".join(draft["uncommitted_changes"])
         )
+    return draft
 
 
 def add_gpkg_layer(out_file, source, layer_name, *args):
@@ -591,11 +596,16 @@ def build_change(current_file, history, previous_release, columns):
     )
 
 
+def latest_logged_release(histories):
+    """the latest release, the last logged - the change logs are in release order"""
+    return next(iter(histories.values()))["release_tag"].iloc[-1]
+
+
 def check_version_order(version, histories):
     """refuse unless version sorts after the latest release - versions sort by date, and the
     change logs are in release order, so a version can't be released after a later one.
     Returns the latest release, the last logged"""
-    latest_release = next(iter(histories.values()))["release_tag"].iloc[-1]
+    latest_release = latest_logged_release(histories)
     if version <= latest_release:
         raise ValueError(
             f"{version} doesn't sort after the latest release, {latest_release} - use a "
@@ -619,13 +629,36 @@ def tag_release(version, commit):
     LOG.info(f"Tagged {commit} {version}")
 
 
+def load_previous_release(store, db_url):
+    """load the latest release's output - the harvest_restrictions layer of its archive - to
+    harvest_restrictions_previous, for overlay to compare to. Returns the release, or None
+    if it has no archive (releases before v2026-02 weren't kept)"""
+    with tempfile.TemporaryDirectory() as tmp_dir:
+        previous_release = latest_logged_release(read_release_logs(store, tmp_dir))
+    archive_key = release_key(previous_release)
+    if archive_key not in store.list(archive_key):
+        LOG.warning(
+            f"The latest release, {previous_release}, has no archive at "
+            f"{store.url(archive_key)} - not comparing to it"
+        )
+        return None
+    run(
+        f'ogr2ogr -f PostgreSQL "PG:{db_url}" -append -nln harvest_restrictions_previous '
+        f"/vsizip//vsis3/{store.bucket}/{PREFIX}/{archive_key}/harvest_restrictions.gpkg "
+        "harvest_restrictions"
+    )
+    LOG.info(f"{previous_release} loaded to harvest_restrictions_previous")
+    return previous_release
+
+
 def publish_draft(store, version, draft_dir="drafts"):
     """publish the local draft as version's next draft, in drafts/ in the bucket
 
     draft_dir holds overlay's outputs: harvest_restrictions.gpkg,
     harvest_restrictions_sources.gpkg, sources.csv, the area totals (<log>.csv), and
     overlay_run.json. Refuses unless the draft is of the checked-out commit, with no
-    uncommitted changes, and the version sorts after the latest release. The summaries
+    uncommitted changes, its changes compare to the latest release, and the version sorts
+    after the latest release. The summaries
     comparing the totals to the most recent release are built here, and archived with the
     rest - the draft itself is left as is. The archive is built in a temporary directory,
     removed once it's published - the draft is the local copy.
@@ -638,12 +671,18 @@ def publish_draft(store, version, draft_dir="drafts"):
             f"{version} isn't a version - vYYYY-MM, or vYYYY-MM-DD for a hotfix"
         )
     commit = git("rev-parse", "HEAD")
-    check_draft(draft_dir, commit)
+    draft = check_draft(draft_dir, commit)
 
     summaries = [f"{log}_summary.csv" for log in LOGS]
     with tempfile.TemporaryDirectory() as tmp_dir:
         histories = read_release_logs(store, tmp_dir)
         previous_release = check_version_order(version, histories)
+        if draft.get("previous_release") != previous_release:
+            raise ValueError(
+                f"The draft's changes compare to {draft.get('previous_release')}, but the "
+                f"latest release is {previous_release} - run overlay again, with $BUCKET "
+                "set"
+            )
 
         n = max(
             (int(DRAFT.fullmatch(d)["n"]) for d in published_drafts(store, version)),
@@ -990,14 +1029,26 @@ def load_db(
     default="designations",
     help="Name of the source designations table (as loaded by load-db), dumped to geopackage alongside overlay outputs",
 )
+@click.option(
+    "--bucket",
+    "-b",
+    envvar="BUCKET",
+    help="Object storage bucket holding the releases to compare to, defaults to $BUCKET environment variable if set - without it, the overlay isn't compared",
+)
 @verbose_opt
 @quiet_opt
-def overlay(db_url, designations_table, verbose, quiet, draft_dir="drafts"):
+def overlay(db_url, designations_table, bucket, verbose, quiet, draft_dir="drafts"):
     """Run per-tile overlay, writing the results to the database and the draft in drafts/
 
     Runs at any commit. The commit, and any uncommitted changes, are recorded in the draft's
     overlay_run.json - publish-draft only publishes a draft of the checked-out commit, with no
     changes.
+
+    The results are compared to the latest release in the bucket, if it has an archive -
+    where the top designation differs, in harvest_restrictions_changes.csv, and the
+    geometries in harvest_restrictions_transitions.gpkg. The release compared to is recorded
+    in overlay_run.json - publish-draft only publishes a draft compared to the latest
+    release.
     """
     configure_logging((verbose - quiet))
 
@@ -1015,16 +1066,19 @@ def overlay(db_url, designations_table, verbose, quiet, draft_dir="drafts"):
     # load 250k grid
     run("bcdata bc2pg WHSE_BASEMAPPING.NTS_250K_GRID")
 
-    # clear any existing data from output table
-    run(f'{psql} -c "TRUNCATE harvest_restrictions"')
+    # clear any existing data from the output tables, and the previous release compared to
+    run(
+        f'{psql} -c "TRUNCATE harvest_restrictions, harvest_restrictions_previous, '
+        'harvest_restrictions_transitions"'
+    )
 
     # run overlays in parallel per tile
-    run(
+    tiles = (
         f'{psql} -tXA -c "SELECT DISTINCT map_tile '
         "FROM whse_basemapping.nts_250k_grid "
-        'ORDER BY map_tile" '
-        f"| parallel --tag {psql} -f sql/overlay.sql -v tile={{1}}"
+        'ORDER BY map_tile"'
     )
+    run(f"{tiles} | parallel --tag {psql} -f sql/overlay.sql -v tile={{1}}")
 
     os.makedirs(draft_dir)
 
@@ -1067,6 +1121,25 @@ def overlay(db_url, designations_table, verbose, quiet, draft_dir="drafts"):
     for log in LOGS:
         run(f"{psql} -f sql/{log}.sql --csv > {os.path.join(draft_dir, log + '.csv')}")
 
+    # where the top designation differs from the latest release's, per tile in parallel -
+    # the area of each change, and the geometries (for review, not published)
+    if bucket:
+        previous_release = load_previous_release(S3Store(bucket), db_url)
+    else:
+        LOG.warning("$BUCKET not set - not comparing to the latest release")
+        previous_release = None
+    if previous_release:
+        run(f"{tiles} | parallel --tag {psql} -f sql/transitions.sql -v tile={{1}}")
+        changes_csv = os.path.join(draft_dir, "harvest_restrictions_changes.csv")
+        run(f"{psql} -f sql/harvest_restrictions_changes.sql --csv > {changes_csv}")
+        add_gpkg_layer(
+            os.path.join(draft_dir, "harvest_restrictions_transitions.gpkg"),
+            f"PG:{db_url}",
+            "transitions",
+            "harvest_restrictions_transitions",
+        )
+        LOG.info(f"Overlay compared to {previous_release}")
+
     # flatten sources.json to a csv, for review alongside the rest of the outputs
     write_sources_csv("sources.json", os.path.join(draft_dir, "sources.csv"))
 
@@ -1074,7 +1147,7 @@ def overlay(db_url, designations_table, verbose, quiet, draft_dir="drafts"):
     # results are no commit's in particular
     if checkout_state() != (commit, changes):
         changes = ["the checkout changed during the run"] + changes
-    write_overlay_run(draft_dir, commit, changes)
+    write_overlay_run(draft_dir, commit, changes, previous_release)
     LOG.info(
         f"Overlay of commit {commit} written to {draft_dir}"
         + (", with uncommitted changes:\n" + "\n".join(changes) if changes else "")
