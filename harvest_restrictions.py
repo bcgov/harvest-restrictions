@@ -1054,10 +1054,7 @@ def overlay(db_url, designations_table, verbose, quiet, draft_dir="drafts"):
           array_to_json(trim_array(all_harv_restrict_class_names, 1)) as all_harv_restrict_class_names,
           map_tile_250k,
           geom
-        from harvest_restrictions
-        where
-        all_harv_restrict_class_ranks @> ARRAY[6] and
-        all_harv_restrict_class_ranks != ARRAY[6]""",
+        from harvest_restrictions_land""",
     )
     add_gpkg_layer(
         os.path.join(draft_dir, "harvest_restrictions_sources.gpkg"),

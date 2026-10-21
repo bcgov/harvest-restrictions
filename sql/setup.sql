@@ -54,3 +54,12 @@ CREATE TABLE harvest_restrictions (
   map_tile_250k text,
   geom geometry(MULTIPOLYGON, 3005)
 );
+
+-- the overlay output that is land (within the class 6 land base) and has a designation -
+-- the area that is published, and totalled in the change logs
+CREATE VIEW harvest_restrictions_land AS
+SELECT *
+FROM harvest_restrictions
+WHERE
+  all_harv_restrict_class_ranks @> ARRAY[6] AND
+  all_harv_restrict_class_ranks != ARRAY[6];
